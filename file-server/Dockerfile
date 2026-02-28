@@ -9,12 +9,12 @@ LABEL version="1.0.0"
 WORKDIR /app
 
 # Copy requirements and install dependencies
-COPY file-server/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY file-server/app.py .
-COPY file-server/mcp_tools.py .
+COPY app.py .
+COPY mcp_tools.py .
 
 # MCP API Key for authorization
 ENV MCP_API_KEY=dockerai-mcp-a673c7ee472b8d2ace6c6809ed9e08fd
