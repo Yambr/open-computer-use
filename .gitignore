@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+venv/
+env/
+ENV/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
+
+# Docker
+.env
+*.log
+
+# SSL Certificates
+nginx/ssl/*.crt
+nginx/ssl/*.key
+
+# Internal reports
+*_REPORT.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.pytest_cache/
+
+# Data directories
+data/uploads/*
+data/outputs/*
+!data/uploads/.gitkeep
+!data/outputs/.gitkeep
+
+# Claude Code
+.claude/settings.local.json
+.claude/
+
+# Temp execution directories
+openwebui-tools/temp-docker-execution
+
+# Cloned repositories
+open-webui/
+req-log.json
+req.json
+
+# Personal guides
+guides/
+claude-code-headless-docs.md
+sessions/

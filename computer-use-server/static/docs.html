@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Computer Use File Server + MCP</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #fafafa;
+            color: #333;
+            line-height: 1.6;
+        }
+        h1 { color: #1a1a1a; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }
+        h2 { color: #2e7d32; margin-top: 30px; }
+        h3 { color: #555; }
+        .nav { margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .nav a { margin-right: 20px; color: #1976d2; text-decoration: none; font-weight: 500; }
+        .nav a:hover { text-decoration: underline; }
+        .endpoint {
+            background: #fff;
+            padding: 15px 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border-left: 4px solid #4CAF50;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .method {
+            display: inline-block;
+            font-weight: bold;
+            color: #fff;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-right: 10px;
+        }
+        .get { background: #61affe; }
+        .post { background: #49cc90; }
+        code {
+            background: #e8e8e8;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 14px;
+        }
+        pre {
+            background: #263238;
+            color: #aed581;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f5f5f5; font-weight: 600; }
+        tr:last-child td { border-bottom: none; }
+        .required { color: #d32f2f; font-weight: bold; }
+        .tool-list { list-style: none; padding: 0; }
+        .tool-list li {
+            background: #fff;
+            padding: 12px 15px;
+            margin: 8px 0;
+            border-radius: 8px;
+            border-left: 4px solid #1976d2;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .tool-list strong { color: #1976d2; }
+        .section { margin-bottom: 30px; }
+    </style>
+</head>
+<body>
+    <h1>Computer Use File Server + MCP</h1>
+
+    <div class="nav">
+        <a href="/docs">Swagger UI</a>
+        <a href="/redoc">ReDoc</a>
+        <a href="/mcp">MCP Info</a>
+        <a href="/health">Health</a>
+        <a href="/system-prompt">System Prompt</a>
+    </div>
+
+    <div class="section" style="background: #e8f5e9; padding: 20px; border-radius: 8px; border: 2px solid #4CAF50;">
+        <h2>Recommended: LiteLLM MCP Proxy</h2>
+        <p><strong>Endpoint:</strong> <code>http://localhost:8081/mcp/docker_ai</code></p>
+        <p>Use your regular LiteLLM API key (NOT the docker-ai internal key).</p>
+
+        <h3>Available Tools</h3>
+        <ul class="tool-list">
+            <li><strong>bash_tool</strong> — execute bash commands in an isolated Docker container</li>
+            <li><strong>view</strong> — view files and directories</li>
+            <li><strong>create_file</strong> — create new files</li>
+            <li><strong>str_replace</strong> — edit files (text replacement)</li>
+            <li><strong>sub_agent</strong> — delegate tasks to an autonomous agent (Claude)</li>
+        </ul>
+
+        <h3>Usage Examples</h3>
+
+        <h4>Step 1: Initialize (obtain session ID)</h4>
+        <pre>curl -sD - -X POST "http://localhost:8081/mcp/docker_ai" \
+  -H "Authorization: Bearer &lt;LITELLM_API_KEY&gt;" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "X-Chat-Id: my-unique-session" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+
+# Response contains header: mcp-session-id: &lt;SESSION_ID&gt;</pre>
+
+        <h4>Step 2: Call a tool</h4>
+        <pre>curl -s -X POST "http://localhost:8081/mcp/docker_ai" \
+  -H "Authorization: Bearer &lt;LITELLM_API_KEY&gt;" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: &lt;SESSION_ID&gt;" \
+  -H "X-Chat-Id: my-unique-session" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bash_tool","arguments":{"command":"echo Hello","description":"test"}}}'</pre>
+
+        <h3>Required Headers</h3>
+        <table>
+            <tr><th>Header</th><th>Description</th></tr>
+            <tr><td><code>Authorization</code></td><td>Bearer token from LiteLLM: <code>Bearer &lt;LITELLM_API_KEY&gt;</code></td></tr>
+            <tr><td><code>Accept</code></td><td><code>application/json, text/event-stream</code></td></tr>
+            <tr><td><code>X-Chat-Id</code></td><td>Unique session ID (creates a separate Docker container)</td></tr>
+            <tr><td><code>Mcp-Session-Id</code></td><td>Session ID from the initialize response</td></tr>
+            <tr><td><code>X-MCP-Servers</code></td><td><em>(optional)</em> Comma-separated list of MCP servers for sub_agent (see below)</td></tr>
+        </table>
+
+        <h3>Usage via chat/completions</h3>
+        <pre>curl -X POST http://localhost:8081/v1/chat/completions \
+  -H "Authorization: Bearer &lt;LITELLM_API_KEY&gt;" \
+  -H "X-OpenWebUI-Chat-Id: my-chat-123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude/claude-sonnet-4-5",
+    "messages": [{"role": "user", "content": "Run ls -la"}],
+    "tools": [{"type": "mcp", "server_label": "docker_ai"}]
+  }'</pre>
+
+        <h3>MCP Servers for sub_agent</h3>
+        <p>To allow sub_agent to use external MCP servers (Confluence, Jira, Grafana, etc.),
+        pass their names via the <code>X-MCP-Servers</code> header.</p>
+
+        <p><strong>How it works:</strong></p>
+        <ul>
+            <li>Each server URL is constructed from the template: <code>{ANTHROPIC_BASE_URL}/mcp/{server_name}</code> (LiteLLM MCP proxy)</li>
+            <li>Authorization: <code>ANTHROPIC_AUTH_TOKEN</code> from the container env — no need to pass keys separately</li>
+            <li>User email from <code>X-User-Email</code> is forwarded to each MCP server</li>
+        </ul>
+
+        <p><strong>Available servers:</strong> check your LiteLLM instance for the list of registered MCP servers.</p>
+
+        <p><strong>Format:</strong> comma-separated server names (as registered in LiteLLM):</p>
+        <pre>X-MCP-Servers: confluence,jira</pre>
+
+        <p><strong>Example:</strong> sub_agent with Confluence and Jira MCP servers:</p>
+        <pre>curl -s -X POST "http://localhost:8081/mcp/docker_ai" \
+  -H "Authorization: Bearer &lt;LITELLM_API_KEY&gt;" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: &lt;SESSION_ID&gt;" \
+  -H "X-Chat-Id: my-session" \
+  -H "X-MCP-Servers: confluence,jira" \
+  -H "X-User-Email: user@example.com" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"sub_agent","arguments":{"task":"Find the onboarding page in Confluence","description":"search confluence"}}}'</pre>
+
+        <p><strong>Result:</strong> before launching Claude Code inside the container, a <code>~/.mcp.json</code> file is created:</p>
+        <pre>{
+  "mcpServers": {
+    "confluence": {
+      "type": "http",
+      "url": "http://localhost:8081/mcp/confluence",
+      "headers": {
+        "Authorization": "Bearer &lt;ANTHROPIC_AUTH_TOKEN from env&gt;",
+        "x-openwebui-user-email": "user@example.com"
+      }
+    },
+    "jira": { ... }
+  }
+}</pre>
+        <p>If the <code>X-MCP-Servers</code> header is not provided, sub_agent works without MCP servers (as before).</p>
+    </div>
+
+    <div class="section" style="background: #e3f2fd; padding: 20px; border-radius: 8px; border: 2px solid #1976d2;">
+        <h2>System Prompt for Integrations</h2>
+        <p>A ready-made system prompt that teaches the AI how to work with the Computer Use VM (files, skills, tools). Use it in n8n, your own agents, or any integrations.</p>
+
+        <h3>Get the Prompt</h3>
+        <pre># Template with placeholders {file_base_url} and {archive_url}
+curl http://localhost:8081/system-prompt
+
+# With substituted URLs (for a specific chat)
+curl "http://localhost:8081/system-prompt?file_base_url=http://localhost:8081/files/MY_CHAT_ID&amp;archive_url=http://localhost:8081/files/MY_CHAT_ID/archive"</pre>
+
+        <h3>Usage in n8n</h3>
+        <p>Add an HTTP Request node with <code>GET /system-prompt</code> and insert the result into the system message of your AI agent. Substitute <code>file_base_url</code> and <code>archive_url</code> via query params or replace the placeholders in n8n.</p>
+    </div>
+
+    <div class="section">
+        <h2>File API</h2>
+
+        <div class="endpoint">
+            <span class="method get">GET</span>
+            <code>/files/{chat_id}/{filename}</code>
+            <p>Download a file from the container's outputs directory</p>
+        </div>
+
+        <div class="endpoint">
+            <span class="method get">GET</span>
+            <code>/files/{chat_id}/archive</code>
+            <p>Download all files as a ZIP archive</p>
+        </div>
+
+        <div class="endpoint">
+            <span class="method post">POST</span>
+            <code>/api/uploads/{chat_id}/{filename}</code>
+            <p>Upload a file to the container's uploads directory</p>
+        </div>
+
+        <div class="endpoint">
+            <span class="method get">GET</span>
+            <code>/api/uploads/{chat_id}/manifest</code>
+            <p>Get the manifest of uploaded files (filename to MD5 mapping)</p>
+        </div>
+    </div>
+
+    <div class="section" style="background: #fff3e0; border: 1px solid #ff9800; border-radius: 8px; padding: 20px;">
+        <h2>Direct Access to /mcp (for developers)</h2>
+        <p style="color: #e65100;"><strong>Warning:</strong> Direct access to <code>localhost:8081/mcp</code> requires a special API key. For normal usage, use the LiteLLM endpoint above.</p>
+
+        <h3>Example (internal use only)</h3>
+        <pre>curl -X POST http://localhost:8081/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer &lt;INTERNAL_MCP_API_KEY&gt;" \
+  -H "X-Chat-Id: my-session-123" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"bash_tool","arguments":{"command":"echo Hello","description":"test"}}}'</pre>
+    </div>
+
+    <div class="section">
+        <h2>Architecture</h2>
+        <pre>
+┌─────────────────────────────────────────────────────────────────┐
+│                        Docker Host                              │
+│                                                                 │
+│  ┌──────────────────┐      ┌─────────────────────────────────┐ │
+│  │  File Server     │      │  Docker Containers              │ │
+│  │  (this service)  │      │                                 │ │
+│  │                  │      │  ┌─────────────────────────┐   │ │
+│  │  POST /mcp ──────┼──────┼──│ owui-chat-{chat_id}     │   │ │
+│  │                  │      │  │  - bash_tool            │   │ │
+│  │  GET /files/* ───┼──────┼──│  - view                 │   │ │
+│  │                  │      │  │  - create_file          │   │ │
+│  │                  │      │  │  - str_replace          │   │ │
+│  └──────────────────┘      │  └─────────────────────────┘   │ │
+│           │                │                                 │ │
+│           │                │  ┌─────────────────────────┐   │ │
+│           ▼                │  │ owui-chat-{other_id}    │   │ │
+│  /var/run/docker.sock      │  └─────────────────────────┘   │ │
+│                            └─────────────────────────────────┘ │
+│                                                                 │
+│  /data/{chat_id}/                                              │
+│    ├── uploads/   (files from user)                            │
+│    └── outputs/   (files created by AI)                        │
+└─────────────────────────────────────────────────────────────────┘
+        </pre>
+    </div>
+
+    <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 14px;">
+        Computer Use File Server + MCP v2.0.0
+    </footer>
+</body>
+</html>

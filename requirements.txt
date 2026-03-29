@@ -1,0 +1,110 @@
+# AI Computer Use - Python Dependencies
+# Python 3.12.3
+
+# Core document processing
+python-docx==1.2.0
+python-pptx==1.0.2
+openpyxl==3.1.5
+xlsxwriter==3.2.9
+
+# PDF processing
+pypdf==5.9.0
+pdfplumber==0.11.7
+pypdfium2==4.30.0
+pikepdf==9.11.0
+pdfkit==1.0.0
+pdfminer.six==20250506
+pdf2image==1.17.0
+reportlab==4.4.4
+
+# Image processing
+pillow==11.3.0
+opencv-python==4.11.0.86
+opencv-contrib-python==4.11.0.86
+opencv-python-headless==4.11.0.86
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+scikit-image==0.25.2
+Wand==0.6.13
+
+# OCR and text extraction
+pytesseract==0.3.13
+tabula-py==2.10.0
+camelot-py==1.0.9
+
+# Web and HTTP
+requests==2.32.5
+urllib3==2.5.0
+httplib2==0.20.4
+certifi==2025.10.5
+beautifulsoup4==4.14.2
+soupsieve==2.8
+
+# LLM SDKs
+openai>=2.20.0
+
+# Markdown and documentation
+markdown-it-py==4.0.0
+markdownify==1.2.0
+markitdown==0.1.3
+marko==2.2.1
+mistune==3.1.4
+grip==4.6.2
+
+# Data processing
+pandas==2.3.3
+numpy==2.3.3
+scipy==1.16.2
+scikit-learn==1.7.2
+
+# Plotting and visualization
+matplotlib==3.10.7
+seaborn==0.13.2
+
+# XML processing
+lxml==6.0.2
+et_xmlfile==2.0.0
+defusedxml==0.7.1
+odfpy==1.4.1
+
+# Machine Learning
+jax==0.7.2
+jaxlib==0.7.2
+# tensorflow-lite==2.13.0 - does NOT exist on PyPI, removed
+onnxruntime==1.23.1
+ml_dtypes==0.5.3
+mediapipe==0.10.14
+magika==0.6.2
+
+# Web automation
+playwright==1.57.0
+pyee==13.0.0
+
+# Office/LibreOffice integration
+unoserver==3.4
+pyoo==1.4
+
+# CLI and utilities
+click==8.3.0
+colorama==0.4.6
+coloredlogs==15.0.1
+humanfriendly==10.0
+tabulate==0.9.0
+psutil==7.1.0
+
+# Dev tools
+Flask==3.1.2
+Werkzeug==3.1.3
+
+# Other dependencies
+cryptography==46.0.2
+PyJWT==2.7.0
+python-dateutil==2.9.0.post0
+pytz==2025.2
+tzdata==2025.2
+python-dotenv==1.1.1
+PyYAML==6.0.3
+pyyaml_env_tag==1.1
+wrapt==1.17.3
+Deprecated==1.2.18
+six==1.17.0

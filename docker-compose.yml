@@ -1,0 +1,50 @@
+# Computer Use Server — core MCP server + workspace image
+# Start: docker compose up
+# Build workspace first: docker compose up --build
+
+services:
+  # Workspace image — builds the AI sandbox container
+  # One-shot verification, then exits. Image stays cached.
+  workspace:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+    image: ${DOCKER_IMAGE:-open-computer-use:latest}
+    command: >
+      bash -c "echo 'Workspace image OK:' && python3 --version && node --version && echo 'Ready.' && exit 0"
+    restart: "no"
+
+  # Computer Use MCP Server (orchestrator)
+  # Manages workspace containers, provides MCP tools endpoint at :8081
+  computer-use-server:
+    build: ./computer-use-server
+    container_name: computer-use-server
+    ports:
+      - "${MCP_PORT:-8081}:8081"
+    depends_on:
+      workspace:
+        condition: service_completed_successfully
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - computer-use-data:/data:rw
+      - skills-cache:/data/skills-cache:rw
+    environment:
+      - MCP_API_KEY=${MCP_API_KEY:-}
+      - DOCKER_IMAGE=${DOCKER_IMAGE:-open-computer-use:latest}
+      - COMMAND_TIMEOUT=${COMMAND_TIMEOUT:-120}
+      - SUB_AGENT_TIMEOUT=${SUB_AGENT_TIMEOUT:-3600}
+      - VISION_API_KEY=${VISION_API_KEY:-}
+      - VISION_API_URL=${VISION_API_URL:-}
+      - VISION_MODEL=${VISION_MODEL:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  computer-use-data:
+  skills-cache:

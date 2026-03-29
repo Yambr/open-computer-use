@@ -1,0 +1,58 @@
+# Open WebUI + PostgreSQL — example client for Computer Use
+# Communicates with Computer Use Server via host network (localhost:8081)
+#
+# Start: docker compose -f docker-compose.webui.yml up --build
+# Requires: Computer Use Server running on localhost:8081 (see docker-compose.yml)
+
+services:
+  open-webui:
+    build:
+      context: ./openwebui
+      dockerfile: Dockerfile
+      args:
+        OPENWEBUI_VERSION: ${OPENWEBUI_VERSION:-0.8.11}
+        COMPUTER_USE_SERVER_URL: localhost:${MCP_PORT:-8081}
+    ports:
+      - "${OPENWEBUI_PORT:-3000}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://openwebui:${POSTGRES_PASSWORD:-openwebui}@postgres:5432/openwebui
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL:-}
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-}
+      # Disable HuggingFace model downloads — not needed for Computer Use
+      - BYPASS_EMBEDDING_AND_RETRIEVAL=true
+      - RAG_EMBEDDING_MODEL_AUTO_UPDATE=false
+      # Skip SSL verification for self-signed certs (set to false if needed)
+      - ENABLE_OPENAI_API_SSL_VERIFY=${ENABLE_OPENAI_API_SSL_VERIFY:-true}
+      # Auto-init: install Computer Use tool + filter on first startup
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@open-computer-use.dev}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - MCP_SERVER_URL=http://localhost:${MCP_PORT:-8081}
+      - MCP_API_KEY=${MCP_API_KEY:-}
+    volumes:
+      - open-webui-data:/app/backend/data
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: openwebui
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openwebui}
+      POSTGRES_DB: openwebui
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwebui"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  open-webui-data:
+  postgres-data:

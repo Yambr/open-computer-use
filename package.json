@@ -1,0 +1,32 @@
+{
+  "name": "open-computer-use",
+  "version": "1.0.0",
+  "description": "Open Computer Use - Node.js Dependencies",
+  "engines": {
+    "node": ">=22.20.0",
+    "npm": ">=10.9.3"
+  },
+  "dependencies": {
+    "@mermaid-js/mermaid-cli": "^11.12.0",
+    "docx": "^9.5.1",
+    "graphviz": "^0.0.9",
+    "markdown-pdf": "^11.0.0",
+    "markdown-toc": "^1.2.0",
+    "markdownlint-cli": "^0.45.0",
+    "markdownlint-cli2": "^0.18.1",
+    "marked": "^16.4.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.4.296",
+    "playwright": "1.57.0",
+    "pptxgenjs": "^4.0.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-icons": "^5.5.0",
+"remark-cli": "^12.0.1",
+    "remark-preset-lint-recommended": "^7.0.1",
+    "sharp": "^0.34.4",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,95 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Archive and backup
+.archive-original/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Documentation (not needed in image)
+README.md
+LICENSE
+CHANGELOG.md
+docs/
+*.md
+!requirements.txt
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Data directories (data/ mounted as volumes, skills/ copied into image)
+data/
+# skills/ - NOT ignored, copied into image
+
+# Docker
+docker-compose.yml
+.dockerignore
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Test files
+test/
+tests/
+*.test.js
+*.spec.js
+*.test.py
+*.spec.py
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Claude Code settings
+.claude/
+
+# Scripts not needed during build
+scripts/
+
+# Setup script (not needed in image)
+setup.sh

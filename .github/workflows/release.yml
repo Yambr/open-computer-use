@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            CHANGES=$(git log --oneline --no-merges)
+          else
+            CHANGES=$(git log --oneline --no-merges ${PREV_TAG}..HEAD)
+          fi
+          echo "changes<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Docker Images
+
+            ```bash
+            # Sandbox (AI workspace)
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+
+            # Computer Use Server (MCP orchestrator)
+            docker pull ghcr.io/${{ github.repository }}-server:${{ github.ref_name }}
+            ```
+
+            ## Quick Start
+
+            ```bash
+            git clone https://github.com/${{ github.repository }}.git
+            cd open-computer-use
+            cp .env.example .env
+            # Edit .env with your API key
+            docker compose up
+            ```
+
+            ## Changes
+            ${{ steps.changelog.outputs.changes }}
