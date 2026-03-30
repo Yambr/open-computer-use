@@ -14,6 +14,10 @@ An MCP (Model Context Protocol) server that manages isolated Docker containers w
 
 Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
 
+![Create Document](docs/screenshots/01-create-document.png)
+
+See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for more screenshots.
+
 ## Quick Start
 
 ```bash

@@ -141,7 +141,7 @@ export const TRANSLATIONS = {
     // Dashboard
     beta: 'Beta',
     hero_desc: 'Autonomous AI agent in an isolated container. Can write and run code, create files, analyze data.',
-    pd_warning: '⚠️ Do not upload files with personal customer data',
+    pd_warning: '⚠️ Do not upload sensitive or confidential files',
     skip_perms: 'Skip permission prompts',
     dangerous_warn: '⚠ Claude will perform any operations without confirmation — files, commands, network. Enable only for trusted tasks.',
     open_terminal: 'Open terminal',
@@ -189,7 +189,7 @@ export const TRANSLATIONS = {
     no_files_example: '"Create a 5-slide presentation about our company"',
     browser_title: 'Shared AI Browser',
     browser_desc: 'The AI agent can open approved websites, extract information, and navigate pages.<br/>The list of available sites can be expanded upon request.',
-    browser_example: 'Ask the AI Agent in the chat, for example:<br/><br/>"Open example.com in the browser and find me a used BMW under 5\u00a0M\u00a0RUB"',
+    browser_example: 'Ask the AI Agent in the chat, for example:<br/><br/>"Open example.com in the browser and take a screenshot"',
     loading_browser: 'Loading browser...',
     browser_connect_fail: 'Failed to connect to browser',
 
