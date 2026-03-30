@@ -1,88 +1,56 @@
-# Sub-Agent Tab -- Terminal + Claude Code Monitoring
+# Sub-Agent Tab — Terminal + Claude Code
 
 ## Overview
 
-The "Sub-Agent" tab in the preview SPA adds two key capabilities:
+The "Sub-Agent" tab in the preview panel provides:
 
-1. **Headless sub-agent monitoring** -- see running Claude Code processes, kill stuck ones
-2. **Interactive terminal** -- launch Claude Code manually, resume interrupted sessions
+1. **Claude Code monitoring** — see running processes, kill stuck ones
+2. **Interactive terminal** — launch Claude Code manually, resume interrupted sessions
 
-## Architecture
+## How it works
 
 ```
-Browser (xterm.js) <-- WS --> computer-use-orchestrator <-- WS --> Container ttyd:7681
-                              (proxy)              (tmux + bash)
+Browser (xterm.js)  ←WebSocket→  Computer Use Server  ←WebSocket→  Container (ttyd:7681)
+                                 (proxy on :8081)                   (tmux + bash)
 ```
 
-The terminal uses the same pattern as the browser (CDP proxy):
-- **ttyd** -- WebSocket terminal server inside the container (port 7681)
-- **tmux** -- persistent session (reconnectable, scroll history)
-- **computer-use-orchestrator** -- transparent WebSocket proxy (same as for Chromium CDP)
-- **xterm.js** -- terminal in the browser
+- **ttyd** — WebSocket terminal server inside the container (port 7681)
+- **tmux** — persistent session (reconnectable, scroll history preserved)
+- **Computer Use Server** — transparent WebSocket proxy
+- **xterm.js** — terminal rendering in the browser
 
-### Security
+## Endpoints
 
-| Endpoint | Auth | Access |
-|----------|------|--------|
-| `/terminal/{chat_id}/status` | chat_id | Check ttyd |
-| `/terminal/{chat_id}/ws` | chat_id | WebSocket to ttyd |
-| `/terminal/{chat_id}/start-ttyd` | chat_id | Start ttyd (docker exec) |
-| `/terminal/{chat_id}/sessions` | chat_id | List JSONL sessions |
-| `/terminal/{chat_id}/processes` | chat_id | ps claude |
-| `/terminal/{chat_id}/processes/{pid}/kill` | chat_id | kill claude |
-
-- Terminal data does NOT go through docker.sock -- only TCP proxy to the container
-- docker.sock is only used for: IP lookup, start-ttyd, sessions/processes listing, keep-alive timer
-- Container escape is not possible (no-new-privileges, sandboxed)
-
-## Components
-
-### Container (Dockerfile)
-- `ttyd` -- binary at `/usr/local/bin/ttyd` (downloaded from GitHub releases)
-- `tmux` -- from apt
-- `ENABLE_TOOL_SEARCH=true` -- reduces MCP tool context by 85%
-- `~/.claude/CLAUDE.md` -- written by entrypoint (workspace paths, output rules)
-
-### File-server (app.py)
-- 6 endpoints in the "Terminal Proxy" section
-- WebSocket proxy -- copy of `browser_ws_proxy()` with port 7681
-- Keep-alive task -- resets shutdown timer every 5 min while WS is alive
-
-### Preview SPA (frontend)
-- Two modes: **Dashboard** (default) and **Workspace** (xterm.js)
-- Dashboard: description, "New session" button, training link, sessions table, processes
-- Workspace: xterm.js + ttyd protocol, toolbar (Back, Clear, Terminate)
-
-### Nginx
-- Location `/terminal/` -- WebSocket upgrade, 1 hour timeout
-
-### OpenWebUI (computer_link_filter.py)
-- Detect `sub_agent` in tool_calls -> inject preview link -> auto-open Artifacts
+| Endpoint | Description |
+|----------|-------------|
+| `GET /terminal/{chat_id}/status` | Check if ttyd is running |
+| `WebSocket /terminal/{chat_id}/ws` | Terminal WebSocket connection |
+| `POST /terminal/{chat_id}/start-ttyd` | Start ttyd (lazy — first click) |
+| `GET /terminal/{chat_id}/sessions` | List Claude Code JSONL sessions |
+| `GET /terminal/{chat_id}/processes` | List running Claude Code processes |
+| `POST /terminal/{chat_id}/processes/{pid}/kill` | Kill a stuck process |
 
 ## Lifecycle
 
-1. AI launches sub_agent -> container is created
-2. computer_link_filter injects preview link -> Artifacts open
+1. AI calls `sub_agent` → sandbox container is created
+2. Filter injects preview link → Artifacts panel opens
 3. User sees dashboard with processes and sessions
-4. Can stop a stuck process or continue a session in the terminal
-5. ttyd starts lazily on first click of "New session" / "Continue"
-6. tmux session is persistent -- reconnectable on disconnect
-7. Container lives while WS is connected (keep-alive), dies 10 min after disconnect
+4. Click **"Open terminal"** → ttyd starts, Claude Code launches
+5. tmux session is persistent — reconnectable on disconnect
+6. Container stays alive while WebSocket is connected (keep-alive heartbeat)
+7. Container auto-stops after idle timeout (default: 10 min)
+
+## Dangerous Mode
+
+Toggle **"Skip permission prompts"** to run Claude Code without confirmation dialogs. Sets `CLAUDE_AUTOSTARTED=1` environment variable. Use only for trusted tasks.
 
 ## Sub-agent Timeout
 
-If sub_agent() times out (3600s) but Claude Code is still running:
-- The main AI receives a message with a bash wait command
-- The user can observe in the Sub-Agent tab
-- Can stop or continue in the terminal
+If `sub_agent()` times out (default: 3600s) but Claude Code is still running:
+- The model receives a timeout message
+- User can observe progress in the Sub-Agent tab
+- Can stop or continue interactively in the terminal
 
-## Files
+## MCP Servers in Claude Code
 
-| File | What changed |
-|------|-------------|
-| `Dockerfile` | +ttyd, +tmux, +ENABLE_TOOL_SEARCH, CLAUDE.md in entrypoint |
-| `computer-use-orchestrator/app.py` | +6 terminal endpoints, +SPA (CSS+JS+HTML) |
-| `computer-use-orchestrator/mcp_tools.py` | +sub-agent timeout handling |
-| `computer-use-orchestrator/static/xterm*` | +xterm.js, +addon-fit, +addon-web-links |
-| `nginx/nginx.conf` | +location /terminal/ |
-| `openwebui-functions/computer_link_filter.py` | +sub_agent detection |
+When MCP server names are passed via `X-MCP-Servers` header, the server auto-generates `~/.mcp.json` inside the container. Claude Code picks it up and can use those MCP servers autonomously. See [MCP.md](MCP.md#mcp-servers-for-claude-code-sub-agent) for details.
