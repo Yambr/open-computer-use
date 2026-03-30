@@ -106,7 +106,7 @@ def build_injection(param_name, groups_var):
     Uses PREVIEW_HOST_BARE for regex matching and PREVIEW_BASE_URL for iframe src.
     """
     # Escape dots for regex
-    host_regex = PREVIEW_HOST_BARE.replace('.', '\\\\.')
+    host_regex = PREVIEW_HOST_BARE.replace('.', '\\.')
     iframe_html = (
         f"'<iframe src=\"{PREVIEW_BASE_URL}/preview/'"
         "+_pm[1]+'\" "
@@ -123,6 +123,7 @@ def build_injection(param_name, groups_var):
         f'{{var _pm={param_name}.match('
         f'/https?:\\/\\/{host_regex}\\/(?:files|preview)\\/([^\\/\\s\\"\\)]+)/'
         f');if(_pm){{{groups_var}.push({{html:{iframe_html},css:{iframe_css},js:""}})}}}}'
+        f'/*preview-url-detect*/'
     )
 
 
