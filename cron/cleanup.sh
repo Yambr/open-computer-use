@@ -1,10 +1,13 @@
 #!/bin/sh
-# Cleanup old sandbox containers, orphaned volumes, and stale data.
-# Runs periodically via crond in the cron container.
+# Full cleanup — runs daily at 3:00 AM
+# Stops old containers, removes stopped ones, cleans volumes and stale data.
+#
+# IMPORTANT: Only touches owui-chat-* containers, never infrastructure services.
+# Volumes are kept for N days after LAST USE (checked via .last_active marker).
 #
 # Environment variables:
-#   CONTAINER_MAX_AGE_HOURS  - Remove stopped containers older than this (default: 24)
-#   VOLUME_MAX_AGE_HOURS     - Remove orphaned volumes older than this (default: 48)
+#   CONTAINER_MAX_AGE_HOURS  - Stop running containers older than this (default: 24)
+#   VOLUME_MAX_AGE_DAYS      - Remove unused volumes older than this (default: 7)
 #   DATA_MAX_AGE_DAYS        - Remove stale data dirs older than this (default: 7)
 #   DATA_DIR                 - Host path for chat data (default: /tmp/computer-use-data)
 #   DRY_RUN                  - If "true", only log what would be done (default: false)
@@ -12,7 +15,7 @@
 set -eu
 
 CONTAINER_MAX_AGE_HOURS="${CONTAINER_MAX_AGE_HOURS:-24}"
-VOLUME_MAX_AGE_HOURS="${VOLUME_MAX_AGE_HOURS:-48}"
+VOLUME_MAX_AGE_DAYS="${VOLUME_MAX_AGE_DAYS:-7}"
 DATA_MAX_AGE_DAYS="${DATA_MAX_AGE_DAYS:-7}"
 DATA_DIR="${DATA_DIR:-/tmp/computer-use-data}"
 DRY_RUN="${DRY_RUN:-false}"
@@ -27,63 +30,96 @@ run_or_dry() {
     fi
 }
 
-# -------------------------------------------------------------------
-# 1. Remove stopped sandbox containers older than N hours
-# -------------------------------------------------------------------
-log "Checking stopped containers (max age: ${CONTAINER_MAX_AGE_HOURS}h)..."
+echo "=== Full cleanup started at $(date -u) ==="
 
-CUTOFF=$(date -u -d "-${CONTAINER_MAX_AGE_HOURS} hours" +%s 2>/dev/null || \
-         date -u -v-${CONTAINER_MAX_AGE_HOURS}H +%s 2>/dev/null || echo 0)
+# -------------------------------------------------------------------
+# 1. Stop old running chat containers (>N hours)
+# -------------------------------------------------------------------
+log "Stopping chat containers older than ${CONTAINER_MAX_AGE_HOURS}h..."
+docker ps --filter "label=managed-by=mcp-computer-use-orchestrator" \
+    --format '{{.ID}} {{.Names}} {{.Status}}' | while read -r id name status; do
+    # Match "Up X days" or "Up N hours" where N > threshold
+    if echo "$status" | grep -qE "Up [0-9]+ (day|week|month)"; then
+        log "  Stopping $name ($status)"
+        run_or_dry docker stop "$id"
+    elif echo "$status" | grep -qE "Up ([2-9][0-9]|[0-9]{3,}) hours"; then
+        HOURS=$(echo "$status" | grep -oE '[0-9]+ hours' | grep -oE '[0-9]+')
+        if [ "${HOURS:-0}" -ge "$CONTAINER_MAX_AGE_HOURS" ]; then
+            log "  Stopping $name (up ${HOURS}h)"
+            run_or_dry docker stop "$id"
+        fi
+    fi
+done
 
+# -------------------------------------------------------------------
+# 2. Remove all stopped chat containers
+# -------------------------------------------------------------------
+log "Removing stopped chat containers..."
 docker ps -a --filter "label=managed-by=mcp-computer-use-orchestrator" \
     --filter "status=exited" --filter "status=dead" \
-    --format '{{.ID}} {{.Names}} {{.CreatedAt}}' | while read -r id name created; do
-    # Parse container creation time
-    CREATED_TS=$(date -u -d "$created" +%s 2>/dev/null || echo 0)
-    if [ "$CREATED_TS" -gt 0 ] && [ "$CREATED_TS" -lt "$CUTOFF" ]; then
-        log "Removing stopped container: $name (created: $created)"
-        run_or_dry docker rm -v "$id"
-    fi
+    --format '{{.ID}} {{.Names}}' | while read -r id name; do
+    log "  Removing $name"
+    run_or_dry docker rm -v "$id"
 done
 
 # -------------------------------------------------------------------
-# 2. Remove orphaned workspace volumes (no matching container)
+# 3. Remove chat volumes unused for N days
+# Uses .last_active marker inside volume (touched by entrypoint on start).
+# Falls back to volume CreatedAt if no marker exists.
 # -------------------------------------------------------------------
-log "Checking orphaned volumes (max age: ${VOLUME_MAX_AGE_HOURS}h)..."
+log "Checking chat volumes (max age: ${VOLUME_MAX_AGE_DAYS}d)..."
+CUTOFF=$(date -u -d "-${VOLUME_MAX_AGE_DAYS} days" +%s 2>/dev/null || \
+         date -u -v-${VOLUME_MAX_AGE_DAYS}d +%s 2>/dev/null || echo 0)
+REMOVED=0
 
-docker volume ls --filter "name=chat-" --format '{{.Name}}' | while read -r vol; do
-    # Extract chat_id from volume name: chat-{uuid}-workspace
-    CHAT_ID=$(echo "$vol" | sed 's/^chat-//; s/-workspace$//')
-    CONTAINER_NAME="owui-chat-${CHAT_ID}"
+for vol in $(docker volume ls -q 2>/dev/null | grep "chat-.*-workspace" || true); do
+    # Skip if volume is used by a running container
+    USED=$(docker ps -q --filter "volume=$vol" 2>/dev/null)
+    if [ -n "$USED" ]; then
+        continue
+    fi
 
-    # Check if container exists (running or stopped)
-    if ! docker ps -a --filter "name=^/${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q .; then
-        log "Removing orphaned volume: $vol (no container: $CONTAINER_NAME)"
-        run_or_dry docker volume rm "$vol"
+    # Check .last_active marker inside volume
+    LAST_ACTIVE=$(docker run --rm -v "$vol:/vol:ro" alpine stat -c %Y /vol/.last_active 2>/dev/null || echo "")
+
+    if [ -z "$LAST_ACTIVE" ]; then
+        # No marker — fallback to volume CreatedAt
+        CREATED=$(docker volume inspect --format "{{.CreatedAt}}" "$vol" 2>/dev/null | cut -d"." -f1 | cut -d"+" -f1)
+        if [ -n "$CREATED" ]; then
+            LAST_ACTIVE=$(date -u -d "$CREATED" +%s 2>/dev/null || echo "")
+        fi
+    fi
+
+    if [ -n "$LAST_ACTIVE" ] && [ "$LAST_ACTIVE" -lt "$CUTOFF" ]; then
+        log "  Removing $vol (last active: $(date -u -d @$LAST_ACTIVE +%Y-%m-%d 2>/dev/null || echo 'unknown'))"
+        run_or_dry docker volume rm "$vol" && REMOVED=$((REMOVED + 1))
     fi
 done
+log "Removed $REMOVED old volumes"
 
 # -------------------------------------------------------------------
-# 3. Remove stale data directories
+# 4. Remove stale data directories
 # -------------------------------------------------------------------
 if [ -d "$DATA_DIR" ]; then
     log "Checking stale data dirs in $DATA_DIR (max age: ${DATA_MAX_AGE_DAYS}d)..."
     find "$DATA_DIR" -maxdepth 1 -mindepth 1 -type d -mtime "+${DATA_MAX_AGE_DAYS}" | while read -r dir; do
         CHAT_ID=$(basename "$dir")
         CONTAINER_NAME="owui-chat-${CHAT_ID}"
-        # Only remove if no container exists
         if ! docker ps -a --filter "name=^/${CONTAINER_NAME}$" --format '{{.ID}}' | grep -q .; then
-            log "Removing stale data dir: $dir"
+            log "  Removing stale data: $dir"
             run_or_dry rm -rf "$dir"
         fi
     done
 fi
 
 # -------------------------------------------------------------------
-# 4. Docker system cleanup (dangling images, build cache)
+# 5. Docker system cleanup
 # -------------------------------------------------------------------
-log "Pruning dangling images and build cache..."
+log "Pruning unused images and build cache..."
 run_or_dry docker image prune -f
 run_or_dry docker builder prune -f --keep-storage=2GB
 
-log "Cleanup complete."
+echo "=== Disk usage after cleanup ==="
+df -h / 2>/dev/null || true
+
+echo "=== Full cleanup finished at $(date -u) ==="
