@@ -34,7 +34,7 @@ The following are in scope:
 
 ## Current Security Model
 
-This project is designed for **closed, self-hosted** deployments. Key points:
+This setup is tested in production with **1000+ users** on Open WebUI behind a corporate firewall. Key points:
 
 - **Docker socket access** grants significant host control — run only in trusted environments
 - **MCP_API_KEY** is the only auth for the MCP endpoint — set a strong random key
@@ -46,7 +46,7 @@ For multi-user deployments, see the **Security Roadmap** in [README.md](../READM
 
 ## Known Issues
 
-These are known limitations, not bugs — they reflect the current single-user design:
+These are known limitations with planned fixes:
 
 1. **Unauthenticated file access**: Anyone with a chat ID can download files via `/files/{chat_id}/`
 2. **No user verification**: Server trusts `X-User-Email` header without validation

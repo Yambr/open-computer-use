@@ -30,11 +30,14 @@ Leave `MCP_API_KEY` empty for development (no auth required).
 
 ## Required Headers
 
+> **`X-Chat-Id` is mandatory.** Without it, the server returns an error. Every request must include a unique session identifier.
+
 | Header | Description | Required |
 |--------|-------------|----------|
-| `X-Chat-Id` | Session identifier (one container per chat) | Yes |
-| `X-User-Email` | User email (for token lookup, logging) | No |
-| `X-User-Name` | Display name | No |
+| `X-Chat-Id` | **Session identifier** — one sandbox container per chat ID | **Yes** |
+| `Authorization` | `Bearer <MCP_API_KEY>` — required if `MCP_API_KEY` is set | Conditional |
+| `X-User-Email` | User email (for per-user skills, token lookup, logging) | No |
+| `X-User-Name` | Display name (URL-encoded) | No |
 | `X-MCP-Servers` | Comma-separated MCP server names for Claude Code sub-agent | No |
 
 ## Usage Examples

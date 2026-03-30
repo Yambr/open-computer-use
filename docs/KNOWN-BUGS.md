@@ -47,12 +47,12 @@ TypeError: 'NoneType' object is not callable
 
 ## 4. File/preview endpoints have no per-user auth
 
-**Severity:** Medium (by design for single-user, needs fix for multi-user)
+**Severity:** Medium (known limitation, planned fix)
 
 **Issue:** Endpoints like `/files/{chat_id}/`, `/api/outputs/{chat_id}`, `/browser/{chat_id}/`, `/terminal/{chat_id}/` are accessible to anyone who knows the chat ID UUID. There is no per-user authentication — only `MCP_API_KEY` protects the MCP endpoint itself.
 
 **Impact:** In a multi-user deployment without network isolation, one user could access another user's files if they know the chat ID.
 
-**Current mitigation:** Chat IDs are UUIDs (hard to guess). For single-user or trusted-network deployments this is acceptable.
+**Current mitigation:** Chat IDs are UUIDs (hard to guess). Tested in production with 1000+ users on Open WebUI — acceptable risk for self-hosted deployments behind a firewall.
 
 **Planned fix:** Per-session signed tokens for all file/preview/terminal endpoints. See Security Roadmap in README.

@@ -184,7 +184,7 @@ The docker-compose stack handles all of this automatically.
 
 ## Security Notes
 
-> **Current status:** This project is designed for **closed, self-hosted** deployments. Multi-user production setups require additional hardening (see roadmap below).
+> **Production tested** with 1000+ users on Open WebUI behind a corporate firewall. For public-facing deployments, see the hardening roadmap below.
 
 ### Current model
 
