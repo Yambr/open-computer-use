@@ -16,8 +16,7 @@ skills/
 │   ├── pptx/           # PowerPoint presentations
 │   ├── xlsx/           # Excel spreadsheets
 │   ├── skill-creator/  # Create new skills
-│   ├── sub-agent/      # Task delegation to autonomous agent
-│   └── product-self-knowledge/
+│   └── sub-agent/      # Task delegation to autonomous agent
 │
 └── examples/           # Example implementations
     ├── mcp-builder/    # Build MCP servers
@@ -141,13 +140,7 @@ wb.save('/mnt/user-data/outputs/data.xlsx')
 - `scripts/init_skill.py` - Initialize new skill
 - `scripts/package_skill.py` - Package for distribution
 
-### 6. product-self-knowledge
-
-**Location**: `/mnt/skills/public/product-self-knowledge/`
-
-**Purpose**: AI assistant's knowledge about its own capabilities and features
-
-### 7. sub-agent - Task Delegation
+### 6. sub-agent - Task Delegation
 
 **Location**: `/mnt/skills/public/sub-agent/`
 

@@ -77,3 +77,6 @@ req.json
 guides/
 claude-code-headless-docs.md
 sessions/
+skills_archive.zip
+.playwright-mcp/
+FIXES_*.md

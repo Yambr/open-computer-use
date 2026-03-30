@@ -8,7 +8,7 @@
 - **CDP Browser**: Live browser viewer via Chrome DevTools Protocol proxy
 - **Terminal**: Interactive terminal via ttyd + tmux + xterm.js
 - **Claude Code**: Pre-installed Claude Code CLI with TTY support
-- **Skills System**: 16 production skills (pptx, docx, xlsx, pdf, sub-agent, playwright-cli, and more)
+- **Skills System**: 13 built-in public skills + 14 examples (pptx, docx, xlsx, pdf, sub-agent, playwright-cli, and more)
 - **Open WebUI Integration**: Docker-compose stack with patched Open WebUI + PostgreSQL
 - **Tools**: bash, str_replace, create_file, view, sub_agent
 - **File Server**: Upload/download with archive support
