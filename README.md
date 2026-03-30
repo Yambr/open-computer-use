@@ -150,7 +150,7 @@ All settings via `.env`:
 | `SUB_AGENT_TIMEOUT` | `3600` | Sub-agent timeout (seconds) |
 | `POSTGRES_PASSWORD` | `openwebui` | PostgreSQL password |
 | `VISION_API_KEY` | — | Vision API key (for describe-image) |
-| `ANTHROPIC_API_KEY` | — | Anthropic key (for Claude Code sub-agent) |
+| `ANTHROPIC_AUTH_TOKEN` | — | Anthropic key (for Claude Code sub-agent) |
 | `MCP_TOKENS_URL` | — | Settings Wrapper URL (optional, see below) |
 | `MCP_TOKENS_API_KEY` | — | Settings Wrapper auth key |
 

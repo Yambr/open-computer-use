@@ -73,4 +73,4 @@ The `computer_link_filter.py` function is **required** alongside this tool:
 | Tools not showing in chat | Enable tool in chat settings. Set **Function Calling = Native** in model settings |
 | Skills not in system prompt | Install and enable `computer_link_filter.py` globally |
 | File preview not working | Check `MCP_SERVER_EXTERNAL_URL` in filter valves (must be browser-accessible URL) |
-| Sub-agent not starting | Set `ANTHROPIC_API_KEY` in server `.env` |
+| Sub-agent not starting | Set `ANTHROPIC_AUTH_TOKEN` in server `.env` |

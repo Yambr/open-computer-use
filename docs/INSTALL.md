@@ -32,7 +32,7 @@ Edit `.env` before starting. Key variables:
 | `OPENAI_API_KEY` | Yes | LLM API key (any OpenAI-compatible provider) |
 | `OPENAI_API_BASE_URL` | No | Custom API URL (OpenRouter, local vLLM, etc.) |
 | `MCP_API_KEY` | Recommended | Bearer token for MCP endpoint security |
-| `ANTHROPIC_API_KEY` | No | For Claude Code sub-agent |
+| `ANTHROPIC_AUTH_TOKEN` | No | For Claude Code sub-agent |
 | `VISION_API_KEY` | No | For describe-image skill |
 
 See `.env.example` for the full list with defaults.
