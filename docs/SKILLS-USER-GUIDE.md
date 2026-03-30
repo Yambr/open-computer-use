@@ -1,258 +1,86 @@
-# AI Assistant Skills: User Guide
+# Skills User Guide
 
-Skills extend the AI assistant's capabilities. Each skill is a set of instructions and scripts that teaches the assistant to work with a specific domain: creating presentations, processing PDFs, generating visualizations, etc.
+Skills extend the AI assistant's capabilities. Each skill is a folder with `SKILL.md` instructions and optional scripts that teach the AI to work with a specific domain: creating presentations, processing PDFs, browser automation, etc.
 
-## How to Enable Skills
+## How Skills Work
 
-### Step 1. Open the Settings Page
+1. **System prompt injection** — the server builds an `<available_skills>` XML block listing all skills with names, descriptions, and file paths
+2. **Model reads SKILL.md** — before starting a task, the AI reads the relevant skill's instructions via `view` tool
+3. **Scripts and references** — skills can include Python/bash helper scripts and reference docs that the AI uses
 
-Navigate to **/skills**
+Skills are mounted read-only into sandbox containers at `/mnt/skills/`.
 
-### Step 2. Log in with Email
+## Built-in Skills (13 public)
 
-Enter your work email like `name@example.com` and click **Log in**.
+Always available, baked into the Docker image:
 
-### Step 3. Select Skills
+| Skill | What it does |
+|-------|--------------|
+| **docx** | Word documents — create, edit, tracked changes, comments |
+| **pdf** | PDF — extract text/tables, create, merge/split, fill forms |
+| **pptx** | PowerPoint — create with html2pptx, edit via OOXML |
+| **xlsx** | Excel — formulas, formatting, analysis, visualization |
+| **sub-agent** | Delegate complex tasks to autonomous Claude Code agent |
+| **playwright-cli** | Browser automation — navigate, fill forms, screenshot |
+| **describe-image** | Image analysis via Vision AI |
+| **frontend-design** | Production-grade UI/web components |
+| **webapp-testing** | Test web apps with Playwright |
+| **doc-coauthoring** | Structured document co-authoring workflow |
+| **test-driven-development** | TDD workflow enforcement |
+| **skill-creator** | Guide for creating new skills |
+| **gitlab-explorer** | GitLab repo operations via glab CLI |
 
-Skills are divided into three categories:
+## Example Skills (14)
 
-| Category | Description | Management |
-|----------|-------------|------------|
-| **Open Computer Use** (public) | Core skills, enabled for everyone | Cannot be disabled |
-| **Examples** | Additional skills for advanced users | Checkbox on/off |
-| **User-uploaded** | Uploaded by team members | Checkbox on/off |
+Optional, also in the Docker image at `/mnt/skills/examples/`:
 
-Check the desired skills and click **Save settings**.
+web-artifacts-builder, copy-editing, social-content, canvas-design, algorithmic-art, theme-factory, mcp-builder, product-marketing-context, writing-skills, internal-comms, single-cell-rna-qc, slack-gif-creator, skill-creator (example version)
 
-### Step 4. Open a New Chat
+## Creating Your Own Skill
 
-Skills are applied when creating a new chat. Go to **https://example.com**, create a new chat with the Computer Use model, and the assistant will already know about your skills.
+A skill is a folder with `SKILL.md` at the root:
 
-> Important: changing skill settings does not affect current chats. You need to create a new chat.
+```
+my-skill/
+├── SKILL.md          # Required — instructions for the AI
+├── scripts/          # Optional — helper scripts
+│   └── process.py
+└── references/       # Optional — reference docs
+    └── guide.md
+```
 
-## Built-in Skills List
-
-### Public (always enabled)
-
-| Skill | Description |
-|-------|-------------|
-| **Sub-agent** | Delegate complex tasks to an autonomous agent: presentations, refactoring, code review, Git |
-| **XLSX** | Create and analyze spreadsheets with formulas, formatting, and visualization |
-| **PDF** | Extract text and tables, create PDFs, merge/split, work with forms |
-| **PDF to Markdown** | Convert PDF to Markdown preserving images via OCR |
-| **PPTX** | Create and edit PowerPoint presentations |
-| **Describe Images** | Describe charts, diagrams, screenshots using Vision AI |
-| **GitLab Explorer** | Work with repositories: clone, code search, merge requests, CI/CD |
-| **Skill Creator** | Guide for creating custom skills |
-| **DOCX** | Create and edit Word documents |
-| **Product Reference** | Information about AI products in Open Computer Use: models, integrations, settings |
-
-### Examples (optional)
-
-| Skill | Description |
-|-------|-------------|
-| **Algorithmic Art** | Generative art with p5.js: flow fields, particle systems |
-| **Artifacts Builder** | HTML artifacts with React, Tailwind CSS, shadcn/ui |
-| **Brand Guidelines** | Brand colors and typography for artifacts |
-| **Canvas Design** | Posters, illustrations, and visual work in .png and .pdf |
-| **Internal Communications** | Templates for status reports, newsletters, FAQs, project updates |
-| **MCP Builder** | Create MCP servers in Python (FastMCP) or TypeScript |
-| **Single Cell RNA QC** | Quality control for single-cell RNA sequencing data |
-| **Slack GIF Creator** | Animated GIFs optimized for Slack |
-| **Theme Factory** | 10 ready-made themes with colors and fonts for artifacts |
-
-## How to Create Your Own Skill
-
-### Skill Format
-
-A skill is a ZIP archive containing a `SKILL.md` file at the root. The file starts with YAML frontmatter:
+### SKILL.md format
 
 ```markdown
 ---
 name: my-skill-name
-description: Brief description of the skill (up to 1024 characters)
+description: Brief description (this is what the AI sees in the skills list)
 ---
 
-# Skill Name
+# My Skill Name
 
-Main instructions for the assistant go here.
-
-## When to Use
-
-Description of situations where the skill applies.
-
-## How to Use
-
-Step-by-step instructions, examples, scripts.
+Instructions for the AI go here. Be specific about:
+- When to use this skill
+- Step-by-step workflow
+- Which scripts to run and how
+- Expected output format
 ```
 
-### SKILL.md Requirements
+See `skills/public/` for real examples.
 
-**Required frontmatter fields:**
+## Skill Management
 
-| Field | Rules |
-|-------|-------|
-| `name` | Lowercase Latin letters, digits, hyphens. Maximum 64 characters. Examples: `my-skill`, `data-analyzer`, `report-builder` |
-| `description` | Text up to 1024 characters. No angle brackets (`<` `>`) |
+In our production setup, we built a **skill registry** (settings-wrapper) where:
+- AI manages skills through a dedicated **settings-manager** skill
+- Users can enable/disable skills per account
+- Custom skills are uploaded as ZIP archives and cached on the server
 
-**Optional fields:** `license`, `allowed-tools`, `metadata`
+For community use, we provide a [mock settings-wrapper](../settings-wrapper/README.md) with the API contract. All 13 public skills work out of the box without it.
 
-### ZIP Archive Structure
+**Want a public skill management tool?** We'd love to build one that works with your setup. Open a [GitHub Issue](https://github.com/Yambr/openwebui-computer-use-community/issues) and tell us what you use (LiteLLM, Open WebUI standalone, Claude Desktop, etc.) — this helps us prioritize.
 
-Minimal:
-```
-my-skill.zip
-└── SKILL.md
-```
+## Related Docs
 
-With additional resources:
-```
-my-skill.zip
-└── my-skill/
-    ├── SKILL.md          # Required
-    ├── scripts/          # Python/Bash scripts
-    │   └── process.py
-    └── references/       # Reference materials
-        └── guide.md
-```
-
-### Limitations
-
-- ZIP archive size: **up to 10 MB**
-- Encoding: **UTF-8**
-- `SKILL.md` must be at the root of the ZIP or in a single subdirectory
-
-### Minimal Example
-
-Create a file `SKILL.md`:
-
-```markdown
----
-name: greeting-skill
-description: Skill for greeting users in different languages
----
-
-# Greeting
-
-When a user asks to greet someone, use this skill.
-
-## Format
-
-Greet in the language specified by the user. Default is English.
-
-Examples:
-- English: "Welcome, {name}!"
-- Deutsch: "Willkommen, {name}!"
-- Espanol: "Bienvenido, {name}!"
-```
-
-Package into a ZIP:
-```bash
-zip greeting-skill.zip SKILL.md
-```
-
-### Uploading a Skill
-
-1. Go to **/skills**
-2. At the bottom of the page, expand the **Upload a new skill** section
-3. Select the ZIP file
-4. Click **Upload**
-5. After uploading, the skill will appear in the **User-uploaded** section
-6. Enable it with the checkbox and click **Save settings**
-
-### Updating a Skill
-
-Upload a ZIP with the same `name` in the frontmatter. The system will update the skill automatically (only the author can update their skill).
-
-### Deleting a Skill
-
-In the **Skill Registry** section, find your skill -- user-uploaded skills that you created will have a **Delete** button. Deletion is irreversible.
-
-## API for Developers
-
-Base URL: ``
-
-### List All Skills
-
-```bash
-curl /api/skills
-```
-
-With search:
-```bash
-curl "/api/skills?q=pdf"
-```
-
-### Upload a Skill (programmatically)
-
-```bash
-curl -X POST /api/skills \
-  -F "file=@my-skill.zip" \
-  -F "author_email=user@example.com"
-```
-
-### Delete a Skill
-
-```bash
-curl -X DELETE "/api/skills/my-skill?author_email=user@example.com"
-```
-
-### User Settings
-
-Get current settings:
-```bash
-curl /api/user-skills/user@example.com
-```
-
-Enable/disable a skill:
-```bash
-curl -X PATCH /api/user-skills/user@example.com/algorithmic-art \
-  -H "Content-Type: application/json" \
-  -d '{"is_enabled": true}'
-```
-
-Bulk update:
-```bash
-curl -X PUT /api/user-skills/user@example.com \
-  -H "Content-Type: application/json" \
-  -d '{"skills": {"algorithmic-art": true, "mcp-builder": false}}'
-```
-
-## Architecture (for developers)
-
-```
-User
-    │
-    ▼
-┌──────────────────────────────┐
-│   │  ← Skill settings (Web UI + API)
-│  mcp-settings-wrapper        │     PostgreSQL: mcp_tokens.skills
-└──────────────┬───────────────┘     + mcp_tokens.user_skill_settings
-               │
-               │ GET /api/internal/user-config/{email}
-               │ GET /api/internal/skills/{name}/download
-               ▼
-┌──────────────────────────────┐
-│  docker-ai (computer-use-orchestrator)     │  ← Skill cache, Docker containers
-│  skill_manager.py            │     /tmp/skills-cache/{name}/
-└──────────────┬───────────────┘
-               │
-               │ bind mount + system prompt injection
-               ▼
-┌──────────────────────────────┐
-│  Docker container            │  ← AI assistant
-│  /mnt/skills/public/...      │     Public skills (baked in image)
-│  /mnt/skills/examples/...    │     Examples (baked in image)
-│  /mnt/skills/user/...        │     User-uploaded (bind mount)
-└──────────────────────────────┘
-```
-
-Caching:
-- User skill list: in-memory, TTL 60 seconds
-- ZIP archives: on disk, invalidated by SHA-256 hash
-- Fallback: if the API is unavailable, disk cache is used
-
-## Related Documentation
-
-- [DYNAMIC-SKILLS.md](DYNAMIC-SKILLS.md) -- technical architecture of Dynamic Skill Injection
-- [SKILLS.md](SKILLS.md) -- reference guide for built-in skills with code examples
+- [SKILLS.md](SKILLS.md) — technical reference for all skills
+- [DYNAMIC-SKILLS.md](DYNAMIC-SKILLS.md) — how skill injection works under the hood
+- [settings-wrapper/README.md](../settings-wrapper/README.md) — mock skill registry API contract
