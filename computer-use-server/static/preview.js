@@ -433,7 +433,7 @@ async function renderPptxPreview(container, file) {
 }
 
 async function renderDrawioPreview(container, file) {
-  container.innerHTML = '<div class="empty-state"><div class="spinner"></div><p class="loading-text">${t('loading')}</p></div>';
+  container.innerHTML = `<div class="empty-state"><div class="spinner"></div><p class="loading-text">${t('loading')}</p></div>`;
   try {
     const drawioResp = await fetch(file.url);
     const drawioXml = await drawioResp.text();

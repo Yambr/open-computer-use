@@ -217,7 +217,7 @@ if _static_dir.is_dir():
 
 # Base directory where chat data is stored
 # Mounted from host: /tmp/computer-use-data/{chat_id}/outputs/
-BASE_DATA_DIR = Path("/data")
+BASE_DATA_DIR = Path(os.getenv("BASE_DATA_DIR", "/data"))
 
 
 # =============================================================================

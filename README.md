@@ -137,6 +137,12 @@ All settings via `.env`:
 | `POSTGRES_PASSWORD` | `openwebui` | PostgreSQL password |
 | `VISION_API_KEY` | — | Vision API key (for describe-image) |
 | `ANTHROPIC_API_KEY` | — | Anthropic key (for Claude Code sub-agent) |
+| `MCP_TOKENS_URL` | — | Settings Wrapper URL (optional, for per-user skills) |
+| `MCP_TOKENS_API_KEY` | — | Settings Wrapper auth key |
+
+### Custom Skills (optional)
+
+By default, all 16 built-in skills are available to everyone. To control per-user skill access or add custom skills, deploy the **Settings Wrapper** — a simple skill registry with two API endpoints. See [settings-wrapper/README.md](settings-wrapper/README.md).
 
 ## Open WebUI Integration
 

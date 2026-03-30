@@ -1,0 +1,25 @@
+{
+  "default_skills": [
+    {"name": "docx", "category": "public", "skill_path": "public/docx", "description": "Word document creation and editing"},
+    {"name": "pdf", "category": "public", "skill_path": "public/pdf", "description": "PDF manipulation toolkit"},
+    {"name": "pdf-markdown", "category": "public", "skill_path": "public/pdf-markdown", "description": "PDF to Markdown conversion via OCR"},
+    {"name": "pptx", "category": "public", "skill_path": "public/pptx", "description": "PowerPoint presentations"},
+    {"name": "xlsx", "category": "public", "skill_path": "public/xlsx", "description": "Excel spreadsheets"},
+    {"name": "skill-creator", "category": "public", "skill_path": "public/skill-creator", "description": "Guide for creating custom skills"},
+    {"name": "sub-agent", "category": "public", "skill_path": "public/sub-agent", "description": "Delegate tasks to Claude Code"},
+    {"name": "describe-image", "category": "public", "skill_path": "public/describe-image", "description": "Image analysis via Vision API"},
+    {"name": "playwright-cli", "category": "public", "skill_path": "public/playwright-cli", "description": "Browser automation"},
+    {"name": "gitlab-explorer", "category": "public", "skill_path": "public/gitlab-explorer", "description": "GitLab repo operations"},
+    {"name": "frontend-design", "category": "public", "skill_path": "public/frontend-design", "description": "Production-grade UI design"},
+    {"name": "webapp-testing", "category": "public", "skill_path": "public/webapp-testing", "description": "Web app testing with Playwright"},
+    {"name": "test-driven-development", "category": "public", "skill_path": "public/test-driven-development", "description": "TDD workflow"},
+    {"name": "doc-coauthoring", "category": "public", "skill_path": "public/doc-coauthoring", "description": "Document co-authoring workflow"}
+  ],
+  "users": {
+    "admin@open-computer-use.dev": [
+      {"name": "docx", "category": "public", "skill_path": "public/docx", "description": "Word documents"},
+      {"name": "pdf", "category": "public", "skill_path": "public/pdf", "description": "PDF toolkit"},
+      {"name": "my-custom-skill", "category": "user", "description": "Example user-uploaded skill (place my-custom-skill.zip in skills/)"}
+    ]
+  }
+}

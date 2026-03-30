@@ -33,8 +33,9 @@ Leave `MCP_API_KEY` empty for development (no auth required).
 | Header | Description | Required |
 |--------|-------------|----------|
 | `X-Chat-Id` | Session identifier (one container per chat) | Yes |
-| `X-User-Email` | User email (for GitLab token, logging) | No |
+| `X-User-Email` | User email (for token lookup, logging) | No |
 | `X-User-Name` | Display name | No |
+| `X-MCP-Servers` | Comma-separated MCP server names for Claude Code sub-agent | No |
 
 ## Usage Examples
 
@@ -107,6 +108,82 @@ mcp_servers:
   }
 }
 ```
+
+## MCP Servers for Claude Code Sub-Agent
+
+When the `sub_agent` tool launches Claude Code inside a sandbox container, it can be configured with MCP servers. This allows Claude Code to access external tools (databases, APIs, other MCP servers) during autonomous task execution.
+
+### How it works
+
+1. **Client sends MCP server names** via HTTP header when calling the Computer Use Server
+2. **Computer Use Server** writes `~/.mcp.json` inside the sandbox container
+3. **Claude Code** reads the config and connects to the specified MCP servers
+4. **Authorization** uses `ANTHROPIC_AUTH_TOKEN` from the container environment (no secrets in config)
+
+### Header format
+
+Pass MCP server names as a comma-separated list:
+
+```
+X-MCP-Servers: server1,server2,server3
+```
+
+Or the Open WebUI-style header:
+
+```
+X-OpenWebUI-MCP-Servers: server1,server2,server3
+```
+
+### URL pattern
+
+Server URLs are templated as `{ANTHROPIC_BASE_URL}/mcp/{server_name}` — this follows the LiteLLM MCP proxy pattern where LiteLLM acts as a gateway to multiple MCP servers.
+
+### Example: LiteLLM with multiple MCP servers
+
+If LiteLLM is configured with MCP servers `github`, `jira`, `slack`:
+
+```yaml
+# LiteLLM config
+mcp_servers:
+  github:
+    url: "http://github-mcp:3000/mcp"
+  jira:
+    url: "http://jira-mcp:3001/mcp"
+  slack:
+    url: "http://slack-mcp:3002/mcp"
+```
+
+Passing `X-MCP-Servers: github,jira` will make these servers available to Claude Code inside the sandbox.
+
+### Generated ~/.mcp.json
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "type": "http",
+      "url": "https://llm-api.example.com/mcp/github",
+      "headers": {
+        "x-openwebui-user-email": "user@example.com",
+        "Authorization": "Bearer <ANTHROPIC_AUTH_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+### Security notes
+
+- The server name `docker_ai` / `docker-ai` is blocked to prevent recursive sub-agent loops
+- Authorization tokens are resolved at runtime from container environment, not stored in the config file
+- MCP servers are auto-approved in Claude Code's `settings.local.json` so it doesn't prompt for permission
+
+### Open WebUI integration (planned)
+
+Currently, the Open WebUI tool (`computer_use_tools.py`) does not pass MCP server headers. To use this feature, either:
+
+1. Use a custom MCP client that sets the `X-MCP-Servers` header
+2. Or add MCP server forwarding to the Open WebUI tool (contributions welcome)
 
 ## Browser Viewer (CDP)
 
