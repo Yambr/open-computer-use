@@ -18,7 +18,7 @@ pdf2image==1.17.0
 reportlab==4.4.4
 
 # Image processing
-pillow==11.3.0
+pillow==12.1.1
 opencv-python==4.11.0.86
 opencv-contrib-python==4.11.0.86
 opencv-python-headless==4.11.0.86
