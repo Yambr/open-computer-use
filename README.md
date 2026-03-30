@@ -147,12 +147,14 @@ All settings via `.env`:
 | `POSTGRES_PASSWORD` | `openwebui` | PostgreSQL password |
 | `VISION_API_KEY` | — | Vision API key (for describe-image) |
 | `ANTHROPIC_API_KEY` | — | Anthropic key (for Claude Code sub-agent) |
-| `MCP_TOKENS_URL` | — | Settings Wrapper URL (optional, for per-user skills) |
+| `MCP_TOKENS_URL` | — | Settings Wrapper URL (optional, see below) |
 | `MCP_TOKENS_API_KEY` | — | Settings Wrapper auth key |
 
-### Custom Skills (optional)
+### Custom Skills & Token Management (optional)
 
-By default, all 13 built-in skills are available to everyone. To control per-user skill access or add custom skills, deploy the **Settings Wrapper** — a simple skill registry with two API endpoints. See [settings-wrapper/README.md](settings-wrapper/README.md).
+By default, all 13 built-in skills are available to everyone. For per-user skill access and custom skills, deploy the **Settings Wrapper** — see [settings-wrapper/README.md](settings-wrapper/README.md).
+
+**Personal Access Tokens (PATs):** In our production setup, the settings wrapper also stores encrypted per-user PATs for GitLab, Confluence, Jira, and other services. The server fetches them on the fly by user email and injects into the sandbox container — so each user's AI has access to their repos/docs without sharing credentials. The server-side code for GitLab token fetch is already implemented (`docker_manager.py`), but the Open WebUI tool doesn't pass the required headers yet. This is on the roadmap — if you need PAT management for your setup, [open an issue](https://github.com/Yambr/openwebui-computer-use-community/issues) describing your use case.
 
 ## Open WebUI Integration
 
