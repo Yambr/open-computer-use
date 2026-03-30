@@ -30,6 +30,24 @@ The following are in scope:
 - File access outside sandbox
 - Open WebUI integration vulnerabilities
 
-## Security Considerations
+## Current Security Model
 
-This project runs Docker containers with access to the Docker socket. Please review the [Security Notes](../README.md#security-notes) in the README before deploying.
+This project is designed for **single-user / trusted-network** deployments. Key points:
+
+- **Docker socket access** grants significant host control — run only in trusted environments
+- **MCP_API_KEY** is the only auth for the MCP endpoint — set a strong random key
+- **File/preview endpoints** use chat ID (UUID) as the sole access control — not a real security boundary
+- **User identity** is client-asserted (HTTP headers), not verified server-side
+- **API credentials** (GitLab, Anthropic) are passed in HTTP headers — use HTTPS if exposing externally
+
+For multi-user deployments, see the **Security Roadmap** in [README.md](../README.md#security-roadmap).
+
+## Known Issues
+
+These are known limitations, not bugs — they reflect the current single-user design:
+
+1. **Unauthenticated file access**: Anyone with a chat ID can download files via `/files/{chat_id}/`
+2. **No user verification**: Server trusts `X-User-Email` header without validation
+3. **Default credentials**: `admin@open-computer-use.dev` / `admin` in Open WebUI auto-init
+
+We are working on per-session signed tokens, JWT validation, and audit logging. See README for the full roadmap.

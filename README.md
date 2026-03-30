@@ -191,10 +191,34 @@ The docker-compose stack handles all of this automatically.
 
 ## Security Notes
 
-- **Docker socket**: The server requires access to Docker socket to manage workspace containers. This grants significant host access — run in a trusted environment.
-- **MCP_API_KEY**: Set a strong random key in production. Without it, anyone with network access to port 8081 can execute commands.
-- **Sandbox isolation**: Each chat runs in a separate container with resource limits (2GB RAM, 1 CPU). Containers have network access by default.
-- **POSTGRES_PASSWORD**: Change the default password in `.env` for production deployments.
+> **Current status:** This project is designed for **single-user / trusted-network** deployments. Multi-user production setups require additional hardening (see roadmap below).
+
+### Current model
+
+- **Docker socket**: The server needs Docker socket access to manage sandbox containers. This grants significant host access — run in a trusted environment only.
+- **MCP_API_KEY**: Set a strong random key in production. Without it, anyone with network access to port 8081 can execute arbitrary commands in containers.
+- **Sandbox isolation**: Each chat session runs in a separate container with resource limits (2GB RAM, 1 CPU). Containers have network access by default.
+- **POSTGRES_PASSWORD**: Change the default password in `.env` for production.
+
+### Known limitations
+
+- **Unauthenticated file/preview endpoints**: `/files/{chat_id}/`, `/api/outputs/{chat_id}`, `/browser/{chat_id}/`, `/terminal/{chat_id}/` — accessible to anyone who knows the chat ID. Chat IDs are UUIDs (hard to guess but not a real security boundary).
+- **No per-user auth on server**: The MCP server trusts whoever sends a valid `MCP_API_KEY`. User identity (`X-User-Email`) is passed by the client but not verified server-side.
+- **Credentials in HTTP headers**: API keys (GitLab, Anthropic, MCP tokens) are passed as HTTP headers from client to server. Safe within Docker network, but use HTTPS if exposing externally.
+- **Default admin credentials**: `admin@open-computer-use.dev` / `admin` — change immediately in multi-user setups.
+
+### Security roadmap
+
+We plan to address these in future releases:
+
+- [ ] **Per-session signed tokens** for file/preview/terminal endpoints (replace chat ID as auth)
+- [ ] **Server-side user verification** via Open WebUI JWT validation
+- [ ] **HTTPS support** with automatic TLS certificates
+- [ ] **Audit logging** for all tool calls and file access
+- [ ] **Network policies** for sandbox containers (restrict egress by default)
+- [ ] **Secret management** — move credentials from headers to encrypted server-side storage
+
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Development
 
