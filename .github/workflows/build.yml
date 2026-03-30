@@ -42,7 +42,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}.{{patch}}
             type=sha
 
-      - uses: docker/build-push-action@v5
+      - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
@@ -81,7 +81,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}.{{patch}}
             type=sha
 
-      - uses: docker/build-push-action@v5
+      - uses: docker/build-push-action@v7
         with:
           context: ./computer-use-server
           push: ${{ github.event_name != 'pull_request' }}
@@ -119,7 +119,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}.{{patch}}
             type=sha
 
-      - uses: docker/build-push-action@v5
+      - uses: docker/build-push-action@v7
         with:
           context: ./openwebui
           push: ${{ github.event_name != 'pull_request' }}
