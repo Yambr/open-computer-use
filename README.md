@@ -29,17 +29,21 @@ Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n
 
 > **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
 
-### Document creation + live preview
+### Live browser streaming (CDP viewer)
 
-![Create Document](docs/screenshots/01-create-document.png)
+![Browser Viewer](docs/screenshots/03-browser-viewer.png)
 
-### Claude Code sub-agent with interactive terminal
+### Claude Code — interactive terminal in the cloud
 
-![Sub-Agent Terminal](docs/screenshots/04-sub-agent-terminal.png)
+![Claude Code Terminal](docs/screenshots/04-sub-agent-terminal.png)
 
-### Skills & tools overview
+### File preview with skills
 
-![Chat Overview](docs/screenshots/05-chat-overview.png)
+![File Preview](docs/screenshots/02-file-preview.png)
+
+### Sub-agent dashboard — monitor and control
+
+![Sub-Agent Dashboard](docs/screenshots/06-sub-agent-dashboard.png)
 
 See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
 
