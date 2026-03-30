@@ -241,6 +241,7 @@ def get_container_cdp_address(chat_id: str) -> Optional[str]:
     old compose network with an unreachable IP. This function detects the mismatch
     and reconnects the container to the current compose network.
     """
+    chat_id = chat_id.lower()
     client = get_docker_client()
     sanitized_id = re.sub(r'[^a-zA-Z0-9_.-]', '-', chat_id)
     container_name = f"owui-chat-{sanitized_id}"
@@ -309,6 +310,7 @@ def _fix_dead_networks(client, container):
 
 def _get_or_create_container(chat_id: str) -> docker.models.containers.Container:
     """Get existing container or create new one for this chat."""
+    chat_id = chat_id.lower()
     client = get_docker_client()
 
     # Sanitize chat_id for Docker container naming
@@ -643,7 +645,7 @@ def execute_bash_streaming(container, command: str, timeout: int, on_output_line
 
 def _get_meta_path(chat_id: str) -> Path:
     """Path to .meta.json for this chat on the host filesystem."""
-    return BASE_DATA_DIR / chat_id / ".meta.json"
+    return BASE_DATA_DIR / chat_id.lower() / ".meta.json"
 
 
 def save_container_meta(chat_id: str, user_email: str, user_name: str,

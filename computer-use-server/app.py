@@ -210,6 +210,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Normalize chat_id in URL paths to lowercase.
+# Docker container names are case-sensitive, but browser URLs may contain
+# uppercase hex in UUIDs (e.g. 384B vs 384b). This prevents 404s.
+@app.middleware("http")
+async def normalize_chat_id_case(request, call_next):
+    import re as _re
+    path = request.scope.get("path", "")
+    # Match UUID-like segments in paths like /files/{chat_id}/... or /terminal/{chat_id}/...
+    normalized = _re.sub(
+        r'/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})',
+        lambda m: '/' + m.group(1).lower(),
+        path
+    )
+    if normalized != path:
+        request.scope["path"] = normalized
+    return await call_next(request)
+
 # Static files (bundled JS/CSS libraries)
 _static_dir = Path(__file__).parent / "static"
 if _static_dir.is_dir():

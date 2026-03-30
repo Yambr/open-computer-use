@@ -971,10 +971,12 @@ def set_context_from_headers(headers: dict):
     Direct headers take priority over OpenWebUI headers.
     """
     # Chat ID (required) - check both formats
+    # Normalize to lowercase: Docker container names are case-sensitive,
+    # and browser URLs may contain uppercase hex in UUIDs
     if "x-chat-id" in headers:
-        current_chat_id.set(headers["x-chat-id"])
+        current_chat_id.set(headers["x-chat-id"].lower())
     elif "x-openwebui-chat-id" in headers:
-        current_chat_id.set(headers["x-openwebui-chat-id"])
+        current_chat_id.set(headers["x-openwebui-chat-id"].lower())
 
     # User email - check both formats
     if "x-user-email" in headers:
