@@ -4,28 +4,9 @@ MCP orchestrator that manages isolated Docker sandbox containers. Provides tools
 
 ## Architecture
 
-```
-Client (Open WebUI / Claude Desktop / curl)
-    │
-    │  MCP over Streamable HTTP
-    ▼
-┌─────────────────────────────────┐
-│  Computer Use Server (:8081)    │
-│                                 │
-│  app.py        — FastAPI app    │
-│  mcp_tools.py  — MCP tools     │
-│  docker_manager.py — containers │
-│  skill_manager.py  — skills    │
-│  system_prompt.py  — prompts   │
-└────────────┬────────────────────┘
-             │ Docker Socket
-             ▼
-┌─────────────────────────────────┐
-│  Sandbox Container              │
-│  (one per chat session)         │
-│  Ubuntu 24.04 + tools           │
-└─────────────────────────────────┘
-```
+See [docs/architecture.svg](../docs/architecture.svg) for the full diagram.
+
+**Flow:** Client → MCP over HTTP → Computer Use Server (:8081) → Docker Socket → Sandbox Container (one per chat)
 
 ## Modules
 
