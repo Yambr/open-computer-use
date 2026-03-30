@@ -42,6 +42,10 @@ Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n
 
 See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
 
+## Architecture
+
+![Architecture](docs/architecture.svg)
+
 ## Quick Start
 
 ```bash
@@ -71,10 +75,6 @@ After adding a model in Open WebUI, go to **Model Settings** and set:
 | **Stream Chat Response** | `On` | Enables real-time output streaming |
 
 Without `Function Calling: Native`, the model won't invoke Computer Use tools.
-
-## Architecture
-
-![Architecture](docs/architecture.svg)
 
 ## What's Inside the Sandbox
 
