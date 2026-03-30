@@ -1,5 +1,13 @@
 # Open Computer Use
 
+[![Build](https://github.com/Yambr/open-computer-use/actions/workflows/build.yml/badge.svg)](https://github.com/Yambr/open-computer-use/actions/workflows/build.yml)
+[![CodeQL](https://github.com/Yambr/open-computer-use/actions/workflows/codeql.yml/badge.svg)](https://github.com/Yambr/open-computer-use/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/Yambr/open-computer-use)](https://github.com/Yambr/open-computer-use/releases)
+[![License](https://img.shields.io/github/license/Yambr/open-computer-use)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/Yambr/open-computer-use)](https://github.com/Yambr/open-computer-use/stargazers)
+[![Issues](https://img.shields.io/github/issues/Yambr/open-computer-use)](https://github.com/Yambr/open-computer-use/issues)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 Self-hosted AI workspace with code execution, document creation, browser control, and autonomous agents — like **OpenAI Operator** + **Claude Computer Use** + **Claude Code**, but open-source and pluggable into any LLM.
 
 ## What is this?
