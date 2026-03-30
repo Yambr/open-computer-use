@@ -416,18 +416,6 @@ Comprehensive PDF manipulation toolkit for extracting text and tables, creating 
 
 <skill>
 <name>
-pdf-markdown
-</name>
-<description>
-Convert PDF to Markdown with images via MinerU OCR API. Use when markdown output with preserved images is needed. Supports multiple languages.
-</description>
-<location>
-/mnt/skills/public/pdf-markdown/SKILL.md
-</location>
-</skill>
-
-<skill>
-<name>
 pptx
 </name>
 <description>
@@ -459,18 +447,6 @@ Comprehensive spreadsheet creation, editing, and analysis with support for formu
 </description>
 <location>
 /mnt/skills/public/xlsx/SKILL.md
-</location>
-</skill>
-
-<skill>
-<name>
-product-self-knowledge
-</name>
-<description>
-Reference guide for Open Computer Use AI products. Use when users ask about models, model selection, personal data (PD), integrations (Confluence, Jira, Kontur), budget, or AI portal settings.
-</description>
-<location>
-/mnt/skills/public/product-self-knowledge/SKILL.md
 </location>
 </skill>
 

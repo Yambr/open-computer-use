@@ -74,6 +74,8 @@ Without `Function Calling: Native`, the model won't invoke Computer Use tools.
 
 ## What's Inside the Sandbox
 
+![Sandbox Contents](docs/sandbox-contents.svg)
+
 | Category | Tools |
 |----------|-------|
 | **Languages** | Python 3.12, Node.js 22, Java 21, Bun |

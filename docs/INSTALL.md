@@ -124,7 +124,7 @@ docker-compose exec ai-computer-use python3 --version
 #### Step 1: Create Directory Structure
 
 ```bash
-mkdir -p data/uploads data/outputs docs scripts/mcp-server
+mkdir -p data/uploads data/outputs docs
 touch data/uploads/.gitkeep data/outputs/.gitkeep
 ```
 
@@ -417,7 +417,7 @@ docker-compose exec ai-computer-use ping google.com
 
 ### 1. Set up MCP Server (Optional)
 
-See [scripts/mcp-server/README.md](../scripts/mcp-server/README.md)
+See [MCP.md](MCP.md) for integration with Claude Desktop, LiteLLM, and other MCP clients.
 
 ### 2. Configure SubAgent (Optional)
 
@@ -522,4 +522,4 @@ For additional help:
 
 - Read [DOCKER.md](DOCKER.md) for architecture details
 - Explore [SKILLS.md](SKILLS.md) for skills system
-- Set up [MCP server](../scripts/mcp-server/README.md) for Claude Desktop integration
+- Set up [MCP integration](MCP.md) for Claude Desktop and other clients

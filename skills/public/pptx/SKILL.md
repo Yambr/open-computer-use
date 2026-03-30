@@ -441,6 +441,28 @@ Example for specific range:
 pdftoppm -jpeg -r 150 -f 2 -l 5 template.pdf slide  # Converts only pages 2-5
 ```
 
+## Design Guidelines (MANDATORY)
+
+**Every presentation must have intentional visual design. Never create unstyled slides.**
+
+1. **Analyze the topic first**: What colors, mood, and tone fit the subject?
+2. **Choose a color palette**: Select 2-3 colors that match the content. Reference `css.md` for available CSS variables.
+3. **Use consistent typography**: Headings in bold/larger size, body in regular weight. Stick to web-safe fonts.
+4. **Apply visual hierarchy**: Use size, weight, color, and spacing to guide the reader's eye.
+5. **Keep slides concise**: 3-5 bullet points max, 1-2 sentence paragraphs. This is a presentation, not a report.
+
+Example CSS override for a tech presentation:
+```css
+:root {
+  --color-primary: #2563eb;
+  --color-surface: #0f172a;
+  --color-surface-foreground: #f8fafc;
+  --font-family-display: 'Trebuchet MS', sans-serif;
+}
+```
+
+For brand-specific presentations, ask the user for brand colors/fonts and apply them as CSS variable overrides.
+
 ## Code Style Guidelines
 
 **IMPORTANT**: When generating code for PPTX operations:

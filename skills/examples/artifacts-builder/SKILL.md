@@ -1,12 +1,12 @@
 ---
 name: artifacts-builder
-description: Suite of tools for creating elaborate, multi-component the artifacts viewer HTML artifacts using modern frontend web technologies (React, Tailwind CSS, shadcn/ui). Use for complex artifacts requiring state management, routing, or shadcn/ui components - not for simple single-file HTML/JSX artifacts.
+description: Suite of tools for creating elaborate, multi-component AI artifacts viewer HTML artifacts using modern frontend web technologies (React, Tailwind CSS, shadcn/ui). Use for complex artifacts requiring state management, routing, or shadcn/ui components - not for simple single-file HTML/JSX artifacts.
 license: Complete terms in LICENSE.txt
 ---
 
 # Artifacts Builder
 
-To build powerful frontend the artifacts viewer artifacts, follow these steps:
+To build powerful frontend AI artifacts viewer artifacts, follow these steps:
 1. Initialize the frontend repo using `scripts/init-artifact.sh`
 2. Develop your artifact by editing the generated code
 3. Bundle all code into a single HTML file using `scripts/bundle-artifact.sh`

@@ -230,7 +230,7 @@ Create a 12-slide presentation on AI trends.
 - 4-phase workflow (Research → Implement → Review → Test)
 
 **Example Usage**:
-See [scripts/mcp-server/](../scripts/mcp-server/) for a working example built with this skill.
+See [docs/MCP.md](MCP.md) for MCP integration examples.
 
 ### canvas-design - Design in Canvas
 

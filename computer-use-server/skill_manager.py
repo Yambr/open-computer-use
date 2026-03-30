@@ -84,11 +84,6 @@ NATIVE_PROMPT_DESCRIPTIONS: dict[str, str] = {
         "When You needs to fill in a PDF form or programmatically process, generate, "
         "or analyze PDF documents at scale."
     ),
-    "pdf-markdown": (
-        "Convert PDF to Markdown with images via MinerU OCR API. "
-        "Use when markdown output with preserved images is needed. "
-        "Supports multiple languages."
-    ),
     "pptx": (
         "Presentation creation, editing, and analysis. When You needs to work with "
         "presentations (.pptx files) for: (1) Creating new presentations, "
@@ -108,17 +103,6 @@ NATIVE_PROMPT_DESCRIPTIONS: dict[str, str] = {
         "Guide for creating effective skills. This skill should be used when users "
         "want to create a new skill (or update an existing skill) that extends You's "
         "capabilities with specialized knowledge, workflows, or tool integrations."
-    ),
-    "product-self-knowledge": (
-        "Reference guide for Open Computer Use AI products. Use when users ask about "
-        "models, model selection, personal data (PD), integrations (Confluence, "
-        "Jira, Kontur), budget, or AI portal settings."
-    ),
-    "settings-manager": (
-        "Manage AI assistant settings: check MCP token status (Confluence, Jira, "
-        "GitLab), view and toggle skills, get recommendations. Use when user asks "
-        "about settings, capabilities, skills, tokens, or when a tool call fails "
-        "with a missing token error."
     ),
     "gitlab-explorer": (
         "Explore GitLab repositories using glab CLI and git commands. Use when user "
@@ -221,8 +205,8 @@ NATIVE_PROMPT_DESCRIPTIONS: dict[str, str] = {
 
 # Default public skills (fallback when API is unavailable)
 DEFAULT_PUBLIC_SKILLS = [
-    "docx", "pdf", "pdf-markdown", "pptx", "xlsx",
-    "skill-creator", "product-self-knowledge", "settings-manager", "gitlab-explorer",
+    "docx", "pdf", "pptx", "xlsx",
+    "skill-creator", "gitlab-explorer",
     "sub-agent", "describe-image", "playwright-cli",
     "frontend-design", "doc-coauthoring", "webapp-testing",
     "test-driven-development",
