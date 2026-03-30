@@ -499,6 +499,54 @@ Automates browser interactions for web testing, form filling, screenshots, and d
 </location>
 </skill>
 
+<skill>
+<name>
+frontend-design
+</name>
+<description>
+Create distinctive, production-grade frontend interfaces with high design quality. Use when building web components, pages, dashboards, React components, HTML/CSS layouts, or styling/beautifying any web UI. Avoids generic AI aesthetics.
+</description>
+<location>
+/mnt/skills/public/frontend-design/SKILL.md
+</location>
+</skill>
+
+<skill>
+<name>
+doc-coauthoring
+</name>
+<description>
+Structured 3-stage workflow for co-authoring documents: context gathering, section-by-section refinement with brainstorming, and reader testing via sub-agent. Use for specs, PRDs, RFCs, proposals, technical documentation.
+</description>
+<location>
+/mnt/skills/public/doc-coauthoring/SKILL.md
+</location>
+</skill>
+
+<skill>
+<name>
+webapp-testing
+</name>
+<description>
+Toolkit for testing local web applications using Playwright. Verify frontend functionality, debug UI, capture screenshots, view browser logs. Includes helper scripts for server lifecycle management.
+</description>
+<location>
+/mnt/skills/public/webapp-testing/SKILL.md
+</location>
+</skill>
+
+<skill>
+<name>
+test-driven-development
+</name>
+<description>
+TDD workflow: write test first, watch it fail, write minimal code to pass. Use for any feature or bugfix. Enforces discipline — no production code without a failing test first.
+</description>
+<location>
+/mnt/skills/public/test-driven-development/SKILL.md
+</location>
+</skill>
+
 </available_skills>
 """.strip()
 

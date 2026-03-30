@@ -378,89 +378,70 @@ This is extremely important, so thanks for paying attention to it.
 
 <available_skills>
 <skill>
-<name>
-docx
-</name>
-<description>
-Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When You needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks
-</description>
-<location>
-/mnt/skills/public/docx/SKILL.md
-</location>
+<name>docx</name>
+<description>Document creation, editing, and analysis with tracked changes, comments, formatting. Use for .docx files.</description>
+<location>/mnt/skills/public/docx/SKILL.md</location>
 </skill>
-
 <skill>
-<name>
-pdf
-</name>
-<description>
-Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When You needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.
-</description>
-<location>
-/mnt/skills/public/pdf/SKILL.md
-</location>
+<name>pdf</name>
+<description>PDF manipulation: extract text/tables, create, merge/split, fill forms.</description>
+<location>/mnt/skills/public/pdf/SKILL.md</location>
 </skill>
-
 <skill>
-<name>
-pptx
-</name>
-<description>
-Presentation creation, editing, and analysis. When You needs to work with presentations (.pptx files) for: (1) Creating new presentations, (2) Modifying or editing content, (3) Working with layouts, (4) Adding comments or speaker notes, or any other presentation tasks
-</description>
-<location>
-/mnt/skills/public/pptx/SKILL.md
-</location>
+<name>pptx</name>
+<description>Presentation creation and editing for .pptx files with layouts, charts, speaker notes.</description>
+<location>/mnt/skills/public/pptx/SKILL.md</location>
 </skill>
-
 <skill>
-<name>
-skill-creator
-</name>
-<description>
-Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends You's capabilities with specialized knowledge, workflows, or tool integrations.
-</description>
-<location>
-/mnt/skills/public/skill-creator/SKILL.md
-</location>
+<name>xlsx</name>
+<description>Spreadsheet creation, editing, analysis with formulas, formatting, visualization.</description>
+<location>/mnt/skills/public/xlsx/SKILL.md</location>
 </skill>
-
 <skill>
-<name>
-xlsx
-</name>
-<description>
-Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, data analysis, and visualization. When You needs to work with spreadsheets (.xlsx, .xlsm, .csv, .tsv, etc) for: (1) Creating new spreadsheets with formulas and formatting, (2) Reading or analyzing data, (3) Modify existing spreadsheets while preserving formulas, (4) Data analysis and visualization in spreadsheets, or (5) Recalculating formulas
-</description>
-<location>
-/mnt/skills/public/xlsx/SKILL.md
-</location>
+<name>skill-creator</name>
+<description>Guide for creating custom skills that extend AI capabilities.</description>
+<location>/mnt/skills/public/skill-creator/SKILL.md</location>
 </skill>
-
 <skill>
-<name>
-gitlab-explorer
-</name>
-<description>
-Explore GitLab repositories using glab CLI and git commands. Use when user asks to: clone repositories, search projects or code in GitLab, view merge requests, explore project structure, check CI/CD pipelines, work with issues, or analyze git history. IMPORTANT: Always run authentication check script first before any GitLab operation.
-</description>
-<location>
-/mnt/skills/public/gitlab-explorer/SKILL.md
-</location>
+<name>gitlab-explorer</name>
+<description>Explore GitLab repos: clone, search, view MRs, CI/CD, issues, git history.</description>
+<location>/mnt/skills/public/gitlab-explorer/SKILL.md</location>
 </skill>
-
 <skill>
-<name>
-sub-agent
-</name>
-<description>
-Delegate complex tasks to autonomous sub-agent. Use for: creating presentations, multi-file refactoring, code review, Git operations, research, documentation. The sub-agent can iterate on tasks until completion and works in an isolated environment with full tool access.
-</description>
-<location>
-/mnt/skills/public/sub-agent/SKILL.md
-</location>
+<name>sub-agent</name>
+<description>Delegate complex multi-step tasks to autonomous Claude Code agent.</description>
+<location>/mnt/skills/public/sub-agent/SKILL.md</location>
 </skill>
-
+<skill>
+<name>describe-image</name>
+<description>Describe images (charts, diagrams, tables, screenshots) using Vision AI.</description>
+<location>/mnt/skills/public/describe-image/SKILL.md</location>
+</skill>
+<skill>
+<name>playwright-cli</name>
+<description>Browser automation: navigate websites, fill forms, take screenshots, extract data. Use for any web interaction.</description>
+<location>/mnt/skills/public/playwright-cli/SKILL.md</location>
+</skill>
+<skill>
+<name>frontend-design</name>
+<description>Create production-grade frontend interfaces with high design quality. Web components, dashboards, React.</description>
+<location>/mnt/skills/public/frontend-design/SKILL.md</location>
+</skill>
+<skill>
+<name>doc-coauthoring</name>
+<description>Structured 3-stage workflow for co-authoring docs: context gathering, refinement, reader testing.</description>
+<location>/mnt/skills/public/doc-coauthoring/SKILL.md</location>
+</skill>
+<skill>
+<name>webapp-testing</name>
+<description>Test web applications using Playwright: verify UI, capture screenshots, view browser logs.</description>
+<location>/mnt/skills/public/webapp-testing/SKILL.md</location>
+</skill>
+<skill>
+<name>test-driven-development</name>
+<description>TDD workflow: write test first, watch it fail, write minimal code to pass.</description>
+<location>/mnt/skills/public/test-driven-development/SKILL.md</location>
+</skill>
 </available_skills>
 
 <filesystem_configuration>
