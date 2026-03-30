@@ -48,6 +48,17 @@ services:
       timeout: 10s
       retries: 3
 
+  # Cleanup cron — removes stopped containers, orphaned volumes, stale data
+  cleanup:
+    build: ./cron
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/computer-use-data:/tmp/computer-use-data:rw
+    environment:
+      - CONTAINER_MAX_AGE_HOURS=${CONTAINER_MAX_AGE_HOURS:-24}
+      - DATA_MAX_AGE_DAYS=${DATA_MAX_AGE_DAYS:-7}
+    restart: unless-stopped
+
   # Optional: Skill registry — controls per-user skill access
   # Uncomment to enable. See settings-wrapper/README.md for details.
   # settings-wrapper:

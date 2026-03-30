@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="Inter, -apple-system, system-ui, sans-serif">
+  <defs>
+    <style>
+      .box { rx: 10; stroke-width: 1.5; }
+      .label { font-size: 13px; font-weight: 600; fill: #fff; }
+      .sublabel { font-size: 10px; fill: rgba(255,255,255,0.8); }
+      .item { font-size: 10.5px; fill: #374151; }
+      .arrow { stroke: #94a3b8; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+      .arrow-label { font-size: 9px; fill: #6b7280; }
+      .port { font-size: 9px; font-weight: 600; fill: #6b7280; }
+    </style>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="520" rx="12" fill="#fafbfc"/>
+
+  <!-- Client Layer -->
+  <rect x="250" y="15" width="400" height="55" class="box" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text x="450" y="38" text-anchor="middle" font-size="12" font-weight="600" fill="#475569">Any MCP Client</text>
+  <text x="450" y="54" text-anchor="middle" font-size="10" fill="#64748b">Open WebUI  ·  Claude Desktop  ·  LiteLLM  ·  n8n  ·  custom</text>
+
+  <!-- Arrow: Client → Server -->
+  <path d="M450,70 L450,105" class="arrow"/>
+  <text x="460" y="92" class="arrow-label">MCP over HTTP</text>
+
+  <!-- Computer Use Server -->
+  <rect x="160" y="105" width="580" height="155" class="box" fill="#1e40af" stroke="#1e3a8a"/>
+  <text x="450" y="128" text-anchor="middle" class="label">Computer Use Server</text>
+  <text x="450" y="142" text-anchor="middle" class="sublabel">MCP Orchestrator · FastAPI · :8081</text>
+
+  <!-- Server modules -->
+  <rect x="180" y="155" width="120" height="40" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="240" y="172" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">MCP Tools</text>
+  <text x="240" y="185" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">bash · view · create</text>
+
+  <rect x="315" y="155" width="120" height="40" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="375" y="172" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">File Server</text>
+  <text x="375" y="185" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">upload · preview · zip</text>
+
+  <rect x="450" y="155" width="120" height="40" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="510" y="172" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">CDP Proxy</text>
+  <text x="510" y="185" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">browser streaming</text>
+
+  <rect x="585" y="155" width="140" height="40" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="655" y="172" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Terminal Proxy</text>
+  <text x="655" y="185" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">ttyd · Claude Code</text>
+
+  <!-- Server bottom row -->
+  <rect x="180" y="205" width="170" height="35" rx="6" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.2)"/>
+  <text x="265" y="222" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(255,255,255,0.9)">Skill Manager</text>
+  <text x="265" y="233" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.6)">13 public + user skills</text>
+
+  <rect x="365" y="205" width="170" height="35" rx="6" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.2)"/>
+  <text x="450" y="222" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(255,255,255,0.9)">Docker Manager</text>
+  <text x="450" y="233" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.6)">create · stop · cleanup</text>
+
+  <rect x="550" y="205" width="175" height="35" rx="6" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.2)"/>
+  <text x="637" y="222" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(255,255,255,0.9)">System Prompt Builder</text>
+  <text x="637" y="233" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.6)">dynamic skills XML</text>
+
+  <!-- Arrow: Server → Container -->
+  <path d="M450,260 L450,295" class="arrow"/>
+  <text x="460" y="282" class="arrow-label">Docker Socket</text>
+
+  <!-- Sandbox Container -->
+  <rect x="60" y="295" width="780" height="200" class="box" fill="#0f766e" stroke="#0d9488"/>
+  <text x="450" y="318" text-anchor="middle" class="label">Sandbox Container (one per chat)</text>
+  <text x="450" y="332" text-anchor="middle" class="sublabel">Ubuntu 24.04 · Python 3.12 · Node.js 22 · Java 21</text>
+
+  <!-- Container features grid -->
+  <!-- Row 1 -->
+  <rect x="80" y="345" width="145" height="55" rx="6" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.25)"/>
+  <text x="152" y="365" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Documents</text>
+  <text x="152" y="378" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">LibreOffice · Pandoc</text>
+  <text x="152" y="390" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">docx · pptx · xlsx · pdf</text>
+
+  <rect x="240" y="345" width="145" height="55" rx="6" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.25)"/>
+  <text x="312" y="365" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Browser</text>
+  <text x="312" y="378" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">Chromium + Playwright</text>
+  <text x="312" y="390" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">CDP :9222 live stream</text>
+
+  <rect x="400" y="345" width="145" height="55" rx="6" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.25)"/>
+  <text x="472" y="365" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Claude Code</text>
+  <text x="472" y="378" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">Sub-agent · TTY · MCP</text>
+  <text x="472" y="390" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">Autonomous execution</text>
+
+  <rect x="560" y="345" width="135" height="55" rx="6" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.25)"/>
+  <text x="627" y="365" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Media</text>
+  <text x="627" y="378" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">FFmpeg · ImageMagick</text>
+  <text x="627" y="390" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">Tesseract OCR</text>
+
+  <rect x="710" y="345" width="115" height="55" rx="6" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.25)"/>
+  <text x="767" y="365" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Dev Tools</text>
+  <text x="767" y="378" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">Git · glab · Bun</text>
+  <text x="767" y="390" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.7)">TypeScript · Mermaid</text>
+
+  <!-- Row 2: Mounts -->
+  <text x="80" y="425" font-size="9" font-weight="600" fill="rgba(255,255,255,0.9)">Mounts:</text>
+  <text x="135" y="425" font-size="9" fill="rgba(255,255,255,0.65)">/mnt/skills (read-only) · /mnt/user-data/uploads (read-only) · /mnt/user-data/outputs (read-write → served via HTTP)</text>
+
+  <!-- Row 3: Features -->
+  <text x="80" y="445" font-size="9" font-weight="600" fill="rgba(255,255,255,0.9)">Limits:</text>
+  <text x="125" y="445" font-size="9" fill="rgba(255,255,255,0.65)">2 GB RAM · 1 CPU · idle timeout auto-shutdown · network access enabled</text>
+
+  <!-- Row 4 -->
+  <text x="80" y="465" font-size="9" font-weight="600" fill="rgba(255,255,255,0.9)">Skills:</text>
+  <text x="122" y="465" font-size="9" fill="rgba(255,255,255,0.65)">docx · pdf · pptx · xlsx · playwright-cli · sub-agent · gitlab-explorer · describe-image · frontend-design · ...</text>
+
+  <text x="80" y="485" font-size="9" font-weight="600" fill="rgba(255,255,255,0.9)">Ports:</text>
+  <text x="120" y="485" font-size="9" fill="rgba(255,255,255,0.65)">9222 (CDP browser) · 7681 (ttyd terminal) — proxied through server, not exposed directly</text>
+
+  <!-- Footer -->
+  <text x="450" y="512" text-anchor="middle" font-size="10" fill="#9ca3af">open-computer-use · github.com/Yambr/openwebui-computer-use-community</text>
+</svg>

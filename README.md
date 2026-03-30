@@ -1,18 +1,32 @@
 # Open Computer Use
 
-A self-hosted, open-source workspace that gives any LLM the ability to execute code, create documents, browse the web, and use CLI tools — similar to Claude.ai's computer use, but pluggable into any frontend.
+Self-hosted AI workspace with code execution, document creation, browser control, and autonomous agents — like **OpenAI Operator** + **Claude Computer Use** + **Claude Code**, but open-source and pluggable into any LLM.
 
 ## What is this?
 
-An MCP (Model Context Protocol) server that manages isolated Docker containers where AI can:
+An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated Docker containers. Think of it as your AI's computer — it can do everything a developer can do:
 
-- Execute bash commands and Python/Node.js scripts
-- Create and edit files (documents, spreadsheets, presentations, PDFs)
-- Browse the web via Playwright + live CDP viewer
-- Run Claude Code as a sub-agent via interactive terminal
-- Use 16+ built-in skills for common tasks
+- **Execute code** — bash, Python, Node.js, Java in isolated containers
+- **Create documents** — Word, Excel, PowerPoint, PDF with professional styling via skills
+- **Browse the web** — Playwright + live CDP browser streaming (you see what AI sees in real-time)
+- **Run Claude Code** — autonomous sub-agent with interactive terminal, MCP servers auto-configured
+- **Use 13+ skills** — battle-tested workflows for document creation, web testing, design, and more
+
+### Key differentiators
+
+| Feature | Open Computer Use | Claude.ai | OpenAI Operator |
+|---------|-------------------|-----------|-----------------|
+| **Self-hosted** | Yes | No | No |
+| **Any LLM** | Yes (OpenAI-compatible) | Claude only | GPT only |
+| **Code execution** | Full Linux sandbox | Limited | No |
+| **Live browser view** | CDP streaming | Screenshot-based | Screenshot-based |
+| **Sub-agent (Claude Code)** | Interactive TTY + MCP | N/A | N/A |
+| **Skills system** | 13 built-in + custom | N/A | N/A |
+| **File preview** | Auto artifacts panel | Download only | N/A |
 
 Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
+
+> **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
 
 ![Create Document](docs/screenshots/01-create-document.png)
 
@@ -50,31 +64,7 @@ Without `Function Calling: Native`, the model won't invoke Computer Use tools.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Any MCP Client (Open WebUI, Claude Desktop, n8n)   │
-└──────────────────────┬──────────────────────────────┘
-                       │ MCP over HTTP
-         ┌─────────────▼──────────────┐
-         │   Computer Use Server      │
-         │   (MCP Orchestrator)       │
-         │   :8081                    │
-         │                            │
-         │  ┌──────┐ ┌─────┐ ┌─────┐ │
-         │  │ bash │ │view │ │file │ │
-         │  │ tool │ │     │ │creat│ │
-         │  └──┬───┘ └──┬──┘ └──┬──┘ │
-         └─────┼────────┼───────┼────┘
-               │ Docker Socket  │
-    ┌──────────▼────────▼───────▼──────────┐
-    │        Sandbox Container             │
-    │  Ubuntu 24.04 + Python + Node.js     │
-    │  Playwright, LibreOffice, FFmpeg...  │
-    │                                      │
-    │  CDP :9222  │  ttyd :7681            │
-    │  (browser)  │  (terminal)            │
-    └──────────────────────────────────────┘
-```
+![Architecture](docs/architecture.svg)
 
 ## What's Inside the Sandbox
 
@@ -95,22 +85,25 @@ Without `Function Calling: Native`, the model won't invoke Computer Use tools.
 
 ## Skills
 
-Built-in skills for common tasks:
+13 built-in public skills + 14 examples:
 
 | Skill | Description |
 |-------|-------------|
-| **pptx** | Create/edit PowerPoint presentations |
-| **docx** | Create/edit Word documents |
-| **xlsx** | Create/edit Excel spreadsheets |
+| **pptx** | Create/edit PowerPoint presentations with html2pptx |
+| **docx** | Create/edit Word documents with tracked changes |
+| **xlsx** | Create/edit Excel spreadsheets with formulas |
 | **pdf** | Create, fill forms, extract, merge PDFs |
 | **sub-agent** | Delegate complex tasks to Claude Code |
-| **playwright-cli** | Browser automation |
+| **playwright-cli** | Browser automation and web scraping |
 | **describe-image** | Vision API image analysis |
-| **pdf-markdown** | PDF to Markdown conversion |
-| **webapp-testing** | Test web applications |
 | **frontend-design** | Build production-grade UIs |
+| **webapp-testing** | Test web applications with Playwright |
+| **doc-coauthoring** | Structured document co-authoring workflow |
+| **test-driven-development** | TDD methodology enforcement |
 | **skill-creator** | Create custom skills |
 | **gitlab-explorer** | Explore GitLab repositories |
+
+**14 example skills**: web-artifacts-builder, copy-editing, social-content, canvas-design, algorithmic-art, theme-factory, mcp-builder, and more.
 
 See [docs/SKILLS.md](docs/SKILLS.md) for details.
 
@@ -148,7 +141,7 @@ All settings via `.env`:
 
 ### Custom Skills (optional)
 
-By default, all 16 built-in skills are available to everyone. To control per-user skill access or add custom skills, deploy the **Settings Wrapper** — a simple skill registry with two API endpoints. See [settings-wrapper/README.md](settings-wrapper/README.md).
+By default, all 13 built-in skills are available to everyone. To control per-user skill access or add custom skills, deploy the **Settings Wrapper** — a simple skill registry with two API endpoints. See [settings-wrapper/README.md](settings-wrapper/README.md).
 
 ## Open WebUI Integration
 
