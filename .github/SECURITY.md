@@ -41,6 +41,7 @@ This setup is tested in production with **1000+ users** on Open WebUI behind a c
 - **File/preview endpoints** use chat ID (UUID) as the sole access control — not a real security boundary
 - **User identity** is client-asserted (HTTP headers), not verified server-side
 - **API credentials** (GitLab, Anthropic) are passed in HTTP headers — use HTTPS if exposing externally
+- **Container runtime** is standard Docker (runc), not gVisor — containers share the host kernel. Claude.ai uses gVisor for additional syscall-level isolation. We plan to add optional gVisor support (see roadmap)
 
 For multi-user deployments, see the **Security Roadmap** in [README.md](../README.md#security-roadmap).
 

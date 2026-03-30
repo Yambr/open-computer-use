@@ -18,11 +18,12 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 |---------|-------------------|-----------|-----------------|
 | **Self-hosted** | Yes | No | No |
 | **Any LLM** | Yes (OpenAI-compatible) | Claude only | GPT only |
-| **Code execution** | Full Linux sandbox | Limited | No |
+| **Code execution** | Full Linux sandbox | Sandbox (gVisor) | No |
 | **Live browser view** | CDP streaming | Screenshot-based | Screenshot-based |
 | **Sub-agent (Claude Code)** | Interactive TTY + MCP | N/A | N/A |
-| **Skills system** | 13 built-in + custom | N/A | N/A |
-| **File preview** | Auto artifacts panel | Download only | N/A |
+| **Skills system** | 13 built-in + custom | Projects / custom instructions | N/A |
+| **File preview** | Auto artifacts panel | Artifacts | N/A |
+| **Container isolation** | Docker (runc) | Docker (gVisor) | N/A |
 
 Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
 
@@ -200,7 +201,7 @@ The docker-compose stack handles all of this automatically.
 
 - **Docker socket**: The server needs Docker socket access to manage sandbox containers. This grants significant host access — run in a trusted environment only.
 - **MCP_API_KEY**: Set a strong random key in production. Without it, anyone with network access to port 8081 can execute arbitrary commands in containers.
-- **Sandbox isolation**: Each chat session runs in a separate container with resource limits (2GB RAM, 1 CPU). Containers have network access by default.
+- **Sandbox isolation**: Each chat session runs in a separate container with resource limits (2GB RAM, 1 CPU). Containers use standard Docker runtime (runc), not gVisor — they share the host kernel. For stronger isolation, consider switching to gVisor runtime (see roadmap). Containers have network access by default.
 - **POSTGRES_PASSWORD**: Change the default password in `.env` for production.
 
 ### Known limitations
@@ -220,6 +221,7 @@ We plan to address these in future releases:
 - [ ] **Audit logging** for all tool calls and file access
 - [ ] **Network policies** for sandbox containers (restrict egress by default)
 - [ ] **Secret management** — move credentials from headers to encrypted server-side storage
+- [ ] **gVisor (runsc) runtime** — optional container sandboxing for stronger isolation (like Claude.ai)
 
 Ideas? Open a [GitHub Issue](https://github.com/Yambr/openwebui-computer-use-community/issues). Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) or reach out on Telegram [@yambrcom](https://t.me/yambrcom).
 
