@@ -158,15 +158,17 @@ By default, all 13 built-in skills are available to everyone. For per-user skill
 
 ## Open WebUI Integration
 
-**Compatibility:** Tested with Open WebUI v0.8.11–0.8.12. Patches target compiled frontend code and may need updates for newer versions. Set `OPENWEBUI_VERSION` in `.env` to pin a specific version.
+**Compatibility:** Tested with Open WebUI v0.8.11–0.8.12. Set `OPENWEBUI_VERSION` in `.env` to pin a specific version.
 
-The `openwebui/` directory contains everything needed to use this with [Open WebUI](https://github.com/open-webui/open-webui):
+**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use any stock Open WebUI version — just install the tool and filter. Patches are optional quality-of-life fixes applied at Docker build time.
 
-- **tools/** — MCP client tool (thin proxy to the server)
-- **functions/** — System prompt injector + archive button
-- **patches/** — Fixes for artifacts auto-show and tool error handling
-- **init.sh** — Auto-installs tool + filter on first startup via Open WebUI API
-- **Dockerfile** — Builds a patched Open WebUI image with auto-init
+The `openwebui/` directory contains:
+
+- **tools/** — MCP client tool (thin proxy to Computer Use Server). **Required** — this is the bridge between Open WebUI and the sandbox.
+- **functions/** — System prompt injector + file link rewriter + archive button. **Required** — without it the model doesn't know about skills and file URLs.
+- **patches/** — Build-time fixes for artifacts, error handling, file preview. **Optional** but recommended — improves UX significantly.
+- **init.sh** — Auto-installs tool + filter on first startup. **Optional** — you can install manually via Workspace UI instead.
+- **Dockerfile** — Builds a patched Open WebUI image with auto-init. **Optional** — use stock Open WebUI + manual setup if you prefer.
 
 ### How auto-init works
 
