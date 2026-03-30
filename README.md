@@ -160,11 +160,25 @@ By default, all 13 built-in skills are available to everyone. For per-user skill
 
 **Personal Access Tokens (PATs):** In our production setup, the settings wrapper also stores encrypted per-user PATs for GitLab, Confluence, Jira, and other services. The server fetches them on the fly by user email and injects into the sandbox container — so each user's AI has access to their repos/docs without sharing credentials. The server-side code for GitLab token fetch is already implemented (`docker_manager.py`), but the Open WebUI tool doesn't pass the required headers yet. This is on the roadmap — if you need PAT management for your setup, [open an issue](https://github.com/Yambr/openwebui-computer-use-community/issues) describing your use case.
 
+## MCP Client Integrations
+
+The Computer Use Server speaks standard **MCP over Streamable HTTP** — any MCP-compatible client can connect. Open WebUI is the primary tested frontend, but not the only option.
+
+| Client | How to connect | Status |
+|--------|---------------|--------|
+| [**Open WebUI**](https://github.com/open-webui/open-webui) | Docker Compose stack included, auto-configured | Tested in production |
+| [**Claude Desktop**](https://claude.ai/download) | Add to `claude_desktop_config.json` — see [docs/MCP.md](docs/MCP.md) | Works |
+| [**n8n**](https://n8n.io) | MCP Tool node → `http://computer-use-server:8081/mcp` | Works |
+| [**LiteLLM**](https://github.com/BerriAI/litellm) | MCP proxy config — see [docs/MCP.md](docs/MCP.md) | Works |
+| **Custom client** | Any HTTP client with MCP JSON-RPC — see curl examples in [docs/MCP.md](docs/MCP.md) | Works |
+
 ## Open WebUI Integration
+
+> **[Open WebUI](https://github.com/open-webui/open-webui)** is an extensible, self-hosted AI interface. We use it as the primary frontend because it supports tool calling, function filters, and artifacts — everything needed for Computer Use.
 
 **Compatibility:** Tested with Open WebUI v0.8.11–0.8.12. Set `OPENWEBUI_VERSION` in `.env` to pin a specific version.
 
-**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use any stock Open WebUI version — just install the tool and filter. Patches are optional quality-of-life fixes applied at Docker build time.
+**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use any stock [Open WebUI](https://github.com/open-webui/open-webui) version — just install the tool and filter. Patches are optional quality-of-life fixes applied at Docker build time.
 
 The `openwebui/` directory contains:
 
