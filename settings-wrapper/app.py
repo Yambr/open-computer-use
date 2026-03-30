@@ -16,8 +16,9 @@ from fastapi.responses import FileResponse
 app = FastAPI(title="Settings Wrapper", version="0.1.0")
 
 API_KEY = os.getenv("API_KEY", "")
-SKILLS_DIR = Path(os.getenv("SKILLS_DIR", "/app/skills"))
-CONFIG_PATH = Path(os.getenv("CONFIG_PATH", "/app/skills.json"))
+_app_dir = Path(__file__).parent
+SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(_app_dir / "skills")))
+CONFIG_PATH = Path(os.getenv("CONFIG_PATH", str(_app_dir / "skills.json")))
 
 
 def _check_auth(api_key: str = Header(None, alias="X-Internal-Api-Key")):
