@@ -145,6 +145,45 @@ class _MCPClient:
         return "\n".join(parts) if parts else "[No text output]"
 
 
+def _get_user_mcp_server_names(request, user_id: str = "") -> list:
+    """Extract MCP server names available to the user from OpenWebUI config.
+
+    Reads request.app.state.config.TOOL_SERVER_CONNECTIONS, filters by type=="mcp"
+    and user access_control, returns server names (last URL path segment).
+    """
+    if not request or not hasattr(request, "app"):
+        return []
+    try:
+        connections = request.app.state.config.TOOL_SERVER_CONNECTIONS
+    except Exception:
+        return []
+
+    names = []
+    for server in connections:
+        if server.get("type") != "mcp":
+            continue
+
+        # Access control check: if access_control is set, user must be in read list
+        ac = server.get("access_control", {})
+        if ac:
+            read_group = ac.get("read", {})
+            user_ids = read_group.get("user_ids", [])
+            group_ids = read_group.get("group_ids", [])
+            if user_ids or group_ids:
+                if user_id and user_id not in user_ids:
+                    continue
+
+        url = server.get("url", "")
+        if not url:
+            continue
+        # Extract server name from URL: https://api.example.com/mcp/confluence → confluence
+        name = url.rstrip("/").rsplit("/", 1)[-1]
+        if name and name != "mcp":
+            names.append(name)
+
+    return names
+
+
 # Custom type for view_range
 ViewRange = Annotated[
     Optional[List[int]],
@@ -193,15 +232,24 @@ class Tools:
     # Helpers
     # =========================================================================
 
-    def _build_mcp_headers(self, chat_id: str, __user__: dict = None) -> dict:
-        """Build HTTP headers — only per-request user context. Server handles the rest."""
+    def _build_mcp_headers(self, chat_id: str, __user__: dict = None, request=None) -> dict:
+        """Build HTTP headers — per-request user context + MCP server names."""
         user_email = __user__.get("email", "") if __user__ else ""
         user_name = __user__.get("name", "") if __user__ else ""
-        return self.mcp_client.build_headers(
+        headers = self.mcp_client.build_headers(
             chat_id=chat_id,
             user_email=user_email,
             user_name=user_name,
         )
+        if request:
+            try:
+                user_id = __user__.get("id", "") if __user__ else ""
+                names = _get_user_mcp_server_names(request, user_id)
+                if names:
+                    headers["X-Mcp-Servers"] = ",".join(names)
+            except Exception:
+                pass
+        return headers
 
     async def _sync_files_if_needed(self, chat_id: str, command_or_path: str, __files__: list = None):
         """Sync uploaded files to computer-use-orchestrator if command/path references uploads."""
@@ -248,7 +296,7 @@ class Tools:
             await __event_emitter__({"type": "status", "data": {"description": description or "Executing bash command...", "status": "in_progress", "done": False}})
 
         try:
-            headers = self._build_mcp_headers(chat_id, __user__)
+            headers = self._build_mcp_headers(chat_id, __user__, request=__request__)
             result = await self.mcp_client.call_tool(
                 "bash_tool", {"command": command, "description": description},
                 headers=headers, timeout=CLIENT_HTTP_TIMEOUT,
@@ -292,7 +340,7 @@ class Tools:
             await __event_emitter__({"type": "status", "data": {"description": description or f"Editing {path}...", "status": "in_progress", "done": False}})
 
         try:
-            headers = self._build_mcp_headers(chat_id, __user__)
+            headers = self._build_mcp_headers(chat_id, __user__, request=__request__)
             result = await self.mcp_client.call_tool(
                 "str_replace", {"description": description, "old_str": old_str, "path": path, "new_str": new_str},
                 headers=headers, timeout=CLIENT_HTTP_TIMEOUT,
@@ -332,7 +380,7 @@ class Tools:
             await __event_emitter__({"type": "status", "data": {"description": description or f"Creating {path}...", "status": "in_progress", "done": False}})
 
         try:
-            headers = self._build_mcp_headers(chat_id, __user__)
+            headers = self._build_mcp_headers(chat_id, __user__, request=__request__)
             result = await self.mcp_client.call_tool(
                 "create_file", {"description": description, "file_text": file_text, "path": path},
                 headers=headers, timeout=CLIENT_HTTP_TIMEOUT,
@@ -373,7 +421,7 @@ class Tools:
             await __event_emitter__({"type": "status", "data": {"description": description or f"Reading {path}...", "status": "in_progress", "done": False}})
 
         try:
-            headers = self._build_mcp_headers(chat_id, __user__)
+            headers = self._build_mcp_headers(chat_id, __user__, request=__request__)
             args = {"description": description, "path": path}
             if view_range:
                 args["view_range"] = view_range
@@ -427,7 +475,7 @@ class Tools:
             await self._sync_files_if_needed(chat_id, "/mnt/user-data/uploads", __files__)
 
         try:
-            headers = self._build_mcp_headers(chat_id, __user__)
+            headers = self._build_mcp_headers(chat_id, __user__, request=__request__)
             args = {
                 "task": task, "description": description, "model": model,
                 "max_turns": max_turns, "working_directory": working_directory,
