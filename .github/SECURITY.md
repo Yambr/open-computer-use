@@ -34,7 +34,7 @@ The following are in scope:
 
 ## Current Security Model
 
-This setup is tested in production with **1000+ users** on Open WebUI behind a corporate firewall. Key points:
+This setup is tested in production with **1000+ users** on Open WebUI in a self-hosted environment. Key points:
 
 - **Docker socket access** grants significant host control — run only in trusted environments
 - **MCP_API_KEY** is the only auth for the MCP endpoint — set a strong random key

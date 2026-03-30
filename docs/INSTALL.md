@@ -9,8 +9,8 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/Yambr/openwebui-computer-use-community.git
-cd openwebui-computer-use-community
+git clone https://github.com/Yambr/open-computer-use.git
+cd open-computer-use
 cp .env.example .env
 # Edit .env — set OPENAI_API_KEY (or any OpenAI-compatible provider)
 

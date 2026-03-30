@@ -42,4 +42,5 @@ Node.js uses parent directory resolution: if a package isn't found in `/home/ass
 - `skills/` — AI skills (pptx, xlsx, docx, pdf, sub-agent, playwright-cli, etc.)
 - `docs/` — Documentation
 - `tests/` — Test scripts
-- `docker-compose.yml` — Full stack (Open WebUI + PostgreSQL + Computer Use Server)
+- `docker-compose.yml` — Computer Use Server
+- `docker-compose.webui.yml` — Open WebUI + PostgreSQL (connects to server via `host.docker.internal`)

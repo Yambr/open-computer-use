@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.0 - Initial Open Source Release
+## v1.0.0 - Initial Open Source Release (2026-03-30)
 
 ### Features
 - **MCP Server**: Computer Use orchestrator with full MCP (Model Context Protocol) support

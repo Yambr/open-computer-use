@@ -54,8 +54,8 @@ See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
 ## Quick Start
 
 ```bash
-git clone https://github.com/Yambr/openwebui-computer-use-community.git
-cd openwebui-computer-use-community
+git clone https://github.com/Yambr/open-computer-use.git
+cd open-computer-use
 cp .env.example .env
 # Edit .env — set OPENAI_API_KEY (or any OpenAI-compatible provider)
 
@@ -93,10 +93,10 @@ Without `Function Calling: Native`, the model won't invoke Computer Use tools.
 | **Images** | Pillow, OpenCV, ImageMagick, sharp, librsvg |
 | **Web** | Playwright (Chromium), Mermaid CLI |
 | **AI** | Claude Code CLI, Playwright MCP |
-| **OCR** | Tesseract (English + Russian) |
+| **OCR** | Tesseract (configurable languages) |
 | **Media** | FFmpeg |
 | **Diagrams** | Graphviz, Mermaid |
-| **Dev** | TypeScript, tsx, git, glab |
+| **Dev** | TypeScript, tsx, git |
 
 ## Skills
 
@@ -158,7 +158,7 @@ All settings via `.env`:
 
 By default, all 13 built-in skills are available to everyone. For per-user skill access and custom skills, deploy the **Settings Wrapper** — see [settings-wrapper/README.md](settings-wrapper/README.md).
 
-**Personal Access Tokens (PATs):** In our production setup, the settings wrapper also stores encrypted per-user PATs for GitLab, Confluence, Jira, and other services. The server fetches them on the fly by user email and injects into the sandbox container — so each user's AI has access to their repos/docs without sharing credentials. The server-side code for GitLab token fetch is already implemented (`docker_manager.py`), but the Open WebUI tool doesn't pass the required headers yet. This is on the roadmap — if you need PAT management for your setup, [open an issue](https://github.com/Yambr/openwebui-computer-use-community/issues) describing your use case.
+**Personal Access Tokens (PATs):** The settings wrapper can also store encrypted per-user PATs for external services (GitLab, Confluence, Jira, etc.). The server fetches them by user email and injects into the sandbox — so each user's AI has access to their repos/docs without sharing credentials. The server-side code for token injection is implemented (`docker_manager.py`), but the Open WebUI tool doesn't pass the required headers yet. This is on the roadmap — if you need PAT management, [open an issue](https://github.com/Yambr/open-computer-use/issues).
 
 ## MCP Client Integrations
 
@@ -217,7 +217,7 @@ The docker-compose stack handles all of this automatically.
 
 ## Security Notes
 
-> **Production tested** with 1000+ users on Open WebUI behind a corporate firewall. For public-facing deployments, see the hardening roadmap below.
+> **Production tested** with 1000+ users on Open WebUI in a self-hosted environment. For public-facing deployments, see the hardening roadmap below.
 
 ### Current model
 
@@ -245,7 +245,7 @@ We plan to address these in future releases:
 - [ ] **Secret management** — move credentials from headers to encrypted server-side storage
 - [ ] **gVisor (runsc) runtime** — optional container sandboxing for stronger isolation (like Claude.ai)
 
-Ideas? Open a [GitHub Issue](https://github.com/Yambr/openwebui-computer-use-community/issues). Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) or reach out on Telegram [@yambrcom](https://t.me/yambrcom).
+Ideas? Open a [GitHub Issue](https://github.com/Yambr/open-computer-use/issues). Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) or reach out on Telegram [@yambrcom](https://t.me/yambrcom).
 
 ## Development
 
@@ -268,7 +268,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome!
 
 ## Community
 
-- **Issues & Ideas**: [GitHub Issues](https://github.com/Yambr/openwebui-computer-use-community/issues)
+- **Issues & Ideas**: [GitHub Issues](https://github.com/Yambr/open-computer-use/issues)
 - **Telegram**: [@yambrcom](https://t.me/yambrcom)
 
 ## License

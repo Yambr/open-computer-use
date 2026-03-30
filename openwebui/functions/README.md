@@ -1,94 +1,44 @@
-# OpenWebUI Functions
+# Computer Link Filter
 
-Collection of Functions for integrating AI Computer Use with OpenWebUI.
+**File**: `computer_link_filter.py` — required companion to `computer_use_tools.py`.
 
-## Computer Link Filter
+## What It Does
 
-**File**: `computer_link_filter.py`
+| Phase | Action |
+|-------|--------|
+| **Inlet** (before LLM) | Injects system prompt: file server URL, `<available_skills>` XML (13 skills), output path mapping |
+| **Outlet** (after LLM) | Adds "View file" link + "Download all as archive" button when response contains file URLs |
 
-### Description
+Without this filter, the model won't know about skills or how to generate file download links.
 
-A Filter function that:
-1. ✅ Injects a system prompt with the file URL (AI immediately generates correct links)
-2. ✅ Adds a "Download all as archive" button under messages with files
+## Valves
 
-### How It Works (v3.0.0)
+| Valve | Default | Description |
+|-------|---------|-------------|
+| `FILE_SERVER_URL` | `http://localhost:8081` | File server URL (browser-accessible for download links) |
+| `ENABLE_ARCHIVE_BUTTON` | `true` | Add "Download archive" button to responses |
+| `INJECT_SYSTEM_PROMPT` | `true` | Inject skills and file URL into system prompt |
 
-```
-inlet() → Injects file_base_url and archive_url into the prompt
-          ↓
-AI      → Immediately generates correct HTTP links
-          ↓
-outlet() → Adds "Download archive" button
-          ↓
-User    → Clicks → File Server → Downloads file
-```
+## Installation
 
-**Key difference in v3.0.0**: AI receives the file server URL in the system prompt and immediately generates working links. No post-processing needed to replace `computer://`.
+1. **Workspace > Functions** → Create → paste `computer_link_filter.py`
+2. Enable globally (toggle in Functions list)
+3. Tool `ai_computer_use` must be installed (filter reads its valves for internal URL)
 
-### Installation
+Auto-configured by `docker-compose.webui.yml` via `init.sh`.
 
-1. Open OpenWebUI → **Workspace** → **Functions**
-2. Click **"+ Add Function"**
-3. Copy the contents of `computer_link_filter.py`
-4. Paste into the editor and save
-5. Enable the function globally or for specific models
-
-### Settings (Valves)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `FILE_SERVER_URL` | `http://localhost:8081` | File server address |
-| `ENABLE_ARCHIVE_BUTTON` | `true` | Add archive button |
-| `ARCHIVE_BUTTON_TEXT` | `📦 Download all files as archive` | Button text |
-| `INJECT_SYSTEM_PROMPT` | `true` | Inject system prompt |
-
-### Example Output
-
-#### AI generates directly:
+## How File Links Work
 
 ```
-Your report is ready!
-
-[Download report.docx](http://localhost:8081/files/abc123/report.docx)
-[Download presentation.pptx](http://localhost:8081/files/abc123/presentation.pptx)
+inlet() → Injects file_base_url into system prompt
+       → AI generates: [file.docx](http://server:8081/files/{chat_id}/file.docx)
+outlet() → Appends archive download button
 ```
 
-#### After outlet() (button added):
+The model receives the mapping: `/mnt/user-data/outputs/` → `{FILE_SERVER_URL}/files/{chat_id}/` and generates correct HTTP links directly.
 
-```
-Your report is ready!
+## Related
 
-[Download report.docx](http://localhost:8081/files/abc123/report.docx)
-[Download presentation.pptx](http://localhost:8081/files/abc123/presentation.pptx)
-
----
-[📦 Download all files as archive](http://localhost:8081/files/abc123/archive)
-```
-
-### What Gets Injected into the Prompt
-
-AI receives the following information:
-- `file_base_url`: URL for files (`{FILE_SERVER_URL}/files/{chat_id}/`)
-- `archive_url`: URL for downloading the archive
-- Mapping: `/mnt/user-data/outputs/` → `{file_base_url}/`
-- Usage examples
-
-### Requirements
-
-- OpenWebUI >= 0.5.17
-- File-server running and accessible
-- Computer Use Tools configured with ID `ai_computer_use`
-
-### Compatibility
-
-Works with:
-- ✅ Computer Use Tools v2.0.0+
-- ✅ File Server v1.0.0+
-- ✅ OpenWebUI 0.5.17+
-
----
-
-## Additional Functions
-
-*(more to be added later)*
+- [tools/README.md](../tools/README.md) — MCP client tool
+- [SKILLS.md](../../docs/SKILLS.md) — all available skills
+- [Main README](../../README.md#open-webui-integration) — full setup guide

@@ -5,7 +5,7 @@ Thank you for your interest! PRs and issues welcome.
 ## Getting Started
 
 1. Fork the repository
-2. Clone: `git clone https://github.com/your-username/openwebui-computer-use-community.git`
+2. Clone: `git clone https://github.com/your-username/open-computer-use.git`
 3. Branch: `git checkout -b feature/your-feature`
 
 ## Development

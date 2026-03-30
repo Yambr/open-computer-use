@@ -775,7 +775,7 @@ function TerminalDashboard({ chatId, dangerousMode, onToggleDangerous, onStartSe
           <button class="dash-btn-secondary" onClick=${uploadFile}>
             <span class="icon-inline" dangerouslySetInnerHTML=${{ __html: icon('upload') }}></span> ${t('upload_file')}
           </button>
-          <a class="dash-link" href="https://github.com/Yambr/openwebui-computer-use-community/blob/main/docs/TERMINAL-TAB.md" target="_blank">
+          <a class="dash-link" href="https://github.com/Yambr/open-computer-use/blob/main/docs/TERMINAL-TAB.md" target="_blank">
             <span class="icon-inline" dangerouslySetInnerHTML=${{ __html: icon('book') }}></span> ${t('how_to_use')}
           </a>
         </div>

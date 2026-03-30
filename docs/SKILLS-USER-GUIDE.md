@@ -77,7 +77,7 @@ In our production setup, we built a **skill registry** (settings-wrapper) where:
 
 For community use, we provide a [mock settings-wrapper](../settings-wrapper/README.md) with the API contract. All 13 public skills work out of the box without it.
 
-**Want a public skill management tool?** We'd love to build one that works with your setup. Open a [GitHub Issue](https://github.com/Yambr/openwebui-computer-use-community/issues) and tell us what you use (LiteLLM, Open WebUI standalone, Claude Desktop, etc.) — this helps us prioritize.
+**Want a public skill management tool?** We'd love to build one that works with your setup. Open a [GitHub Issue](https://github.com/Yambr/open-computer-use/issues) and tell us what you use (LiteLLM, Open WebUI standalone, Claude Desktop, etc.) — this helps us prioritize.
 
 ## Related Docs
 

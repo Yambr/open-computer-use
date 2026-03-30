@@ -225,5 +225,5 @@
   <text x="470" y="744" class="version">Accessed via Computer Use Server proxy (not directly)</text>
 
   <!-- Footer -->
-  <text x="450" y="798" text-anchor="middle" font-size="11" fill="#9ca3af">open-computer-use · github.com/Yambr/openwebui-computer-use-community</text>
+  <text x="450" y="798" text-anchor="middle" font-size="11" fill="#9ca3af">open-computer-use · github.com/Yambr/open-computer-use</text>
 </svg>

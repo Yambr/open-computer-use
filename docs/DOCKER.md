@@ -174,7 +174,7 @@ dns:
 1. **no-new-privileges**: Prevents privilege escalation
 2. **Read-only mounts**: Skills and uploads are read-only
 3. **Network isolation**: Bridge network mode
-4. **Resource limits**: CPU and memory constraints (2GB RAM, 1 CPU default)
+4. **Resource limits**: CPU and memory constraints (configurable, see examples above)
 5. **Standard Docker runtime (runc)**: Containers share the host kernel. For stronger isolation, consider [gVisor (runsc)](https://gvisor.dev/) which intercepts syscalls in userspace — this is what Claude.ai uses. gVisor support is on the roadmap.
 
 ### Optional Hardening

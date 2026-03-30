@@ -429,7 +429,7 @@ docker-compose build --no-cache
 
 ### 1. Read-Only Skills
 Skills are mounted read-only. For modifications:
-- Copy to `/home/claude/` (ephemeral workspace)
+- Copy to `/home/assistant/` (ephemeral workspace)
 - Or write outputs to `/mnt/user-data/outputs/`
 
 ### 2. File Paths

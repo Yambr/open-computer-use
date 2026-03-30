@@ -113,5 +113,5 @@
   <text x="120" y="485" font-size="9" fill="rgba(255,255,255,0.65)">9222 (CDP browser) · 7681 (ttyd terminal) — proxied through server, not exposed directly</text>
 
   <!-- Footer -->
-  <text x="450" y="512" text-anchor="middle" font-size="10" fill="#9ca3af">open-computer-use · github.com/Yambr/openwebui-computer-use-community</text>
+  <text x="450" y="512" text-anchor="middle" font-size="10" fill="#9ca3af">open-computer-use · github.com/Yambr/open-computer-use</text>
 </svg>

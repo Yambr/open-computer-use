@@ -48,7 +48,7 @@ jobs:
 
             ```bash
             git clone https://github.com/${{ github.repository }}.git
-            cd openwebui-computer-use-community
+            cd open-computer-use
             cp .env.example .env
             # Edit .env with your API key
             docker compose up
