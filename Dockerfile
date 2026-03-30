@@ -131,9 +131,8 @@ RUN python3 --version && \
 # Many scripts and tools expect 'python' command to be available
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
-# Create a non-root user with sudo access FIRST
-RUN useradd -m -s /bin/bash assistant && \
-    echo "assistant ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+# Create a non-root assistant user
+RUN useradd -m -s /bin/bash assistant
 
 # Configure npm global directory and sudo to preserve needed ENV variables
 RUN mkdir -p /usr/local/lib/node_modules_global && \
