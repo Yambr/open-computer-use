@@ -105,6 +105,6 @@ tzdata==2025.2
 python-dotenv==1.1.1
 PyYAML==6.0.3
 pyyaml_env_tag==1.1
-wrapt==1.17.3
+wrapt==2.1.2
 Deprecated==1.2.18
 six==1.17.0
