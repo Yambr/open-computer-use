@@ -419,7 +419,7 @@ Comprehensive PDF manipulation toolkit for extracting text and tables, creating 
 pdf-markdown
 </name>
 <description>
-Convert PDF to Markdown with images via MinerU OCR API. Use when markdown output with preserved images is needed. Supports Russian (default) and other languages.
+Convert PDF to Markdown with images via MinerU OCR API. Use when markdown output with preserved images is needed. Supports multiple languages.
 </description>
 <location>
 /mnt/skills/public/pdf-markdown/SKILL.md

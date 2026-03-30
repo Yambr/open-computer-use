@@ -17,8 +17,8 @@ Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n
 ## Quick Start
 
 ```bash
-git clone https://github.com/YOUR_ORG/open-computer-use.git
-cd open-computer-use
+git clone https://github.com/Yambr/openwebui-computer-use-community.git
+cd openwebui-computer-use-community
 cp .env.example .env
 # Edit .env — set OPENAI_API_KEY (or any OpenAI-compatible provider)
 
@@ -139,6 +139,8 @@ All settings via `.env`:
 | `ANTHROPIC_API_KEY` | — | Anthropic key (for Claude Code sub-agent) |
 
 ## Open WebUI Integration
+
+**Compatibility:** Tested with Open WebUI v0.8.11–0.8.12. Patches target compiled frontend code and may need updates for newer versions. Set `OPENWEBUI_VERSION` in `.env` to pin a specific version.
 
 The `openwebui/` directory contains everything needed to use this with [Open WebUI](https://github.com/open-webui/open-webui):
 

@@ -207,7 +207,7 @@ RUN curl -fsSL https://gitlab.com/gitlab-org/cli/-/releases/v1.52.0/downloads/gl
 RUN printf '#!/bin/bash\nplaywright-cli open "$1" 2>/dev/null &\n' > /usr/local/bin/xdg-open && \
     chmod +x /usr/local/bin/xdg-open
 
-# Install Claude Code CLI from Nexus npm registry
+# Install Claude Code CLI from npm registry
 RUN sudo -u assistant bash -c "npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
 # Install Playwright CLI for browser automation (used by main AI via bash, Claude Code via skills)
@@ -230,7 +230,7 @@ RUN ORIG=$(which playwright-cli) && \
     chmod +x "$ORIG"
 
 # Install ttyd (WebSocket terminal server) — download binary for reliability
-# apt may not have it in Nexus mirror (Jammy repo), so we grab from GitHub releases
+# Download binary directly from GitHub releases for reliability
 RUN curl -fsSL https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 -o /usr/local/bin/ttyd && \
     chmod +x /usr/local/bin/ttyd
 

@@ -87,7 +87,7 @@ NATIVE_PROMPT_DESCRIPTIONS: dict[str, str] = {
     "pdf-markdown": (
         "Convert PDF to Markdown with images via MinerU OCR API. "
         "Use when markdown output with preserved images is needed. "
-        "Supports Russian (default) and other languages."
+        "Supports multiple languages."
     ),
     "pptx": (
         "Presentation creation, editing, and analysis. When You needs to work with "

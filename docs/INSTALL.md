@@ -91,8 +91,8 @@ sudo apt-get install git
 
 1. **Download/Clone Repository:**
 ```bash
-git clone <repository-url>
-cd files-ai-computer-use
+git clone https://github.com/Yambr/openwebui-computer-use-community.git
+cd openwebui-computer-use-community
 ```
 
 2. **Run Setup Script:**

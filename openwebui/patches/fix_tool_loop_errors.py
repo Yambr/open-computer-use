@@ -14,8 +14,8 @@ Problems solved:
 5. Background tasks (follow_ups/title/tags) crash on 404 after budget exceeded
 6. SSE parse errors logged at debug level only
 
-Applied at build time via werf.yaml. Works on ORIGINAL middleware.py (no dependencies).
-Target: OpenWebUI v0.8.11 (output-based architecture, serialize_output, prior_output).
+Applied at Docker build time. Works on ORIGINAL middleware.py (no dependencies).
+Target: OpenWebUI v0.8.11–0.8.12 (output-based architecture, serialize_output, prior_output).
 """
 
 import os
@@ -23,33 +23,16 @@ import os
 MIDDLEWARE_PATH = "/app/backend/open_webui/utils/middleware.py"
 PATCH_MARKER = "TOOL_LOOP_ERRORS_UNIFIED"
 
-_BUDGET_MSG_RU = (
-    "\u041c\u043e\u0434\u0435\u043b\u044c \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e"
-    " \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430."
-    " \u0412\u043e\u0437\u043c\u043e\u0436\u043d\u043e,"
-    " \u0438\u0441\u0447\u0435\u0440\u043f\u0430\u043d"
-    " \u043b\u0438\u043c\u0438\u0442"
-    " \u0437\u0430\u043f\u0440\u043e\u0441\u043e\u0432."
-    " \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435"
-    " \u043f\u043e\u0437\u0436\u0435 \u0438\u043b\u0438"
-    " \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435"
-    " \u0434\u0440\u0443\u0433\u0443\u044e"
-    " \u043c\u043e\u0434\u0435\u043b\u044c."
+_BUDGET_MSG = (
+    "Model temporarily unavailable. "
+    "Request limit may be exceeded. "
+    "Try again later or choose another model."
 )
-_TRANSPORT_MSG_RU = (
-    "\u041e\u0448\u0438\u0431\u043a\u0430"
-    " \u0441\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u044f"
-    " \u043f\u0440\u0438"
-    " \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u0438"
-    " \u043e\u0442\u0432\u0435\u0442\u0430"
-    " \u043c\u043e\u0434\u0435\u043b\u0438."
-    " \u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435"
-    " \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
-    " \u043f\u043e\u0432\u0442\u043e\u0440\u043d\u043e"
-    " \u0434\u043b\u044f"
-    " \u043f\u0440\u043e\u0434\u043e\u043b\u0436\u0435\u043d\u0438\u044f."
+_TRANSPORT_MSG = (
+    "Connection error while receiving model response. "
+    "Resend message to continue."
 )
-_ERROR_LABEL_RU = "\u041e\u0448\u0438\u0431\u043a\u0430"
+_ERROR_LABEL = "Error"
 
 # ============================================================
 # Mod 1: Tool loop — full error handling
@@ -57,7 +40,7 @@ _ERROR_LABEL_RU = "\u041e\u0448\u0438\u0431\u043a\u0430"
 #   - output save/restore
 #   - non-streaming error response parsing (ContextWindowExceeded etc)
 #   - transport error detection + user-friendly message
-#   - "Model not found" -> Russian budget message
+#   - "Model not found" -> user-friendly budget message
 #   - chat:message:error event for frontend red banner
 #   - log.error with traceback
 # ============================================================
@@ -244,10 +227,10 @@ REPLACE_TOOL_LOOP = (
     "                                    metadata.get('chat_id', '')[:8], tool_call_retries, _err_detail)\n"
     "                                output[:] = _saved_output\n"
     "                                if 'Model not found' in _err_detail:\n"
-    "                                    _err_detail = '" + _BUDGET_MSG_RU + "'\n"
+    "                                    _err_detail = '" + _BUDGET_MSG + "'\n"
     "                                # Keep only message items (text the user already saw)\n"
     "                                _msg_items = [item for item in _saved_output if item.get('type') == 'message']\n"
-    "                                _msg_items.append({'type': 'message', 'id': '', 'status': 'completed', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': f'\\n\\n---\\n**" + _ERROR_LABEL_RU + ":** {_err_detail[:1000]}'}]})\n"
+    "                                _msg_items.append({'type': 'message', 'id': '', 'status': 'completed', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': f'\\n\\n---\\n**" + _ERROR_LABEL + ":** {_err_detail[:1000]}'}]})\n"
     "                                output[:] = _msg_items\n"
     "                                try:\n"
     "                                    await event_emitter({'type': 'chat:message:error', 'data': {'error': {'content': _err_detail}}})\n"
@@ -264,15 +247,15 @@ REPLACE_TOOL_LOOP = (
     "                        if _is_transport:\n"
     "                            log.warning('TRANSPORT_ERROR: chat=%s iter=%d error=%s',\n"
     "                                metadata.get('chat_id', '')[:8], tool_call_retries, e)\n"
-    "                            _ui_err = '" + _TRANSPORT_MSG_RU + "'\n"
+    "                            _ui_err = '" + _TRANSPORT_MSG + "'\n"
     "                        else:\n"
     "                            log.error('TOOL_LOOP_ERROR: chat=%s iter=%d error=%s\\n%s',\n"
     "                                metadata.get('chat_id', '')[:8], tool_call_retries, e, _tb.format_exc())\n"
     "                            _ui_err = str(e)[:1000]\n"
     "                            if 'Model not found' in _ui_err:\n"
-    "                                _ui_err = '" + _BUDGET_MSG_RU + "'\n"
+    "                                _ui_err = '" + _BUDGET_MSG + "'\n"
     "                        try:\n"
-    "                            _msg_items.append({'type': 'message', 'id': '', 'status': 'completed', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': f'\\n\\n---\\n**" + _ERROR_LABEL_RU + ":** {_ui_err}'}]})\n"
+    "                            _msg_items.append({'type': 'message', 'id': '', 'status': 'completed', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': f'\\n\\n---\\n**" + _ERROR_LABEL + ":** {_ui_err}'}]})\n"
     "                            output[:] = _msg_items\n"
     "                            await event_emitter({'type': 'chat:message:error', 'data': {'error': {'content': _ui_err}}})\n"
     "                            await event_emitter({'type': 'chat:completion', 'data': {'content': serialize_output(output), 'output': output}})\n"
@@ -304,7 +287,7 @@ REPLACE_CODE_INTERP = (
     "                            log.error('CODE_INTERP_ERROR: chat=%s iter=%d error=%s\\n%s',\n"
     "                                metadata.get('chat_id', '')[:8], retries, e, _tb.format_exc())\n"
     "                            try:\n"
-    "                                output.append({'type': 'message', 'id': '', 'status': 'completed', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': f'\\n\\n---\\n**" + _ERROR_LABEL_RU + ":** {str(e)[:1000]}'}]})\n"
+    "                                output.append({'type': 'message', 'id': '', 'status': 'completed', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': f'\\n\\n---\\n**" + _ERROR_LABEL + ":** {str(e)[:1000]}'}]})\n"
     "                                await event_emitter({'type': 'chat:completion', 'data': {'content': serialize_output(output), 'output': output}})\n"
     "                            except Exception:\n"
     "                                pass\n"

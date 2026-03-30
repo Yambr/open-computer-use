@@ -10,7 +10,7 @@ services:
       context: ./openwebui
       dockerfile: Dockerfile
       args:
-        OPENWEBUI_VERSION: ${OPENWEBUI_VERSION:-0.8.11}
+        OPENWEBUI_VERSION: ${OPENWEBUI_VERSION:-0.8.12}
         COMPUTER_USE_SERVER_URL: localhost:${MCP_PORT:-8081}
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
@@ -30,7 +30,8 @@ services:
       # Auto-init: install Computer Use tool + filter on first startup
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@open-computer-use.dev}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
-      - MCP_SERVER_URL=http://localhost:${MCP_PORT:-8081}
+      - MCP_SERVER_URL=http://host.docker.internal:${MCP_PORT:-8081}
+      - MCP_SERVER_EXTERNAL_URL=http://localhost:${MCP_PORT:-8081}
       - MCP_API_KEY=${MCP_API_KEY:-}
     volumes:
       - open-webui-data:/app/backend/data

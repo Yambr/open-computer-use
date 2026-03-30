@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Patch for Open WebUI v0.8.11: auto-open Artifacts panel
+Patch for Open WebUI v0.8.11–0.8.12: auto-open Artifacts panel
 
 Problem: If an HTML code block is inside a collapsed <details>, CodeBlock is not mounted ->
 onUpdate does not fire -> Artifacts panel does not open. Artifacts.svelte subscribe
@@ -14,7 +14,7 @@ A 300ms delay ensures that auto-show fires after all initialization resets.
 
 Both components (Chat.svelte and Artifacts.svelte) are compiled into one chunk.
 
-=== v0.8.11 compiled code ===
+=== v0.8.11–0.8.12 compiled code ===
 
 Subscribe in Artifacts.svelte:
   da.subscribe(b=>{const S=b??[];
@@ -36,7 +36,7 @@ import re
 
 BUILD_CHUNKS_DIR = "/app/build/_app/immutable/chunks"
 
-# --- Pattern 1: Artifacts.svelte subscribe (v0.8.11) ---
+# --- Pattern 1: Artifacts.svelte subscribe (v0.8.11–0.8.12) ---
 # Compiled: VAR.length===0?(STORE1.set(!1),STORE2.set(!1),h(SIG,0)):VAR.length>s(SIG2).length&&h(SIG,VAR.length-1),h(SIG3,VAR)
 # The subscribe handler: STORE.subscribe(PARAM=>{const VAR=PARAM??[];VAR.length===0?(...):...})
 SUBSCRIBE_PATTERN = re.compile(
@@ -133,7 +133,7 @@ def find_chunk_file():
 def _find_subscribe_pattern(content):
     """Find the subscribe hide pattern in Artifacts.svelte.
 
-    v0.8.11 pattern:
+    v0.8.11–0.8.12 pattern:
       VAR.length===0?(STORE1.set(!1),STORE2.set(!1),h(SIG1,0)):VAR.length>s(SIG2).length&&h(SIG1,VAR.length-1),h(SIG3,VAR)
 
     Returns match dict or None.

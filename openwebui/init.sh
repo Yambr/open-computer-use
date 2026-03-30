@@ -10,6 +10,7 @@ ADMIN_EMAIL="${ADMIN_EMAIL:-admin@open-computer-use.dev}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"
 ADMIN_NAME="${ADMIN_NAME:-Admin}"
 MCP_SERVER_URL="${MCP_SERVER_URL:-http://localhost:8081}"
+MCP_SERVER_EXTERNAL_URL="${MCP_SERVER_EXTERNAL_URL:-http://localhost:8081}"
 MCP_API_KEY="${MCP_API_KEY:-}"
 MARKER_FILE="/app/backend/data/.computer-use-initialized"
 
@@ -122,8 +123,8 @@ fi
 echo "[init] Configuring filter valves..."
 curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/valves/update" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d "{\"FILE_SERVER_URL\": \"$MCP_SERVER_URL\", \"ENABLE_ARCHIVE_BUTTON\": true, \"INJECT_SYSTEM_PROMPT\": true}" >/dev/null 2>&1 || true
-echo "[init] Filter valves set: FILE_SERVER_URL=$MCP_SERVER_URL"
+    -d "{\"FILE_SERVER_URL\": \"$MCP_SERVER_EXTERNAL_URL\", \"ENABLE_ARCHIVE_BUTTON\": true, \"INJECT_SYSTEM_PROMPT\": true}" >/dev/null 2>&1 || true
+echo "[init] Filter valves set: FILE_SERVER_URL=$MCP_SERVER_EXTERNAL_URL (external/browser URL)"
 
 # Enable filter globally
 curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/toggle" \
@@ -136,7 +137,7 @@ curl -sf -X POST "$WEBUI_URL/api/v1/configs/models/default/update" \
     -H "$AUTH" -H "Content-Type: application/json" \
     -d '{"toolIds": ["ai_computer_use"], "filterIds": ["computer_use_filter"], "params": {"function_calling": "native", "stream_response": true}}' >/dev/null 2>&1 || true
 
-# Also try setting via workspace model (fallback for v0.8.11)
+# Also try setting via workspace model (fallback for v0.8.11–0.8.12)
 # Get first available model and create a workspace model with native FC
 FIRST_MODEL=$(curl -sf "$WEBUI_URL/api/models" -H "$AUTH" 2>/dev/null | python3 -c "
 import sys,json

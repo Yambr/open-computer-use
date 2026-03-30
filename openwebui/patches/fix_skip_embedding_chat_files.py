@@ -15,7 +15,7 @@ Solution:
 
 When adding a file to a knowledge base (collection_name is set), full processing works.
 
-Target: Open WebUI v0.8.11
+Target: Open WebUI v0.8.11–0.8.12
 """
 
 import os
@@ -25,7 +25,7 @@ RETRIEVAL_PATH = "/app/backend/open_webui/routers/retrieval.py"
 PATCH_MARKER = "skip_processing_chat_files"
 
 # === Patch 1: early return for regular uploads ===
-# v0.8.11 uses single quotes: f'file-{file.id}'
+# v0.8.11–0.8.12 uses single quotes: f'file-{file.id}'
 
 SEARCH_PATTERN_1 = """            if collection_name is None:
                 collection_name = f'file-{file.id}'
@@ -58,7 +58,7 @@ REPLACE_PATTERN_1 = """            if collection_name is None:
 # === Patch 2: KB fallback -- extract from file when content is empty ===
 # When a file was uploaded without extraction (Patch 1) and then added to a KB,
 # there are no embeddings and no content. Need to extract from the file.
-# v0.8.11: single quotes, text_content = file.data.get('content', '')
+# v0.8.11–0.8.12: single quotes, text_content = file.data.get('content', '')
 
 SEARCH_PATTERN_2 = """                else:
                     docs = [

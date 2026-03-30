@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Patch for Open WebUI v0.8.11: append <attached_files> instead of prepend.
+Patch for Open WebUI v0.8.11–0.8.12: append <attached_files> instead of prepend.
 
 Problem:
   add_file_context() prepends <attached_files> to the beginning of user message.
@@ -11,7 +11,7 @@ Solution:
   Append <attached_files> to the end of the message -- system prompt cache
   and previous messages are preserved.
 
-Note (v0.8.11):
+Note (v0.8.11–0.8.12):
   Zip misalignment (user_messages filter) and format_file_tag() are already
   fixed upstream (PR #21878). This patch affects ONLY the insertion position.
 """
@@ -25,7 +25,7 @@ MIDDLEWARE_PATH = os.environ.get(
 
 PATCH_MARKER = "attached_files_append"
 
-# Exact v0.8.11 code — prepend file_context before content
+# Exact v0.8.11–0.8.12 code — prepend file_context before content
 SEARCH_PATTERN = """\
         content = message.get('content', '')
         if isinstance(content, list):
@@ -57,7 +57,7 @@ def apply_patch():
 
     if SEARCH_PATTERN not in content:
         print("ERROR: Could not find target code block in middleware.py")
-        print("  Looking for: add_file_context prepend pattern (v0.8.11)")
+        print("  Looking for: add_file_context prepend pattern (v0.8.11–0.8.12)")
         return False
 
     content = content.replace(SEARCH_PATTERN, REPLACE_PATTERN, 1)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Патч для Open WebUI v0.8.11: автоматическое обнаружение file URL в сообщениях
+Патч для Open WebUI v0.8.11–0.8.12: автоматическое обнаружение file URL в сообщениях
 
 Problem: To show file preview in the Artifacts panel, we need to detect
 Computer Use Server file links in assistant messages and auto-open the
@@ -14,7 +14,7 @@ The existing chain (getContents → artifactContents → auto-show) handles the 
 The server URL is configurable via COMPUTER_USE_SERVER_URL env var
 (defaults to computer-use-server:8081).
 
-=== v0.8.11 compiled code ===
+=== v0.8.11–0.8.12 compiled code ===
 
   Wn=r=>{r=Ce(r);const t=r.match(/```[\\s\\S]*?```/g);let n=[],e=[];
   ... // code block parsing fills e[] with {html, css, js} groups
@@ -26,7 +26,7 @@ We push our iframe artifact into `e` (mutable let array), then `const i` natural
 picks it up. No const reassignment needed.
 
   // INJECTED:
-  if(!e.some(o=>o.html)&&r&&/docker-ai\\.alfaleasing\\.ru\\/(files|preview)\\//.test(r)){
+  if(!e.some(o=>o.html)&&r&&/localhost:8081\\/(files|preview)\\//.test(r)){
     var _pm=r.match(/regex/); if(_pm) e.push({html:'<iframe...>',css:'...',js:''});
   }
   const i=e.map(o=>o.html).join(""); // now includes our iframe

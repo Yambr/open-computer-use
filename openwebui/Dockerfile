@@ -1,4 +1,4 @@
-ARG OPENWEBUI_VERSION=0.8.11
+ARG OPENWEBUI_VERSION=0.8.12
 FROM ghcr.io/open-webui/open-webui:${OPENWEBUI_VERSION}
 
 # Copy all patches into the image

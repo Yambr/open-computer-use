@@ -176,12 +176,18 @@ class Tools:
         self.valves = self.Valves()
         self.file_handler = True
         self.citation = True
+        self._mcp_client = None
+        self._mcp_client_url = None
 
-        self.mcp_client = _MCPClient(
-            self.valves.FILE_SERVER_URL,
-            self.valves.MCP_API_KEY
-        )
-        print(f"[MCP] Client initialized: {self.mcp_client.mcp_url}")
+    @property
+    def mcp_client(self) -> _MCPClient:
+        """Lazy MCP client — recreated when valves change."""
+        url = self.valves.FILE_SERVER_URL
+        if self._mcp_client is None or self._mcp_client_url != url:
+            self._mcp_client = _MCPClient(url, self.valves.MCP_API_KEY)
+            self._mcp_client_url = url
+            print(f"[MCP] Client initialized: {self._mcp_client.mcp_url}")
+        return self._mcp_client
 
     # =========================================================================
     # Helpers

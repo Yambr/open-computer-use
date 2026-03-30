@@ -17,7 +17,7 @@ MIDDLEWARE_PATH = "/app/backend/open_webui/utils/middleware.py"
 
 PATCH_MARKER = "skip_rag_files_ai_computer_use"
 
-# Search pattern (original v0.8.11 code)
+# Search pattern (original v0.8.11–0.8.12 code)
 SEARCH_PATTERN = """    if file_context_enabled:
         try:
             form_data, flags = await chat_completion_files_handler(request, form_data, extra_params, user)
@@ -72,7 +72,7 @@ def apply_patch():
         # Old patch used a different condition -- needs rollback
         # Find the old REPLACE and revert to original, then apply the new one
         print("  WARNING: Old patch (native_fc) detected, will be replaced")
-        # Cannot simply roll back -- applying on top since werf always starts from a clean image
+        # Applying on top since Docker build starts from a clean image
 
     if SEARCH_PATTERN not in content:
         print("ERROR: Could not find target code block in middleware.py")
