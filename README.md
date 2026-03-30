@@ -191,7 +191,7 @@ The docker-compose stack handles all of this automatically.
 
 ## Security Notes
 
-> **Current status:** This project is designed for **single-user / trusted-network** deployments. Multi-user production setups require additional hardening (see roadmap below).
+> **Current status:** This project is designed for **closed, self-hosted** deployments. Multi-user production setups require additional hardening (see roadmap below).
 
 ### Current model
 
@@ -218,7 +218,7 @@ We plan to address these in future releases:
 - [ ] **Network policies** for sandbox containers (restrict egress by default)
 - [ ] **Secret management** — move credentials from headers to encrypted server-side storage
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
+Ideas? Open a [GitHub Issue](https://github.com/Yambr/openwebui-computer-use-community/issues). Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) or reach out on Telegram [@yambrcom](https://t.me/yambrcom).
 
 ## Development
 
@@ -238,6 +238,11 @@ docker compose up --build
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome!
+
+## Community
+
+- **Issues & Ideas**: [GitHub Issues](https://github.com/Yambr/openwebui-computer-use-community/issues)
+- **Telegram**: [@yambrcom](https://t.me/yambrcom)
 
 ## License
 

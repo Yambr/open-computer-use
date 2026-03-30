@@ -6,7 +6,9 @@ If you discover a security vulnerability in Open Computer Use, please report it 
 
 **Do NOT open a public GitHub issue for security vulnerabilities.**
 
-Instead, please email security concerns to the maintainers directly or use GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability).
+Instead, reach out via:
+- **Telegram**: [@yambrcom](https://t.me/yambrcom)
+- **GitHub**: [Private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
 
 ## What to Include
 
@@ -32,7 +34,7 @@ The following are in scope:
 
 ## Current Security Model
 
-This project is designed for **single-user / trusted-network** deployments. Key points:
+This project is designed for **closed, self-hosted** deployments. Key points:
 
 - **Docker socket access** grants significant host control — run only in trusted environments
 - **MCP_API_KEY** is the only auth for the MCP endpoint — set a strong random key
