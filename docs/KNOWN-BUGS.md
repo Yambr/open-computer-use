@@ -56,3 +56,17 @@ TypeError: 'NoneType' object is not callable
 **Current mitigation:** Chat IDs are UUIDs (hard to guess). Tested in production with 1000+ users on Open WebUI — acceptable risk for self-hosted deployments behind a firewall.
 
 **Planned fix:** Per-session signed tokens for all file/preview/terminal endpoints. See Security Roadmap in README.
+
+---
+
+## 5. Image tool results not displayed (Open WebUI limitation)
+
+**Severity:** Medium (functional limitation)
+
+**Issue:** When a tool returns an image (e.g., `describe-image` returning a base64 screenshot, or Playwright returning a page screenshot), Open WebUI does not render it inline. The MCP protocol supports `image` content type in tool results, but Open WebUI's tool result renderer only handles `text` type. Images are silently dropped.
+
+**Impact:** The model can still receive and process images via tool results (the MCP server sends them correctly), but the user won't see them in the chat UI. This affects tools that return visual output like screenshots, charts, or diagram previews.
+
+**Workaround:** Save images to `/mnt/user-data/outputs/` and share as HTTP links — the file preview panel will display them. This is what `describe-image` and Playwright skills already do.
+
+**Root cause:** Open WebUI's frontend only renders `text` content blocks from tool responses. This is an upstream limitation — see [open-webui/open-webui](https://github.com/open-webui/open-webui) for progress on image tool result support.
