@@ -39,7 +39,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}}.{{patch}}
             type=sha
 
       - uses: docker/build-push-action@v5
@@ -78,7 +78,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}}.{{patch}}
             type=sha
 
       - uses: docker/build-push-action@v5
@@ -116,6 +116,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}.{{patch}}
             type=sha
 
       - uses: docker/build-push-action@v5
