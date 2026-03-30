@@ -46,7 +46,7 @@
   <rect width="900" height="60" rx="12" fill="url(#header-bg)"/>
   <rect y="48" width="900" height="12" fill="url(#header-bg)"/>
   <text x="24" y="32" class="title" fill="#fff">Sandbox Container</text>
-  <text x="24" y="48" class="subtitle" fill="#94a3b8">Ubuntu 24.04 (Noble) &middot; linux/amd64 &middot; open-computer-use:latest</text>
+  <text x="24" y="48" class="subtitle" fill="#94a3b8">Ubuntu 24.04 (Noble) · linux/amd64 · open-computer-use:latest</text>
   <text x="876" y="36" text-anchor="end" font-size="10" fill="#94a3b8">One container per chat session</text>
 
   <!-- Row 1: Languages + System Tools -->
@@ -141,7 +141,7 @@
   <text x="730" y="310" class="item">Flask, lxml, markdown</text>
 
   <!-- Row footer -->
-  <text x="32" y="340" class="item">unoserver &middot; camelot-py &middot; tabula-py &middot; cryptography &middot; PyYAML &middot; psutil &middot; coloredlogs &middot; click &middot; humanfriendly</text>
+  <text x="32" y="340" class="item">unoserver · camelot-py · tabula-py · cryptography · PyYAML · psutil · coloredlogs · click · humanfriendly</text>
   <text x="32" y="356" class="version">Full list: requirements.txt (110 packages)</text>
 
   <!-- Row 3: Node.js + Browser -->
@@ -171,7 +171,7 @@
   <text x="470" y="428" class="item-bold">Chromium</text>
   <text x="560" y="428" class="item">via Playwright (headless)</text>
   <text x="470" y="446" class="item-bold">CDP</text>
-  <text x="560" y="446" class="item">:9222 (external) &rarr; :9223 (internal)</text>
+  <text x="560" y="446" class="item">:9222 (external) → :9223 (internal)</text>
   <text x="470" y="464" class="item-bold">ttyd</text>
   <text x="560" y="464" class="item">WebSocket terminal server</text>
   <text x="470" y="482" class="item-bold">Claude Code</text>
@@ -221,9 +221,9 @@
   <!-- Ports -->
   <rect x="454" y="685" width="430" height="80" class="section-border" fill="#f8fafc"/>
   <text x="470" y="708" class="item-bold">Exposed Ports</text>
-  <text x="470" y="726" class="item">9222 — CDP (browser viewer) &middot; 7681 — ttyd (terminal)</text>
+  <text x="470" y="726" class="item">9222 — CDP (browser viewer) · 7681 — ttyd (terminal)</text>
   <text x="470" y="744" class="version">Accessed via Computer Use Server proxy (not directly)</text>
 
   <!-- Footer -->
-  <text x="450" y="798" text-anchor="middle" font-size="11" fill="#9ca3af">open-computer-use &middot; github.com/Yambr/openwebui-computer-use-community</text>
+  <text x="450" y="798" text-anchor="middle" font-size="11" fill="#9ca3af">open-computer-use · github.com/Yambr/openwebui-computer-use-community</text>
 </svg>
