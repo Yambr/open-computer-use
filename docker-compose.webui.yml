@@ -33,6 +33,8 @@ services:
       - MCP_SERVER_URL=http://host.docker.internal:${MCP_PORT:-8081}
       - MCP_SERVER_EXTERNAL_URL=http://localhost:${MCP_PORT:-8081}
       - MCP_API_KEY=${MCP_API_KEY:-}
+      # Allow complex multi-step tasks (browser + doc creation) to complete
+      - CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES=200
     volumes:
       - open-webui-data:/app/backend/data
     extra_hosts:

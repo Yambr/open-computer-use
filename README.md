@@ -10,6 +10,8 @@
 
 Self-hosted AI workspace with code execution, document creation, browser control, and autonomous agents — like **OpenAI Operator** + **Claude Computer Use** + **Claude Code**, but open-source and pluggable into any LLM.
 
+![Demo: AI reads GitHub README and creates a landing page](docs/demo-landing-page.gif)
+
 ## What is this?
 
 An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated Docker containers. Think of it as your AI's computer — it can do everything a developer can do:
