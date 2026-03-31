@@ -20,6 +20,7 @@ COPY ./skill_manager.py .
 COPY ./docker_manager.py .
 COPY ./context_vars.py .
 COPY ./docs_html.py .
+COPY ./security.py .
 COPY ./static/ ./static/
 
 # MCP API Key for authorization
