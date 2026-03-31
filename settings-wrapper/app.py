@@ -8,10 +8,20 @@ Replace with your own implementation (database, S3, corporate registry, etc.).
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import FileResponse
+
+_SKILL_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$')
+
+
+def _validate_skill_name(name: str) -> str:
+    """Validate skill name — reject path traversal and invalid characters."""
+    if not _SKILL_NAME_RE.match(name) or '..' in name:
+        raise HTTPException(status_code=400, detail="Invalid skill name")
+    return name
 
 app = FastAPI(title="Settings Wrapper", version="0.1.0")
 
@@ -87,8 +97,11 @@ def download_skill(
     - If skill is native (public/example) → return JSON (skill_manager skips download)
     """
     _check_auth(api_key)
+    name = _validate_skill_name(name)
 
     zip_path = SKILLS_DIR / f"{name}.zip"
+    if not zip_path.resolve().is_relative_to(SKILLS_DIR.resolve()):
+        raise HTTPException(status_code=403, detail="Access denied")
     if zip_path.exists():
         return FileResponse(zip_path, media_type="application/zip", filename=f"{name}.zip")
 

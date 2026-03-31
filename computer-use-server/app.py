@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from system_prompt import SYSTEM_PROMPT_TEMPLATE, build_system_prompt
 from docker_manager import get_container_cdp_address, FILE_SERVER_URL
+from security import sanitize_chat_id, safe_path
 import skill_manager
 
 
@@ -341,7 +342,8 @@ async def get_uploads_manifest(chat_id: str) -> Dict[str, str]:
         Dictionary mapping filename to MD5 checksum
         Example: {"file1.txt": "abc123def456", "doc.pdf": "789xyz"}
     """
-    uploads_dir = BASE_DATA_DIR / chat_id / "uploads"
+    chat_id = sanitize_chat_id(chat_id)
+    uploads_dir = safe_path(BASE_DATA_DIR, chat_id, "uploads")
 
     # Return empty dict if directory doesn't exist yet
     if not uploads_dir.exists():
@@ -368,8 +370,9 @@ async def get_uploads_manifest(chat_id: str) -> Dict[str, str]:
 @app.get("/api/uploads/{chat_id}/list", tags=["Files"])
 async def list_uploads(chat_id: str, response: Response):
     """List all files in the uploads directory with metadata."""
+    chat_id = sanitize_chat_id(chat_id)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    uploads_dir = BASE_DATA_DIR / chat_id / "uploads"
+    uploads_dir = safe_path(BASE_DATA_DIR, chat_id, "uploads")
     if not uploads_dir.exists():
         return {"files": [], "total": 0}
     files = []
@@ -405,20 +408,13 @@ async def upload_file(chat_id: str, filename: str, file: UploadFile = File(...))
     Raises:
         400: Invalid filename or security violation
     """
+    chat_id = sanitize_chat_id(chat_id)
     # Create uploads directory if it doesn't exist
-    uploads_dir = BASE_DATA_DIR / chat_id / "uploads"
+    uploads_dir = safe_path(BASE_DATA_DIR, chat_id, "uploads")
     uploads_dir.mkdir(parents=True, exist_ok=True)
 
-    # Construct target path
-    file_path = uploads_dir / filename
-
-    # Security: ensure path is within uploads directory
-    try:
-        file_path = file_path.resolve()
-        if not str(file_path).startswith(str(uploads_dir.resolve())):
-            raise HTTPException(status_code=403, detail="Access denied: path traversal detected")
-    except Exception:
-        raise HTTPException(status_code=403, detail="Invalid path")
+    # Construct target path with traversal protection
+    file_path = safe_path(uploads_dir, filename)
 
     # Create parent directories if needed
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -456,8 +452,9 @@ async def download_archive(chat_id: str):
     Raises:
         404: Directory not found or empty
     """
+    chat_id = sanitize_chat_id(chat_id)
     # Construct outputs directory path
-    outputs_dir = BASE_DATA_DIR / chat_id / "outputs"
+    outputs_dir = safe_path(BASE_DATA_DIR, chat_id, "outputs")
 
     # Check if directory exists
     if not outputs_dir.exists():
@@ -519,17 +516,10 @@ async def download_file(chat_id: str, filename: str, download: Optional[int] = N
     Raises:
         404: File not found
     """
-    # Construct full path
-    file_path = BASE_DATA_DIR / chat_id / "outputs" / filename
-
-    # Security: ensure path is within allowed directory
-    try:
-        file_path = file_path.resolve()
-        BASE_DATA_DIR.resolve()
-        if not str(file_path).startswith(str(BASE_DATA_DIR.resolve())):
-            raise HTTPException(status_code=403, detail="Access denied")
-    except Exception:
-        raise HTTPException(status_code=403, detail="Invalid path")
+    chat_id = sanitize_chat_id(chat_id)
+    # Construct full path with traversal protection
+    outputs_dir = safe_path(BASE_DATA_DIR, chat_id, "outputs")
+    file_path = safe_path(outputs_dir, filename)
 
     # Check if file exists
     if not file_path.exists():
@@ -569,9 +559,10 @@ async def download_file(chat_id: str, filename: str, download: Optional[int] = N
 @app.get("/api/outputs/{chat_id}", tags=["Files"])
 async def list_outputs(chat_id: str, response: Response):
     """List all files in the outputs directory with metadata."""
+    chat_id = sanitize_chat_id(chat_id)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
 
-    outputs_dir = BASE_DATA_DIR / chat_id / "outputs"
+    outputs_dir = safe_path(BASE_DATA_DIR, chat_id, "outputs")
 
     if not outputs_dir.exists():
         return {"chat_id": chat_id, "files": [], "total": 0, "timestamp": time.time()}
@@ -607,6 +598,7 @@ async def list_outputs(chat_id: str, response: Response):
 @app.get("/browser/{chat_id}/status", tags=["Browser"])
 async def browser_status(chat_id: str, response: Response):
     """Check if browser (Chromium CDP) is running in the chat's container."""
+    chat_id = sanitize_chat_id(chat_id)
     response.headers["Cache-Control"] = "no-cache, no-store"
     container_ip = get_container_cdp_address(chat_id)
     if not container_ip:
@@ -634,6 +626,7 @@ async def browser_status(chat_id: str, response: Response):
 @app.get("/browser/{chat_id}/json", tags=["Browser"])
 async def browser_cdp_json(chat_id: str):
     """Proxy CDP /json endpoint from container."""
+    chat_id = sanitize_chat_id(chat_id)
     container_ip = get_container_cdp_address(chat_id)
     if not container_ip:
         raise HTTPException(404, "Container not found or not running")
@@ -652,6 +645,7 @@ async def browser_cdp_json(chat_id: str):
 @app.get("/browser/{chat_id}/json/version", tags=["Browser"])
 async def browser_cdp_json_version(chat_id: str):
     """Proxy CDP /json/version endpoint from container."""
+    chat_id = sanitize_chat_id(chat_id)
     container_ip = get_container_cdp_address(chat_id)
     if not container_ip:
         raise HTTPException(404, "Container not found or not running")
@@ -670,6 +664,7 @@ async def browser_cdp_json_version(chat_id: str):
 @app.websocket("/browser/{chat_id}/devtools/page/{page_id}")
 async def browser_ws_proxy(websocket: WebSocket, chat_id: str, page_id: str):
     """Bidirectional WebSocket proxy for CDP — connects browser viewer to container's Chromium."""
+    chat_id = sanitize_chat_id(chat_id)
     container_ip = get_container_cdp_address(chat_id)
     if not container_ip:
         await websocket.close(code=1008, reason="Container not found")
@@ -767,6 +762,7 @@ def _get_container_stopped(chat_id: str):
 @app.get("/terminal/{chat_id}/status", tags=["Terminal"])
 async def terminal_status(chat_id: str, response: Response):
     """Check if ttyd terminal is available in the chat's container."""
+    chat_id = sanitize_chat_id(chat_id)
     response.headers["Cache-Control"] = "no-cache, no-store"
     container_ip = get_container_cdp_address(chat_id)
     if not container_ip:
@@ -802,6 +798,7 @@ async def start_ttyd(chat_id: str, body: StartTtydRequest = Body(default=StartTt
     If dangerous_mode=True, sets CLAUDE_AUTOSTARTED=1 so .bashrc skips auto-launch —
     the frontend will inject `claude --dangerously-skip-permissions` after connecting.
     """
+    chat_id = sanitize_chat_id(chat_id)
     from docker_manager import _execute_bash
     container = _get_container_for_terminal(chat_id)
     if not container:
@@ -825,6 +822,7 @@ async def start_ttyd(chat_id: str, body: StartTtydRequest = Body(default=StartTt
 @app.post("/terminal/{chat_id}/stop-ttyd", tags=["Terminal"])
 async def stop_ttyd(chat_id: str):
     """Stop ttyd + tmux in the container so next start is fresh (with .bashrc autostart)."""
+    chat_id = sanitize_chat_id(chat_id)
     from docker_manager import _execute_bash
     container = _get_container_for_terminal(chat_id)
     if not container:
@@ -838,6 +836,7 @@ async def stop_ttyd(chat_id: str):
 @app.post("/terminal/{chat_id}/restart-container", tags=["Terminal"])
 async def restart_container(chat_id: str):
     """Restart a stopped container. Handles dead networks after deploy."""
+    chat_id = sanitize_chat_id(chat_id)
     container = _get_container_stopped(chat_id)
     if not container:
         raise HTTPException(404, "No stopped container found")
@@ -878,6 +877,7 @@ async def resurrect_container(chat_id: str):
     Used when container was removed by cron but /data/{chat_id}/.meta.json
     still exists. Restores user identity (email, name, MCP servers) from saved metadata.
     """
+    chat_id = sanitize_chat_id(chat_id)
     import re as _re
     from docker_manager import load_container_meta, _create_container, _ensure_gitlab_token
     from context_vars import (
@@ -926,6 +926,7 @@ async def resurrect_container(chat_id: str):
 @app.get("/terminal/{chat_id}/sessions", tags=["Terminal"])
 async def terminal_sessions(chat_id: str, response: Response):
     """List Claude Code JSONL sessions from the container."""
+    chat_id = sanitize_chat_id(chat_id)
     response.headers["Cache-Control"] = "no-cache, no-store"
     from docker_manager import _execute_bash
     container = _get_container_for_terminal(chat_id)
@@ -958,6 +959,7 @@ async def terminal_sessions(chat_id: str, response: Response):
 @app.get("/terminal/{chat_id}/processes", tags=["Terminal"])
 async def terminal_processes(chat_id: str, response: Response):
     """List running Claude processes in the container."""
+    chat_id = sanitize_chat_id(chat_id)
     response.headers["Cache-Control"] = "no-cache, no-store"
     from docker_manager import _execute_bash
     container = _get_container_for_terminal(chat_id)
@@ -990,6 +992,7 @@ async def terminal_processes(chat_id: str, response: Response):
 @app.post("/terminal/{chat_id}/processes/{pid}/kill", tags=["Terminal"])
 async def kill_terminal_process(chat_id: str, pid: int):
     """Kill a Claude process in the container by PID."""
+    chat_id = sanitize_chat_id(chat_id)
     container = _get_container_for_terminal(chat_id)
     if not container:
         raise HTTPException(404, "Container not running")
@@ -1020,6 +1023,7 @@ async def kill_terminal_process(chat_id: str, pid: int):
 @app.get("/terminal/{chat_id}/heartbeat", tags=["Terminal"])
 async def terminal_heartbeat(chat_id: str):
     """Reset container idle timer. Called by JS every 2 min while page is open."""
+    chat_id = sanitize_chat_id(chat_id)
     container = _get_container_for_terminal(chat_id)
     if container:
         from docker_manager import _reset_shutdown_timer
@@ -1030,6 +1034,7 @@ async def terminal_heartbeat(chat_id: str):
 @app.websocket("/terminal/{chat_id}/ws")
 async def terminal_ws_proxy(websocket: WebSocket, chat_id: str):
     """Bidirectional WebSocket proxy — connects xterm.js to container's ttyd."""
+    chat_id = sanitize_chat_id(chat_id)
     container_ip = get_container_cdp_address(chat_id)
     if not container_ip:
         await websocket.close(code=1008, reason="Container not found")
@@ -1099,6 +1104,7 @@ async def preview_page(chat_id: str, response: Response):
     Shows output files with auto-refresh, file navigation, and type-specific preview.
     Designed to be embedded in an iframe (Open WebUI Artifacts panel).
     """
+    chat_id = sanitize_chat_id(chat_id)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     # Use relative URLs so it works behind HTTPS reverse proxy
     api_url = f"/api/outputs/{chat_id}"
@@ -1131,12 +1137,12 @@ def _generate_preview_html(chat_id: str, api_url: str, files_base: str) -> str:
 <div id="app"></div>
 <script>
 window.__CONFIG__ = {{
-  apiUrl: "{api_url}",
-  filesBase: "{files_base}",
-  chatId: "{chat_id}"
+  apiUrl: {json.dumps(api_url)},
+  filesBase: {json.dumps(files_base)},
+  chatId: {json.dumps(chat_id)}
 }};
 // Heartbeat: keep container alive while page is open (every 2 min)
-setInterval(function() {{ fetch('/terminal/' + "{chat_id}" + '/heartbeat').catch(function(){{}}); }}, 120000);
+setInterval(function() {{ fetch('/terminal/' + {json.dumps(chat_id)} + '/heartbeat').catch(function(){{}}); }}, 120000);
 </script>
 <script type="module" src="/static/preview.js"></script>
 </body>

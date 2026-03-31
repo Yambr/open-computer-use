@@ -118,7 +118,14 @@ function handleLinkClick(href, resolvedUrl, files, selectedFile, onSelectFile) {
     return;
   }
   if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('//')) {
-    window.open(href, '_blank', 'noopener');
+    try {
+      const linkUrl = new URL(href, window.location.origin);
+      if (linkUrl.origin === window.location.origin) {
+        window.open(href, '_blank', 'noopener');
+      } else {
+        _showExternalLinkDialog(href);
+      }
+    } catch (e) { /* invalid URL, ignore */ }
     return;
   }
   let filePath = null;
@@ -147,7 +154,43 @@ function handleLinkClick(href, resolvedUrl, files, selectedFile, onSelectFile) {
     }
     if (targetFile) { onSelectFile(targetFile); return; }
   }
-  if (resolvedUrl) window.open(resolvedUrl, '_blank', 'noopener');
+  if (resolvedUrl) {
+    try {
+      const rUrl = new URL(resolvedUrl, window.location.origin);
+      if (rUrl.origin !== window.location.origin) {
+        _showExternalLinkDialog(resolvedUrl);
+        return;
+      }
+    } catch (e) { /* invalid URL, ignore */ }
+    window.open(resolvedUrl, '_blank', 'noopener');
+  }
+}
+
+function _showExternalLinkDialog(href) {
+  const existing = document.getElementById('__ext_link_dialog');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = '__ext_link_dialog';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:99999';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg-primary,#fff);color:var(--text-primary,#000);border-radius:8px;padding:20px;max-width:420px;word-break:break-all;font-family:system-ui,sans-serif';
+  box.innerHTML = '<p style="margin:0 0 8px;font-weight:600">Open external link?</p>'
+    + '<p style="margin:0 0 16px;font-size:13px;opacity:.8">' + href.replace(/</g, '&lt;') + '</p>';
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+  const cancel = document.createElement('button');
+  cancel.textContent = 'Cancel';
+  cancel.style.cssText = 'padding:6px 16px;border:1px solid #ccc;border-radius:4px;background:transparent;cursor:pointer';
+  cancel.onclick = () => overlay.remove();
+  const open = document.createElement('button');
+  open.textContent = 'Open';
+  open.style.cssText = 'padding:6px 16px;border:none;border-radius:4px;background:#2563eb;color:#fff;cursor:pointer';
+  open.onclick = () => { overlay.remove(); window.open(href, '_blank', 'noopener,noreferrer'); };
+  btns.append(cancel, open);
+  box.appendChild(btns);
+  overlay.appendChild(box);
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
 }
 
 // =============================================================================
@@ -239,8 +282,10 @@ async function renderMarkdownPreview(container, file, files, onSelectFile) {
     const origImage = renderer.image.bind(renderer);
     const origLink = renderer.link.bind(renderer);
     renderer.heading = function(token) {
-      const slug = token.text.toLowerCase()
-        .replace(/<[^>]*>/g, '')
+      let text = token.text;
+      let prev;
+      do { prev = text; text = text.replace(/<[^>]*>/g, ''); } while (text !== prev);
+      const slug = text.toLowerCase()
         .replace(/[^\w\u0400-\u04ff\s-]/g, '')
         .replace(/\s+/g, '-');
       return `<h${token.depth} id="${slug}">${token.text}</h${token.depth}>\n`;

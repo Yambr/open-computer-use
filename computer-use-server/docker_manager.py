@@ -645,7 +645,9 @@ def execute_bash_streaming(container, command: str, timeout: int, on_output_line
 
 def _get_meta_path(chat_id: str) -> Path:
     """Path to .meta.json for this chat on the host filesystem."""
-    return BASE_DATA_DIR / chat_id.lower() / ".meta.json"
+    from security import sanitize_chat_id
+    chat_id = sanitize_chat_id(chat_id)
+    return BASE_DATA_DIR / chat_id / ".meta.json"
 
 
 def save_container_meta(chat_id: str, user_email: str, user_name: str,
