@@ -11,8 +11,8 @@ One Chromium instance inside the sandbox container, shared between three actors:
 | Actor | Access | What they do |
 |-------|--------|--------------|
 | **AI Agent** | Playwright CDP | Navigates, clicks, fills forms, scrapes data |
-| **User (side panel)** | CDP stream (read-only viewer) | Watches AI actions in real-time |
-| **User (directly)** | Same browser, full input | Types credentials, navigates to pages, interacts |
+| **User (side panel)** | CDP stream (interactive) | Watches AI in real-time, can click, type, scroll |
+| **User (terminal)** | Full shell access | Works in container directly, runs Claude Code CLI |
 
 **Why this matters:** The user can enter sensitive information (passwords, 2FA codes, private data) directly into the browser — the AI never sees the raw credentials, only the resulting page state. This is a true shared workspace, not a screenshot relay.
 

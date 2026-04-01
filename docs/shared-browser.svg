@@ -77,7 +77,7 @@
   <text x="290" y="97" class="arrow-label">Playwright CDP</text>
 
   <path d="M210,210 L375,130" class="arrow" stroke="#22c55e" marker-end="url(#ah2-green)"/>
-  <text x="270" y="178" class="arrow-label">CDP viewer (read-only stream)</text>
+  <text x="270" y="178" class="arrow-label">CDP viewer (interactive)</text>
 
   <path d="M210,310 L575,125" class="arrow" stroke="#ef4444" marker-end="url(#ah2-red)"/>
   <text x="370" y="280" class="arrow-label">WebSocket TTY (read-write)</text>
