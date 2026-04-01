@@ -39,23 +39,33 @@ Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n
 
 > **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
 
-### Live browser streaming (CDP viewer)
+### Shared browser — user and AI collaborate on one Chromium
+
+![Shared Browser](docs/shared-browser.svg)
+
+The browser inside the sandbox is **shared**: the AI navigates via Playwright, while you watch live via CDP streaming. You can type directly into the browser (e.g. enter login credentials) — the AI sees the result without ever seeing your password.
 
 ![Browser Viewer](docs/screenshots/03-browser-viewer.png)
 
-### Claude Code — interactive terminal in the cloud
+### File flow — server-side storage, chat gets links
+
+![File Flow](docs/file-flow.svg)
+
+Files stay on the server in Docker volumes. The chat only shows clickable HTTP links — no file size limits, no re-upload to WebUI. Open any file in a new tab or download as zip.
+
+![File Preview](docs/screenshots/02-file-preview.png)
+
+### Claude Code CLI — when chat isn't enough
 
 ![Claude Code Terminal](docs/screenshots/04-sub-agent-terminal.png)
 
-### File preview with skills
-
-![File Preview](docs/screenshots/02-file-preview.png)
+Full Claude Code CLI pre-installed in every sandbox. Open the terminal tab, run Claude Code manually, or let the AI delegate via `sub_agent`. You can leave OpenWebUI entirely and work in the container terminal — git, vim, code, whatever you need.
 
 ### Sub-agent dashboard — monitor and control
 
 ![Sub-Agent Dashboard](docs/screenshots/06-sub-agent-dashboard.png)
 
-See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
+See [docs/FEATURES.md](docs/FEATURES.md) for a deep dive into architecture and comparisons. See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
 
 ## Architecture
 
