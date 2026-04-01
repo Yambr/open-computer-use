@@ -102,10 +102,10 @@ The side panel (artifacts panel) in Open WebUI serves three functions:
 5. User sees the result inline without downloading
 
 ### vs. Open Terminal
-Open Terminal uses the **IDE's native file explorer** — files appear in the file tree and open in editor tabs. Our approach uses a **server-side preview renderer** that works in any browser, without an IDE.
+Open Terminal uses the **IDE's native file explorer** — files appear in the file tree and open in editor tabs. Our approach uses a **preview renderer** that works in any browser, without an IDE.
 
 ### vs. Claude.ai
-Claude.ai renders **artifacts** (HTML, React, SVG) inline in the chat. Our side panel is separate from the chat and supports a wider range of file types (office documents, PDFs, archives, etc.) via server-side rendering.
+Claude.ai renders **artifacts** (HTML, React, SVG) inline in the chat. Our side panel is separate from the chat and supports a wider range of file types (office documents, PDFs, archives, etc.) via the preview renderer on the Computer Use Server.
 
 ## File Transfer & Sync
 
@@ -158,10 +158,40 @@ Claude.ai uses **project files** that are uploaded into the conversation context
 | **Browser** | Shared Chromium + CDP live stream | Screenshot-based | Agent-only |
 | **User input in browser** | Yes (type directly) | No | No |
 | **File access** | HTTP links from server | In-chat artifacts | IDE file browser |
-| **File preview** | Server-side rendering (side panel) | Inline artifacts | IDE editor tabs |
+| **File preview** | Preview rendering (side panel) | Inline artifacts | IDE editor tabs |
 | **Terminal** | ttyd + tmux (persistent, side panel) | N/A | Integrated terminal |
 | **Claude Code** | Pre-installed CLI, interactive TTY | N/A | N/A |
 | **Escape hatch** | Open server URLs, work independently | N/A | N/A |
 | **File storage** | Docker volumes (server-side) | Chat context | Local/cloud mount |
 | **Self-hosted** | Yes | No | No |
 | **Any LLM** | Yes (OpenAI-compatible) | Claude only | Claude only |
+
+> **Note on "Open Terminal":** This refers to Claude.ai's integrated terminal environment (Claude Code on the web), not the Claude Code CLI tool itself. Open Computer Use includes Claude Code CLI *inside* its sandbox containers — so you get both the chat interface and the CLI.
+
+## Docker Image Size
+
+The sandbox image (`open-computer-use:latest`) is **~11 GB** uncompressed. Here's why:
+
+| Component | Estimated Size |
+|-----------|---------------|
+| Ubuntu 24.04 base | ~80 MB |
+| APT packages (LibreOffice, ffmpeg, JDK 21, tesseract, fonts, build-essential, graphviz, pandoc, ghostscript...) | ~1,800 MB |
+| Python pip packages (opencv x3, jax+jaxlib, scipy, scikit-learn, pandas, mediapipe, onnxruntime, matplotlib, playwright, reportlab...) | ~1,200 MB |
+| Node.js npm packages (mermaid-cli, sharp, react, typescript, pdf-lib, pptxgenjs... installed globally + /home/node_modules) | ~700 MB |
+| Playwright Chromium browser | ~450 MB |
+| Claude Code CLI + Playwright CLI | ~110 MB |
+| Bun, Node.js 22, glab, ttyd, skills, fonts | ~160 MB |
+| **Total (estimated layers)** | **~4,500 MB** |
+
+> **Why `docker images` may show ~11 GB:** Docker reports the *virtual size* which includes all layers before squashing. Intermediate build layers (apt cache, pip cache, npm cache) inflate the number even though `apt-get clean` and `rm -rf` run later. The actual disk usage is closer to 4.5-5 GB. Use `docker system df -v` to see real disk consumption.
+
+### Top candidates for size reduction
+
+| Optimization | Potential savings |
+|-------------|-------------------|
+| Remove build-essential/gcc after pip install (multi-stage build) | ~300 MB |
+| Keep only `opencv-python-headless`, drop `opencv-python` + `opencv-contrib-python` | ~200 MB |
+| Deduplicate npm packages (global + /home/node_modules overlap) | ~300 MB |
+| Evaluate jax + jaxlib necessity | ~250 MB |
+| Drop `fonts-noto-cjk` if CJK not needed | ~120 MB |
+| **Total potential savings** | **~1,170 MB** |

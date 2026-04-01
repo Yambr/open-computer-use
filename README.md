@@ -32,7 +32,7 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 | **Live browser view** | CDP streaming (shared) | Screenshot-based | N/A | Screenshot-based |
 | **User input in browser** | Yes (type directly) | No | No | No |
 | **File access** | HTTP links from server | In-chat artifacts | IDE file browser | N/A |
-| **File preview** | Server-side rendering (side panel) | Artifacts | IDE editor tabs | N/A |
+| **File preview** | Preview rendering (side panel) | Artifacts | IDE editor tabs | N/A |
 | **Terminal** | ttyd + tmux (persistent, side panel) | N/A | Integrated terminal | N/A |
 | **Claude Code CLI** | Pre-installed, interactive TTY + MCP | N/A | Built-in | N/A |
 | **Skills system** | 13 built-in + custom | Projects / custom instructions | N/A | N/A |
@@ -43,33 +43,37 @@ Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n
 
 > **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
 
-### Shared browser — user and AI collaborate on one Chromium
+### Shared browser — user and AI on one Chromium
 
 ![Shared Browser](docs/shared-browser.svg)
 
-The browser inside the sandbox is **shared**: the AI navigates via Playwright, while you watch live via CDP streaming. You can type directly into the browser (e.g. enter login credentials) — the AI sees the result without ever seeing your password.
+One browser, three users: AI navigates via Playwright, you watch live via CDP, and you can type directly (e.g. login credentials). See [docs/FEATURES.md](docs/FEATURES.md#shared-browser) for details.
 
 ![Browser Viewer](docs/screenshots/03-browser-viewer.png)
 
-### File flow — server-side storage, chat gets links
+### File flow — server storage, chat gets links
 
 ![File Flow](docs/file-flow.svg)
 
-Files stay on the server in Docker volumes. The chat only shows clickable HTTP links — no file size limits, no re-upload to WebUI. Open any file in a new tab or download as zip.
+Files live in Docker volumes on the server. Chat shows clickable HTTP links — no size limits, no re-upload. See [docs/FEATURES.md](docs/FEATURES.md#file-flow--preview) for the full pipeline.
 
 ![File Preview](docs/screenshots/02-file-preview.png)
 
-### Claude Code CLI — when chat isn't enough
+### Claude Code CLI — escape hatch from chat
 
 ![Claude Code Terminal](docs/screenshots/04-sub-agent-terminal.png)
 
-Full Claude Code CLI pre-installed in every sandbox. Open the terminal tab, run Claude Code manually, or let the AI delegate via `sub_agent`. You can leave OpenWebUI entirely and work in the container terminal — git, vim, code, whatever you need.
+Pre-installed in every sandbox. Open terminal, run Claude Code, or leave OpenWebUI entirely and work in the container. See [docs/FEATURES.md](docs/FEATURES.md#claude-code-cli--when-chat-isnt-enough).
 
 ### Sub-agent dashboard — monitor and control
 
 ![Sub-Agent Dashboard](docs/screenshots/06-sub-agent-dashboard.png)
 
-See [docs/FEATURES.md](docs/FEATURES.md) for a deep dive into architecture and comparisons. See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
+### Docker image size
+
+The sandbox image is **~11 GB** uncompressed. See [docs/FEATURES.md](docs/FEATURES.md#docker-image-size) for a full breakdown.
+
+See [docs/FEATURES.md](docs/FEATURES.md) for architecture deep dive. See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
 
 ## Architecture
 

@@ -110,7 +110,7 @@
   <text x="95" y="399" class="note">Files stay on the server — chat only receives HTTP links (no re-upload to WebUI)</text>
 
   <line x1="70" y1="415" x2="90" y2="415" stroke="#8b5cf6" stroke-width="2"/>
-  <text x="95" y="419" class="note">Side panel spawns previews on the Computer Use Server — not a native file browser</text>
+  <text x="95" y="419" class="note">Side panel renders previews via Computer Use Server — not a native file browser</text>
 
   <line x1="70" y1="435" x2="90" y2="435" stroke="#f59e0b" stroke-width="2"/>
   <text x="95" y="439" class="note">User can open any file link in a new browser tab, download as zip, or work directly in the container terminal</text>
