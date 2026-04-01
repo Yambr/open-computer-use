@@ -166,7 +166,94 @@ Claude.ai uses **project files** that are uploaded into the conversation context
 | **Self-hosted** | Yes | No | No |
 | **Any LLM** | Yes (OpenAI-compatible) | Claude only | Claude only |
 
-> **Note on "Open Terminal":** This refers to Claude.ai's integrated terminal environment (Claude Code on the web), not the Claude Code CLI tool itself. Open Computer Use includes Claude Code CLI *inside* its sandbox containers — so you get both the chat interface and the CLI.
+## Detailed Comparison: Open Computer Use vs open-webui/open-terminal
+
+[Open Terminal](https://github.com/open-webui/open-terminal) is a separate open-source project that also gives AI models code execution. Both solve "LLMs need somewhere to run code" but with different architectures.
+
+| | Open Computer Use | open-webui/open-terminal |
+|---|---|---|
+| **In one sentence** | MCP server with managed Docker workspaces — browser, terminal, skills, sub-agents | Lightweight remote shell with file management via REST API |
+
+### Quick Comparison
+
+| Feature | Open Computer Use | open-webui/open-terminal |
+|---------|-------------------|--------------------------|
+| **Isolation model** | Container per chat | Shared container (OS users) |
+| **Production multi-user** | Yes (1,000+ MAU) | "Not designed for production" (per docs) |
+| **Live browser** | Playwright + CDP streaming | No |
+| **Skills system** | 13 built-in + custom | No |
+| **Sub-agent** | Claude Code with MCP auto-configured | No |
+| **Document creation** | PPTX, XLSX, DOCX, PDF skills | No (has format extraction libs) |
+| **MCP tools** | 5 (bash, view, create, edit, sub-agent) | 19 (file ops, process mgmt, ports, grep, glob) |
+| **Pre-installed packages** | 200+ (LibreOffice, Playwright, Tesseract, FFmpeg...) | ~50 (data science, build tools, ffmpeg) |
+| **MCP client support** | Any (Open WebUI, Claude Desktop, n8n, LiteLLM) | Open WebUI only |
+| **Jupyter notebooks** | No | Yes |
+| **Bare metal mode** | No (Docker only) | Yes (`pip install open-terminal`) |
+| **Port proxy** | No | Yes (reverse-proxy to localhost) |
+| **Resource limits** | Per-container (RAM, CPU) | OS-level only |
+| **Image variants** | Single full image (~11 GB virtual / ~4.5 GB disk) | 3 variants: full (4 GB), slim (430 MB), alpine (230 MB) |
+| **Setup** | `docker compose up` | `docker run` or `pip install` |
+
+### Architecture & Isolation
+
+**Open Computer Use** creates a new Docker container for every chat session. If the AI breaks something — installs wrong packages, corrupts files, fills disk — only that chat is affected. Next chat starts fresh. Containers are cleaned up automatically after idle timeout.
+
+**open-webui/open-terminal** runs a single container (or bare metal process) shared across sessions. Multi-user mode creates OS-level user accounts with `chmod 700` home directories for file isolation. The project docs explicitly note this is "not designed for production multi-user deployments" — all users share the same kernel, network, and system resources.
+
+**Trade-off**: Open Computer Use provides stronger isolation at the cost of higher resource usage (~200-500 MB per session). open-webui/open-terminal is more lightweight but less isolated.
+
+### MCP Tools: 5 vs 19
+
+The two projects take opposite approaches.
+
+**Open Computer Use** — 5 high-level tools:
+
+| Tool | Description |
+|------|-------------|
+| `bash_tool` | Run commands with progress streaming and timeout |
+| `view` | Read files/directories, resize images for context |
+| `create_file` | Create files with content |
+| `str_replace` | Edit files via find-and-replace |
+| `sub_agent` | Delegate complex tasks to Claude Code |
+
+**open-webui/open-terminal** — 19 granular tools from its REST API:
+
+| Category | Tools |
+|----------|-------|
+| Files | list, read, write, display, replace, upload, delete, move, mkdir, archive |
+| Search | grep, glob |
+| Processes | run, list, status, input, kill |
+| Network | list ports, port proxy |
+
+**Trade-off**: Fewer powerful primitives (AI uses `bash_tool` for search, process management) vs. fine-grained operations that don't require shell knowledge.
+
+### Security
+
+| Aspect | Open Computer Use | open-webui/open-terminal |
+|--------|-------------------|--------------------------|
+| **Isolation** | Docker containers (kernel namespaces) | OS user accounts (`chmod 700`) |
+| **Privilege escalation** | `no-new-privileges:true` | Passwordless sudo for container user |
+| **Resource limits** | Per-container (2 GB RAM, 1 CPU default) | None (OS-level only) |
+| **Network isolation** | Configurable | Egress firewall (iptables) |
+| **Skill/upload mounts** | Read-only | N/A |
+
+### What open-webui/open-terminal Has That We Don't
+
+- **Jupyter notebooks** — create and execute notebooks with per-session kernels
+- **Bare metal mode** — `pip install open-terminal`, no Docker needed
+- **Port proxy** — reverse-proxy to localhost services for web dev
+- **Lightweight variants** — 230 MB alpine image for edge/CI
+- **Document text extraction** — reads 11 formats as text
+- **Process stdin** — send input to running processes
+- **Simpler setup** — single `docker run` command
+
+### When to Choose What
+
+**Choose Open Computer Use** for: production multi-user, live browser, document creation skills, Claude Code sub-agent, multiple MCP clients, cloud agent workflows.
+
+**Choose open-webui/open-terminal** for: lightweight code execution, bare metal, Jupyter, port proxying, minimal footprint, simple single-container personal use.
+
+**Use both together**: Open WebUI supports connecting to both simultaneously — open-webui/open-terminal for quick code execution, Open Computer Use for complex workflows.
 
 ## Docker Image Size
 

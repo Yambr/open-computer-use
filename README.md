@@ -73,7 +73,7 @@ Pre-installed in every sandbox. Open terminal, run Claude Code, or leave OpenWeb
 
 The sandbox image is **~11 GB** uncompressed. See [docs/FEATURES.md](docs/FEATURES.md#docker-image-size) for a full breakdown.
 
-See [docs/FEATURES.md](docs/FEATURES.md) for architecture deep dive. See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
+See [docs/FEATURES.md](docs/FEATURES.md) for architecture deep dive, [detailed comparison with open-webui/open-terminal](docs/FEATURES.md#detailed-comparison-open-computer-use-vs-open-webuiopen-terminal), and [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
 
 ## Architecture
 
