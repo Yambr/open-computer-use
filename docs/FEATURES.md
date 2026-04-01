@@ -16,11 +16,11 @@ One Chromium instance inside the sandbox container, shared between three actors:
 
 **Why this matters:** The user can enter sensitive information (passwords, 2FA codes, private data) directly into the browser — the AI never sees the raw credentials, only the resulting page state. This is a true shared workspace, not a screenshot relay.
 
-### vs. Claude.ai
-Claude.ai uses **screenshot-based** browser interaction — the AI takes a screenshot, decides where to click, takes another screenshot. The user sees static images, not a live stream. There's no way for the user to type into the AI's browser.
+### vs. Claude.ai (Claude Code web)
+Claude.ai uses **screenshot-based** browser interaction — the AI takes a screenshot, decides where to click, takes another screenshot. The user sees static images, not a live CDP stream. Claude Code web provides a full IDE with terminal and file browser, but the browser automation remains screenshot-based. There's no way for the user to type directly into the AI's browser session.
 
 ### vs. open-webui/open-terminal
-Open Terminal provides a **native file browser** but doesn't expose a shared browser with live streaming. The browser (if any) is agent-only.
+open-webui/open-terminal doesn't expose a shared browser with live streaming. It focuses on terminal and file operations.
 
 ## File Flow & Preview
 
@@ -47,7 +47,7 @@ Unlike Claude.ai where artifacts live inside the conversation, our files live on
 Claude.ai shows **artifacts** in a side panel alongside the conversation. Files are part of the chat context window. Our approach keeps files on the server — separate from the conversation, no size limits.
 
 ### vs. open-webui/open-terminal
-Open Terminal uses a **native file browser** that shows the container filesystem directly. Our side panel is a **preview renderer** that fetches from the Computer Use Server and displays in an iframe (with HTML rendering for office documents, syntax highlighting for code, etc.).
+open-webui/open-terminal provides file operations via REST API tools (read, write, display, archive). Our side panel is a **preview renderer** that fetches from the Computer Use Server and displays in an iframe (with HTML rendering for office documents, syntax highlighting for code, etc.).
 
 ## Claude Code CLI — When Chat Isn't Enough
 
@@ -102,10 +102,10 @@ The side panel (artifacts panel) in Open WebUI serves three functions:
 5. User sees the result inline without downloading
 
 ### vs. open-webui/open-terminal
-Open Terminal uses the **IDE's native file explorer** — files appear in the file tree and open in editor tabs. Our approach uses a **preview renderer** that works in any browser, without an IDE.
+open-webui/open-terminal provides a `display` tool for file preview. Our approach uses a **preview renderer** on the server that converts office documents to HTML, embeds PDFs, and renders code with syntax highlighting.
 
-### vs. Claude.ai
-Claude.ai renders **artifacts** (HTML, React, SVG) in a side panel. Our preview panel also uses a side panel but supports a wider range of file types (office documents, PDFs, archives) via server-side conversion.
+### vs. Claude.ai (Claude Code web)
+Claude Code web has a full IDE with file browser and editor tabs, plus artifacts in the side panel. Our preview panel supports similar file types (office documents, PDFs, archives) via server-side conversion, accessible from any MCP client — not just a specific IDE.
 
 ## File Transfer & Sync
 
@@ -146,10 +146,10 @@ Claude.ai renders **artifacts** (HTML, React, SVG) in a side panel. Our preview 
 - **Volume persists** — survives container restarts, available until cleanup
 
 ### vs. open-webui/open-terminal
-Open Terminal mounts files in a way visible to the **IDE file browser**. Our approach is HTTP-first — all file access goes through the Computer Use Server API.
+open-webui/open-terminal exposes files via REST API tools. Our approach is HTTP-first — all file access goes through the Computer Use Server API with preview rendering.
 
-### vs. Claude.ai
-Claude.ai uses **project files** that are uploaded into the conversation context. Our files live in Docker volumes and are accessed via HTTP — separate from the chat context, no size limits.
+### vs. Claude.ai (Claude Code web)
+Claude Code web has a built-in file system with IDE access. Our files live in Docker volumes and are accessed via HTTP — works with any MCP client, not tied to a specific IDE.
 
 ## Summary: Architecture Comparison
 
@@ -158,9 +158,10 @@ Claude.ai uses **project files** that are uploaded into the conversation context
 | **Browser** | Shared Chromium + CDP live stream | Screenshot-based | No |
 | **User input in browser** | Yes (type directly) | No | No |
 | **File access** | HTTP links from server | Side panel artifacts | REST API file ops |
-| **File preview** | Preview rendering (side panel) | Side panel artifacts | File display tool |
-| **Terminal** | ttyd + tmux (persistent, side panel) | Computer use (screenshot) | Process management tools |
-| **Claude Code** | Pre-installed CLI, interactive TTY | N/A | N/A |
+| **File preview** | Preview rendering (side panel) | Side panel artifacts + IDE | File display tool |
+| **Terminal** | ttyd + tmux (persistent, side panel) | Claude Code web (IDE + terminal) | Process management tools |
+| **Claude Code** | Pre-installed CLI, interactive TTY | Claude Code web (built-in) | N/A |
+| **Skills system** | 13 built-in + custom | Built-in skills + custom instructions | N/A |
 | **Escape hatch** | Open server URLs, work independently | N/A | Bare metal mode |
 | **File storage** | Docker volumes (server-side) | Chat context | Container filesystem |
 | **Self-hosted** | Yes | No | Yes |
@@ -179,7 +180,7 @@ Claude.ai uses **project files** that are uploaded into the conversation context
 | Feature | Open Computer Use | open-webui/open-terminal |
 |---------|-------------------|--------------------------|
 | **Isolation model** | Container per chat | Shared container (OS users) |
-| **Production multi-user** | Yes (per-chat isolation) | Shared container (OS-level user isolation) |
+| **Production multi-user** | Yes (1,000+ MAU, per-chat isolation) | Shared container (OS-level user isolation) |
 | **Live browser** | Playwright + CDP streaming | No |
 | **Skills system** | 13 built-in + custom | No |
 | **Sub-agent** | Claude Code with MCP auto-configured | No |

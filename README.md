@@ -24,18 +24,18 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 
 ### Key differentiators
 
-| Feature | Open Computer Use | Claude.ai | [open-webui/open-terminal](https://github.com/open-webui/open-terminal) | OpenAI Operator |
+| Feature | Open Computer Use | Claude.ai (Claude Code web) | [open-webui/open-terminal](https://github.com/open-webui/open-terminal) | OpenAI Operator |
 |---------|-------------------|-----------|---------------|-----------------|
 | **Self-hosted** | Yes | No | Yes | No |
 | **Any LLM** | Yes (OpenAI-compatible) | Claude only | Any (via Open WebUI) | GPT only |
-| **Code execution** | Full Linux sandbox | Sandbox | Sandbox / bare metal | No |
+| **Code execution** | Full Linux sandbox | Sandbox (Claude Code web) | Sandbox / bare metal | No |
 | **Live browser view** | CDP streaming (shared) | Screenshot-based | No | Screenshot-based |
 | **User input in browser** | Yes (type directly) | No | No | No |
 | **File access** | HTTP links from server | Side panel artifacts | REST API file ops | N/A |
-| **File preview** | Preview rendering (side panel) | Side panel artifacts | File display tool | N/A |
-| **Terminal** | ttyd + tmux (persistent, side panel) | Computer use (screenshot) | Process management tools | N/A |
-| **Claude Code CLI** | Pre-installed, interactive TTY + MCP | N/A | N/A | N/A |
-| **Skills system** | 13 built-in + custom | Projects / custom instructions | N/A | N/A |
+| **File preview** | Preview rendering (side panel) | Side panel artifacts + IDE | File display tool | N/A |
+| **Terminal** | ttyd + tmux (persistent, side panel) | Claude Code web (IDE + terminal) | Process management tools | N/A |
+| **Claude Code** | Pre-installed CLI, interactive TTY + MCP | Claude Code web (built-in) | N/A | N/A |
+| **Skills system** | 13 built-in + custom | Built-in skills + custom instructions | N/A | N/A |
 | **Escape hatch** | Open server URLs, work independently | N/A | Bare metal mode | N/A |
 | **Container isolation** | Docker (runc), per chat | Docker | Shared container (OS users) | N/A |
 
