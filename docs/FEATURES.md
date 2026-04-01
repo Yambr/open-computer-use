@@ -16,7 +16,7 @@ One Chromium instance inside the sandbox container, shared between the AI and th
 **Why this matters:** The user can enter sensitive information (passwords, 2FA codes, private data) directly into the browser — the AI never sees the raw credentials, only the resulting page state. Both the AI and the user operate on the same browser — true collaboration, not a screenshot relay.
 
 ### vs. Claude.ai (Claude Code web)
-Claude.ai uses **screenshot-based** browser interaction — the AI takes a screenshot, decides where to click, takes another screenshot. The user sees static images, not a live CDP stream. Claude Code web provides a full IDE with terminal and file browser, but the browser automation remains screenshot-based. There's no way for the user to type directly into the AI's browser session.
+Claude.ai Computer Use is [screenshot-based](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) — the AI takes a screenshot, analyzes it with vision, decides where to click, then takes another screenshot. Our approach uses **live CDP streaming** — both the AI and the user interact with the same Chromium instance in real-time. The user can type directly into the browser (e.g. login credentials) while the AI automates via Playwright.
 
 ### vs. open-webui/open-terminal
 open-webui/open-terminal doesn't expose a shared browser with live streaming. It focuses on terminal and file operations.

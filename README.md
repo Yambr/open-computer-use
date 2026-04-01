@@ -29,7 +29,7 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 | **Self-hosted** | Yes | No | Yes | No |
 | **Any LLM** | Yes (OpenAI-compatible) | Claude only | Any (via Open WebUI) | GPT only |
 | **Code execution** | Full Linux sandbox | Sandbox (Claude Code web) | Sandbox / bare metal | No |
-| **Live browser view** | CDP streaming (shared) | Screenshot-based | No | Screenshot-based |
+| **Live browser view** | CDP streaming (shared, interactive) | Screenshot-based | No | Screenshot-based |
 | **User input in browser** | Yes (type directly) | No | No | Yes (take over) |
 | **File access** | HTTP links from server | Side panel artifacts | REST API file ops | N/A |
 | **File preview** | Preview rendering (side panel) | Side panel artifacts + IDE | Client-side (via Open WebUI) | N/A |
