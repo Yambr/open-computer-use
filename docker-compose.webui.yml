@@ -35,6 +35,12 @@ services:
       - MCP_API_KEY=${MCP_API_KEY:-}
       # Allow complex multi-step tasks (browser + doc creation) to complete
       - CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES=200
+      # Large tool result truncation (fix_large_tool_results patch)
+      # Prevents context window exhaustion from large MCP tool outputs
+      - TOOL_RESULT_MAX_CHARS=${TOOL_RESULT_MAX_CHARS:-50000}
+      - TOOL_RESULT_PREVIEW_CHARS=${TOOL_RESULT_PREVIEW_CHARS:-2000}
+      # Upload full tool results to Computer Use server (model gets preview + file path)
+      - DOCKER_AI_UPLOAD_URL=http://host.docker.internal:${MCP_PORT:-8081}
     volumes:
       - open-webui-data:/app/backend/data
     extra_hosts:

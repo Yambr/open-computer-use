@@ -278,6 +278,71 @@ ViewRange = Annotated[
 ]
 
 
+# ---------------------------------------------------------------------------
+# Output truncation & command semantics (inspired by Claude Code BashTool)
+# ---------------------------------------------------------------------------
+
+MAX_BASH_OUTPUT_CHARS = 30_000
+
+# Commands where exit code 1 is NOT an error (semantic exit codes)
+# grep/rg: 1=no matches, 2+=error
+# find: 1=partial access, 2+=error
+# diff: 1=files differ, 2+=error
+# test/[: 1=condition false, 2+=error
+COMMAND_SEMANTICS = {
+    'grep':  {'threshold': 2, 'message': 'No matches found'},
+    'rg':    {'threshold': 2, 'message': 'No matches found'},
+    'find':  {'threshold': 2, 'message': 'Some directories were inaccessible'},
+    'diff':  {'threshold': 2, 'message': 'Files differ'},
+    'test':  {'threshold': 2, 'message': 'Condition is false'},
+    '[':     {'threshold': 2, 'message': 'Condition is false'},
+}
+
+
+def _get_first_command(command: str) -> str:
+    """Extract the first command name from a shell command string."""
+    cmd = command.strip()
+    # Skip env vars like VAR=val, sudo, etc.
+    for token in cmd.split():
+        if '=' in token:
+            continue
+        if token in ('sudo', 'env', 'nice', 'time', 'strace'):
+            continue
+        # Return basename (e.g. /usr/bin/grep -> grep)
+        return token.rsplit('/', 1)[-1]
+    return ''
+
+
+def _apply_command_semantics(command: str, exit_code: int, output: str) -> str:
+    """Apply command-specific exit code interpretation."""
+    if exit_code == 0:
+        return output if output else "[No output]"
+
+    first_cmd = _get_first_command(command)
+    semantic = COMMAND_SEMANTICS.get(first_cmd)
+
+    if semantic and exit_code < semantic['threshold']:
+        # Exit code is informational, not an error
+        return output if output else semantic['message']
+
+    # Default: return output or exit code
+    return output if output else f"[Exit code: {exit_code}]"
+
+
+def _truncate_output(output: str, max_chars: int = MAX_BASH_OUTPUT_CHARS) -> str:
+    """Truncate large output, keeping head and tail."""
+    if len(output) <= max_chars:
+        return output
+    half = max_chars // 2
+    total = len(output)
+    return (
+        output[:half]
+        + f"\n\n... [Output truncated: {total} chars total, showing first and last {half} chars.\n"
+        + f"Use head/tail/view to read specific parts] ...\n\n"
+        + output[-half:]
+    )
+
+
 @mcp.tool()
 async def bash_tool(command: str, description: str, ctx: Context) -> str:
     """
@@ -336,7 +401,8 @@ async def bash_tool(command: str, description: str, ctx: Context) -> str:
             except asyncio.CancelledError:
                 pass
 
-        return result["output"] if result["output"] else f"[Exit code: {result['exit_code']}]"
+        output = _apply_command_semantics(command, result["exit_code"], result["output"])
+        return _truncate_output(output)
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -393,6 +459,11 @@ try:
 
     if old_str not in content:
         print(f"Error: old_str not found in {path}")
+        sys.exit(1)
+
+    count = content.count(old_str)
+    if count > 1:
+        print(f"Error: Found {count} occurrences of old_str in {path}. Add more surrounding context to make it unique.")
         sys.exit(1)
 
     new_content = content.replace(old_str, new_str, 1)
@@ -596,10 +667,10 @@ fi
         result = await asyncio.to_thread(_execute_bash, container, command)
         output = result["output"] if result["output"] else "Error: No output"
 
-        # Truncate if needed
-        if not view_range and len(output) > 16000:
+        # Truncate if needed (30K limit, matching bash_tool MAX_BASH_OUTPUT_CHARS)
+        if not view_range and len(output) > 30000:
             truncation_msg = f"\n\n... [File truncated - middle omitted. Total: {len(output)} chars. Use view_range.] ...\n\n"
-            output = output[:8000] + truncation_msg + output[-8000:]
+            output = output[:15000] + truncation_msg + output[-15000:]
 
         return output
 

@@ -34,6 +34,8 @@ Edit `.env` before starting. Key variables:
 | `MCP_API_KEY` | Recommended | Bearer token for MCP endpoint security |
 | `ANTHROPIC_AUTH_TOKEN` | No | For Claude Code sub-agent |
 | `VISION_API_KEY` | No | For describe-image skill |
+| `TOOL_RESULT_MAX_CHARS` | No | Truncation threshold for large tool results (default: 50000, 0=disable) |
+| `TOOL_RESULT_PREVIEW_CHARS` | No | Preview size shown to model after truncation (default: 2000) |
 
 See `.env.example` for the full list with defaults.
 

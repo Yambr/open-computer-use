@@ -15,6 +15,11 @@ ARG COMPUTER_USE_SERVER_URL=computer-use-server:8081
 ENV COMPUTER_USE_SERVER_URL=${COMPUTER_USE_SERVER_URL}
 RUN python3 /tmp/patches/fix_preview_url_detection.py
 
+# Optional: Truncate large MCP tool results to prevent context window exhaustion.
+# Requires fix_tool_loop_errors.py to be applied first.
+# Config: TOOL_RESULT_MAX_CHARS (default 50000), TOOL_RESULT_PREVIEW_CHARS (default 2000)
+RUN python3 /tmp/patches/fix_large_tool_results.py
+
 # Optional patches below - uncomment if needed:
 #
 # fix_large_tool_args: Truncates oversized tool call arguments in HTML attributes

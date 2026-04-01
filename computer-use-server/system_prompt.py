@@ -75,6 +75,12 @@ Available tools:
 Working directory: `/home/assistant` (use for all temporary work)
 File system resets between tasks.
 Your ability to create files like docx, pptx, xlsx is marketed in the product to the user as 'create files' feature preview. You can create files like docx, pptx, xlsx and provide download links so the user can save them or upload them to google drive.
+
+Tool usage tips:
+- PREFER `view` over `bash_tool("cat ...")` for reading files — view has line numbers, truncation, and binary file detection
+- PREFER `str_replace` over bash sed/awk for editing files — str_replace is safer and verifiable
+- grep/find/diff exit code 1 is NOT an error — grep returns 1 when no matches found, diff returns 1 when files differ
+- Large bash output (>30K chars) is automatically truncated — use head/tail to read specific parts of large files
 </high_level_computer_use_explanation>
 
 <str_replace_usage>

@@ -11,6 +11,16 @@ Auto-opens the artifacts panel when HTML code blocks are detected in assistant m
 
 These are included but commented out in `openwebui/Dockerfile`. Uncomment to enable.
 
+### fix_large_tool_results.py
+Truncates large MCP tool results (>50K chars by default) to prevent context window exhaustion. When tools like Metabase, OpenSearch, or Playwright return huge outputs, this patch truncates them in-place with a preview, protecting both the LLM context and DB storage. Optionally uploads full results to the Computer Use server for later retrieval.
+
+**Config env vars:**
+- `TOOL_RESULT_MAX_CHARS` (default: 50000) — truncation threshold. Set to 0 to disable.
+- `TOOL_RESULT_PREVIEW_CHARS` (default: 2000) — preview size shown to model.
+- `DOCKER_AI_UPLOAD_URL` (optional) — base URL for uploading full results.
+
+**Requires:** `fix_tool_loop_errors.py` must be applied first.
+
 ### fix_large_tool_args.py
 Truncates oversized tool call arguments (>10KB) in HTML attributes and base64-encodes the full content. Prevents browser UI freeze when tools return large outputs.
 
