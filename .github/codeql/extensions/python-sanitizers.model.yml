@@ -19,7 +19,7 @@ extensions:
       # Format: [type, path, input, output, kind]
       # By providing an explicit "value" summary (not "taint"),
       # we tell CodeQL the return value is derived but sanitised.
-      - ["security", "Member[safe_path]", "Argument[0]", "ReturnValue", "value"]
+      - ["security", "Member[safe_path]", "Argument[0..]", "ReturnValue", "value"]
 
       # sanitize_chat_id: returns a validated string, no taint propagation.
       - ["security", "Member[sanitize_chat_id]", "Argument[0]", "ReturnValue", "value"]

@@ -611,7 +611,7 @@ async def view(
                     "from PIL import Image; from io import BytesIO; import base64,sys; "
                     f"img=Image.open({path!r}); "
                     "mx=1280; "
-                    "img.thumbnail((mx,mx),Image.LANCZOS) if max(img.size)>mx else None; "
+                    "img.thumbnail((mx,mx),Image.Resampling.LANCZOS) if max(img.size)>mx else None; "
                     "img=img.convert('RGB') if img.mode in ('RGBA','P') else img; "
                     "b=BytesIO(); img.save(b,format='JPEG',quality=80); "
                     "sys.stdout.write(base64.b64encode(b.getvalue()).decode())"
