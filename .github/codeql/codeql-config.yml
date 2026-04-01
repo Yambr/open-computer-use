@@ -1,0 +1,9 @@
+# CodeQL configuration — references local model extensions
+# that declare custom sanitizers (safe_path, sanitize_chat_id).
+
+name: "open-computer-use-codeql-config"
+
+# Pick up model extension YAML files from the extensions/ directory
+model-packs:
+  - codeql/python-all
+  - codeql/javascript-all
