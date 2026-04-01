@@ -165,7 +165,7 @@ Claude Code web has a built-in file system with IDE access. Our files live in Do
 | **Bare metal mode** | No (Docker only) | Yes (`pip install open-terminal`) |
 | **Port proxy** | No | Yes (reverse-proxy to localhost) |
 | **Resource limits** | Per-container (RAM, CPU) | OS-level only |
-| **Image variants** | Single full image (~11 GB virtual / ~4.5 GB disk) | 3 variants: full (4 GB), slim (430 MB), alpine (230 MB) |
+| **Image variants** | Single full image (~11 GB) | 3 variants: full (4 GB), slim (430 MB), alpine (230 MB) |
 | **Setup** | `docker compose up` | `docker run` or `pip install` |
 
 ### Architecture & Isolation
@@ -231,28 +231,4 @@ The two projects take opposite approaches.
 
 ## Docker Image Size
 
-The sandbox image (`open-computer-use:latest`) is **~11 GB** uncompressed. Here's why:
-
-| Component | Estimated Size |
-|-----------|---------------|
-| Ubuntu 24.04 base | ~80 MB |
-| APT packages (LibreOffice, ffmpeg, JDK 21, tesseract, fonts, build-essential, graphviz, pandoc, ghostscript...) | ~1,800 MB |
-| Python pip packages (opencv x3, jax+jaxlib, scipy, scikit-learn, pandas, mediapipe, onnxruntime, matplotlib, playwright, reportlab...) | ~1,200 MB |
-| Node.js npm packages (mermaid-cli, sharp, react, typescript, pdf-lib, pptxgenjs... installed globally + /home/node_modules) | ~700 MB |
-| Playwright Chromium browser | ~450 MB |
-| Claude Code CLI + Playwright CLI | ~110 MB |
-| Bun, Node.js 22, glab, ttyd, skills, fonts | ~160 MB |
-| **Total (estimated layers)** | **~4,500 MB** |
-
-> **Why `docker images` may show ~11 GB:** Docker reports the *virtual size* which includes all layers before squashing. Intermediate build layers (apt cache, pip cache, npm cache) inflate the number even though `apt-get clean` and `rm -rf` run later. The actual disk usage is closer to 4.5-5 GB. Use `docker system df -v` to see real disk consumption.
-
-### Top candidates for size reduction
-
-| Optimization | Potential savings |
-|-------------|-------------------|
-| Remove build-essential/gcc after pip install (multi-stage build) | ~300 MB |
-| Keep only `opencv-python-headless`, drop `opencv-python` + `opencv-contrib-python` | ~200 MB |
-| Deduplicate npm packages (global + /home/node_modules overlap) | ~300 MB |
-| Evaluate jax + jaxlib necessity | ~250 MB |
-| Drop `fonts-noto-cjk` if CJK not needed | ~120 MB |
-| **Total potential savings** | **~1,170 MB** |
+The sandbox image (`open-computer-use:latest`) is **~11 GB**. It includes a full Ubuntu 24.04 environment with LibreOffice, Playwright + Chromium, Claude Code CLI, Python ML/data science stack, Node.js toolchain, OCR, media processing, and 13 skills. First build takes ~15 minutes.
