@@ -24,16 +24,20 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 
 ### Key differentiators
 
-| Feature | Open Computer Use | Claude.ai | OpenAI Operator |
-|---------|-------------------|-----------|-----------------|
-| **Self-hosted** | Yes | No | No |
-| **Any LLM** | Yes (OpenAI-compatible) | Claude only | GPT only |
-| **Code execution** | Full Linux sandbox | Sandbox (gVisor) | No |
-| **Live browser view** | CDP streaming | Screenshot-based | Screenshot-based |
-| **Sub-agent (Claude Code)** | Interactive TTY + MCP | N/A | N/A |
-| **Skills system** | 13 built-in + custom | Projects / custom instructions | N/A |
-| **File preview** | Auto artifacts panel | Artifacts | N/A |
-| **Container isolation** | Docker (runc) | Docker (gVisor) | N/A |
+| Feature | Open Computer Use | Claude.ai | Open Terminal | OpenAI Operator |
+|---------|-------------------|-----------|---------------|-----------------|
+| **Self-hosted** | Yes | No | No | No |
+| **Any LLM** | Yes (OpenAI-compatible) | Claude only | Claude only | GPT only |
+| **Code execution** | Full Linux sandbox | Sandbox (gVisor) | Sandbox | No |
+| **Live browser view** | CDP streaming (shared) | Screenshot-based | N/A | Screenshot-based |
+| **User input in browser** | Yes (type directly) | No | No | No |
+| **File access** | HTTP links from server | In-chat artifacts | IDE file browser | N/A |
+| **File preview** | Server-side rendering (side panel) | Artifacts | IDE editor tabs | N/A |
+| **Terminal** | ttyd + tmux (persistent, side panel) | N/A | Integrated terminal | N/A |
+| **Claude Code CLI** | Pre-installed, interactive TTY + MCP | N/A | Built-in | N/A |
+| **Skills system** | 13 built-in + custom | Projects / custom instructions | N/A | N/A |
+| **Escape hatch** | Open server URLs, work independently | N/A | N/A | N/A |
+| **Container isolation** | Docker (runc) | Docker (gVisor) | Docker | N/A |
 
 Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
 
