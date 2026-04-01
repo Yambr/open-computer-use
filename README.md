@@ -24,58 +24,37 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 
 ### Key differentiators
 
-| Feature | Open Computer Use | Claude.ai (Claude Code web) | [open-webui/open-terminal](https://github.com/open-webui/open-terminal) | OpenAI Operator |
+| Feature | Open Computer Use | Claude.ai (Claude Code web) | [open-terminal](https://github.com/open-webui/open-terminal) | OpenAI Operator |
 |---------|-------------------|-----------|---------------|-----------------|
 | **Self-hosted** | Yes | No | Yes | No |
 | **Any LLM** | Yes (OpenAI-compatible) | Claude only | Any (via Open WebUI) | GPT only |
 | **Code execution** | Full Linux sandbox | Sandbox (Claude Code web) | Sandbox / bare metal | No |
-| **Live browser view** | CDP streaming (shared, interactive) | Screenshot-based | No | Screenshot-based |
-| **User input in browser** | Yes (type directly) | No | No | Yes (take over) |
-| **File access** | HTTP links from server | Side panel artifacts | REST API file ops | N/A |
-| **File preview** | Preview rendering (side panel) | Side panel artifacts + IDE | Client-side (via Open WebUI) | N/A |
-| **Terminal** | ttyd + tmux (persistent, side panel) | Claude Code web (IDE + terminal) | Process management tools | N/A |
-| **Claude Code** | Pre-installed CLI, interactive TTY + MCP | Claude Code web (built-in) | N/A | N/A |
+| **Live browser** | CDP streaming (shared, interactive) | Screenshot-based | No | Screenshot-based |
+| **Terminal + Claude Code** | ttyd + tmux + Claude Code CLI | Claude Code web (built-in) | PTY + WebSocket | N/A |
 | **Skills system** | 13 built-in (auto-injected) + custom | Built-in skills + custom instructions | Open WebUI native (text-only) | N/A |
-| **Escape hatch** | Open server URLs, work independently | N/A | Bare metal mode | N/A |
-| **Container isolation** | Docker (runc), per chat | Docker (gVisor) | Shared container (OS users) | N/A |
+| **Container isolation** | Docker (runc), per chat | Docker (gVisor) | Shared container (OS-level users) | N/A |
 
-Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
+Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration. See [docs/COMPARISON.md](docs/COMPARISON.md) for a detailed comparison with alternatives.
 
-> **[Full comparison with open-webui/open-terminal](docs/FEATURES.md#detailed-comparison-open-computer-use-vs-open-webuiopen-terminal)** — architecture, isolation, MCP tools (5 vs 19), security, and when to choose what.
-
-> **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
-
-### Shared browser — user and AI on one Chromium
-
-![Shared Browser](docs/shared-browser.svg)
-
-One browser, three users: AI navigates via Playwright, you watch live via CDP, and you can type directly (e.g. login credentials). See [docs/FEATURES.md](docs/FEATURES.md#shared-browser) for details.
+### Live browser streaming
 
 ![Browser Viewer](docs/screenshots/03-browser-viewer.png)
 
-### File flow — server storage, chat gets links
-
-![File Flow](docs/file-flow.svg)
-
-Files live in Docker volumes on the server. Chat shows clickable HTTP links — no size limits, no re-upload. See [docs/FEATURES.md](docs/FEATURES.md#file-flow--preview) for the full pipeline.
+### File preview with skills
 
 ![File Preview](docs/screenshots/02-file-preview.png)
 
-### Claude Code CLI — escape hatch from chat
+### Claude Code — interactive terminal in the cloud
 
 ![Claude Code Terminal](docs/screenshots/04-sub-agent-terminal.png)
-
-Pre-installed in every sandbox. Open terminal, run Claude Code, or leave OpenWebUI entirely and work in the container. See [docs/FEATURES.md](docs/FEATURES.md#claude-code-cli--when-chat-isnt-enough).
 
 ### Sub-agent dashboard — monitor and control
 
 ![Sub-Agent Dashboard](docs/screenshots/06-sub-agent-dashboard.png)
 
-### Docker image size
+See [docs/FEATURES.md](docs/FEATURES.md) for architecture details and [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
 
-The sandbox image is **~11 GB**. Full Ubuntu 24.04 with LibreOffice, Playwright + Chromium, Claude Code CLI, ML/data science stack, and 13 skills. First build ~15 min.
-
-See [docs/FEATURES.md](docs/FEATURES.md) for architecture deep dive, [detailed comparison with open-webui/open-terminal](docs/FEATURES.md#detailed-comparison-open-computer-use-vs-open-webuiopen-terminal), and [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
+> **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
 
 ## Architecture
 
