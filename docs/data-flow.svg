@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 520" font-family="Inter, -apple-system, system-ui, sans-serif">
+  <defs>
+    <style>
+      .box { rx: 10; stroke-width: 1.5; }
+      .label { font-size: 12px; font-weight: 600; fill: #fff; }
+      .sublabel { font-size: 9px; fill: rgba(255,255,255,0.75); }
+      .arrow { stroke: #94a3b8; stroke-width: 1.8; fill: none; marker-end: url(#ah4); }
+      .arrow-label { font-size: 9px; fill: #6b7280; font-weight: 500; }
+    </style>
+    <marker id="ah4" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <rect width="500" height="520" rx="12" fill="#fafbfc"/>
+  <text x="250" y="24" text-anchor="middle" font-size="13" font-weight="700" fill="#1e293b">Data Flow: Volumes → Server → Chat</text>
+
+  <!-- Docker Volume -->
+  <rect x="50" y="45" width="400" height="120" class="box" fill="#475569" stroke="#334155"/>
+  <text x="250" y="68" text-anchor="middle" class="label">Docker Volume: user-data-{chat_id}</text>
+
+  <!-- uploads -->
+  <rect x="75" y="85" width="100" height="55" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="125" y="105" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">uploads/</text>
+  <text x="125" y="120" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">read-only</text>
+  <text x="125" y="132" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">user files</text>
+
+  <!-- outputs -->
+  <rect x="200" y="85" width="100" height="55" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="250" y="105" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">outputs/</text>
+  <text x="250" y="120" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">read-write</text>
+  <text x="250" y="132" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">AI results</text>
+
+  <!-- .claude -->
+  <rect x="325" y="85" width="100" height="55" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="375" y="105" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">.claude/</text>
+  <text x="375" y="120" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">sessions</text>
+  <text x="375" y="132" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">config</text>
+
+  <!-- Arrow: Volume → Container -->
+  <path d="M250,165 L250,205" class="arrow"/>
+  <text x="290" y="190" class="arrow-label">bind mount</text>
+
+  <!-- Sandbox Container -->
+  <rect x="100" y="205" width="300" height="70" class="box" fill="#0f766e" stroke="#0d9488"/>
+  <text x="250" y="232" text-anchor="middle" class="label">Sandbox Container</text>
+  <text x="250" y="250" text-anchor="middle" class="sublabel">/mnt/user-data/uploads/ (RO) · /mnt/user-data/outputs/ (RW)</text>
+  <text x="250" y="263" text-anchor="middle" class="sublabel">AI writes files here → auto-served via HTTP</text>
+
+  <!-- Arrow: Container → Server -->
+  <path d="M250,275 L250,315" class="arrow"/>
+  <text x="290" y="300" class="arrow-label">HTTP</text>
+
+  <!-- Computer Use Server -->
+  <rect x="100" y="315" width="300" height="70" class="box" fill="#1e40af" stroke="#1e3a8a"/>
+  <text x="250" y="342" text-anchor="middle" class="label">Computer Use Server</text>
+  <text x="250" y="360" text-anchor="middle" class="sublabel">/files/{chat_id}/{filename} · /api/outputs/{chat_id}/</text>
+  <text x="250" y="373" text-anchor="middle" class="sublabel">Preview renderer · Zip download</text>
+
+  <!-- Arrow: Server → Chat -->
+  <path d="M250,385 L250,425" class="arrow"/>
+  <text x="290" y="410" class="arrow-label">links in response</text>
+
+  <!-- Open WebUI -->
+  <rect x="100" y="425" width="300" height="65" class="box" fill="#6366f1" stroke="#4f46e5"/>
+  <text x="250" y="452" text-anchor="middle" class="label">Open WebUI (chat)</text>
+  <text x="250" y="470" text-anchor="middle" class="sublabel">Clickable HTTP URLs · Side panel preview · Zip archive button</text>
+  <text x="250" y="483" text-anchor="middle" class="sublabel">Files do NOT upload back into chat</text>
+
+  <!-- Side note -->
+  <text x="250" y="510" text-anchor="middle" font-size="9" fill="#64748b">Volume persists across container restarts · Cleaned up after idle timeout</text>
+</svg>

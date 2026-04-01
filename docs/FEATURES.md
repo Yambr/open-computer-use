@@ -108,31 +108,7 @@ Claude Code web has a full IDE with file browser and editor tabs, plus artifacts
 
 ### How data flows between components
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Docker Volume: user-data-{chat_id}                         │
-│                                                             │
-│  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐    │
-│  │   uploads/    │   │   outputs/   │   │  .claude/    │    │
-│  │   (read-only) │   │  (read-write)│   │  (sessions)  │    │
-│  └──────────────┘   └──────────────┘   └──────────────┘    │
-└────────────────────────────┬────────────────────────────────┘
-                             │ bind mount
-                ┌────────────┴────────────┐
-                │    Sandbox Container    │
-                │  /mnt/user-data/...     │
-                └────────────┬────────────┘
-                             │ HTTP
-                ┌────────────┴────────────┐
-                │  Computer Use Server    │
-                │  /api/outputs/{id}/     │
-                └────────────┬────────────┘
-                             │ links
-                ┌────────────┴────────────┐
-                │    Open WebUI (chat)    │
-                │  clickable URLs         │
-                └─────────────────────────┘
-```
+![Data Flow](data-flow.svg)
 
 ### Key points
 
