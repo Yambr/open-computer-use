@@ -41,6 +41,8 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 
 Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
 
+> **[Full comparison with open-webui/open-terminal](docs/FEATURES.md#detailed-comparison-open-computer-use-vs-open-webuiopen-terminal)** — architecture, isolation, MCP tools (5 vs 19), security, and when to choose what.
+
 > **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
 
 ### Shared browser — user and AI on one Chromium
