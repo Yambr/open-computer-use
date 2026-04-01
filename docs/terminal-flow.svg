@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 200" font-family="Inter, -apple-system, system-ui, sans-serif">
+  <defs>
+    <style>
+      .box { rx: 10; stroke-width: 1.5; }
+      .label { font-size: 12px; font-weight: 600; fill: #fff; }
+      .sublabel { font-size: 9px; fill: rgba(255,255,255,0.75); }
+      .arrow { stroke: #94a3b8; stroke-width: 1.8; fill: none; marker-end: url(#ah3); }
+      .arrow-label { font-size: 9px; fill: #6b7280; font-weight: 500; }
+    </style>
+    <marker id="ah3" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <rect width="820" height="200" rx="12" fill="#fafbfc"/>
+  <text x="410" y="24" text-anchor="middle" font-size="13" font-weight="700" fill="#1e293b">Terminal Connection Flow</text>
+
+  <!-- User Browser -->
+  <rect x="20" y="55" width="150" height="90" class="box" fill="#6366f1" stroke="#4f46e5"/>
+  <text x="95" y="82" text-anchor="middle" class="label">User's Browser</text>
+  <text x="95" y="100" text-anchor="middle" class="sublabel">xterm.js terminal</text>
+  <text x="95" y="114" text-anchor="middle" class="sublabel">in side panel</text>
+
+  <!-- Arrow 1 -->
+  <path d="M170,100 L245,100" class="arrow"/>
+  <text x="207" y="92" text-anchor="middle" class="arrow-label">WebSocket</text>
+
+  <!-- Computer Use Server -->
+  <rect x="245" y="55" width="180" height="90" class="box" fill="#1e40af" stroke="#1e3a8a"/>
+  <text x="335" y="78" text-anchor="middle" class="label">Computer Use Server</text>
+  <text x="335" y="96" text-anchor="middle" class="sublabel">:8081</text>
+  <text x="335" y="110" text-anchor="middle" class="sublabel">WebSocket proxy</text>
+  <text x="335" y="124" text-anchor="middle" class="sublabel">/terminal/{chat_id}/ws</text>
+
+  <!-- Arrow 2 -->
+  <path d="M425,100 L500,100" class="arrow"/>
+  <text x="462" y="92" text-anchor="middle" class="arrow-label">WebSocket</text>
+
+  <!-- Container -->
+  <rect x="500" y="40" width="300" height="120" class="box" fill="#0f766e" stroke="#0d9488"/>
+  <text x="650" y="63" text-anchor="middle" class="label">Sandbox Container</text>
+
+  <!-- ttyd -->
+  <rect x="520" y="78" width="80" height="55" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="560" y="98" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">ttyd</text>
+  <text x="560" y="113" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">:7681</text>
+  <text x="560" y="125" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">WS server</text>
+
+  <!-- Arrow ttyd → tmux -->
+  <path d="M600,105 L625,105" class="arrow"/>
+
+  <!-- tmux -->
+  <rect x="625" y="78" width="75" height="55" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="662" y="98" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">tmux</text>
+  <text x="662" y="113" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">persistent</text>
+  <text x="662" y="125" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">session</text>
+
+  <!-- Arrow tmux → bash/claude -->
+  <path d="M700,105 L725,105" class="arrow"/>
+
+  <!-- bash / claude -->
+  <rect x="725" y="78" width="60" height="55" rx="6" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="755" y="98" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">bash</text>
+  <text x="755" y="113" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">Claude</text>
+  <text x="755" y="125" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">Code CLI</text>
+
+  <!-- Footer notes -->
+  <text x="20" y="185" font-size="9" fill="#64748b">Persistent session: disconnect and reconnect without losing state. Claude Code auto-starts on first login.</text>
+</svg>

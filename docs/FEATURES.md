@@ -66,9 +66,7 @@ The sandbox container has **Claude Code CLI pre-installed**. Users can access it
 
 ### How it works
 
-```
-User's browser ←WebSocket→ Computer Use Server ←WebSocket→ Container (ttyd:7681 → tmux → bash)
-```
+![Terminal Architecture](terminal-flow.svg)
 
 - **tmux** keeps the session alive — disconnect and reconnect without losing state
 - **Claude Code** has access to all configured MCP servers (auto-generated `~/.mcp.json`)
