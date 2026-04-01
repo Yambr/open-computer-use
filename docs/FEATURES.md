@@ -6,15 +6,14 @@ How Open Computer Use works under the hood, and how it differs from Claude.ai, [
 
 ![Shared Browser](shared-browser.svg)
 
-One Chromium instance inside the sandbox container, shared between three actors:
+One Chromium instance inside the sandbox container, shared between the AI and the user:
 
 | Actor | Access | What they do |
 |-------|--------|--------------|
 | **AI Agent** | Playwright CDP | Navigates, clicks, fills forms, scrapes data |
-| **User (side panel)** | CDP stream (interactive) | Watches AI in real-time, can click, type, scroll |
-| **User (terminal)** | Full shell access | Works in container directly, runs Claude Code CLI |
+| **User** | CDP stream (interactive, side panel) | Watches AI in real-time, clicks, types, scrolls — same browser session |
 
-**Why this matters:** The user can enter sensitive information (passwords, 2FA codes, private data) directly into the browser — the AI never sees the raw credentials, only the resulting page state. This is a true shared workspace, not a screenshot relay.
+**Why this matters:** The user can enter sensitive information (passwords, 2FA codes, private data) directly into the browser — the AI never sees the raw credentials, only the resulting page state. Both the AI and the user operate on the same browser — true collaboration, not a screenshot relay.
 
 ### vs. Claude.ai (Claude Code web)
 Claude.ai uses **screenshot-based** browser interaction — the AI takes a screenshot, decides where to click, takes another screenshot. The user sees static images, not a live CDP stream. Claude Code web provides a full IDE with terminal and file browser, but the browser automation remains screenshot-based. There's no way for the user to type directly into the AI's browser session.
