@@ -9,11 +9,11 @@ xlsxwriter==3.2.9
 
 # PDF processing
 pypdf==5.9.0
-pdfplumber==0.11.7
+pdfplumber==0.11.9
 pypdfium2==4.30.0
 pikepdf==9.11.0
 pdfkit==1.0.0
-pdfminer.six==20260107
+pdfminer.six==20251230
 pdf2image==1.17.0
 reportlab==4.4.4
 
