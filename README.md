@@ -24,20 +24,20 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 
 ### Key differentiators
 
-| Feature | Open Computer Use | Claude.ai | Open Terminal | OpenAI Operator |
+| Feature | Open Computer Use | Claude.ai | [open-webui/open-terminal](https://github.com/open-webui/open-terminal) | OpenAI Operator |
 |---------|-------------------|-----------|---------------|-----------------|
-| **Self-hosted** | Yes | No | No | No |
-| **Any LLM** | Yes (OpenAI-compatible) | Claude only | Claude only | GPT only |
-| **Code execution** | Full Linux sandbox | Sandbox (gVisor) | Sandbox | No |
-| **Live browser view** | CDP streaming (shared) | Screenshot-based | N/A | Screenshot-based |
+| **Self-hosted** | Yes | No | Yes | No |
+| **Any LLM** | Yes (OpenAI-compatible) | Claude only | Any (via Open WebUI) | GPT only |
+| **Code execution** | Full Linux sandbox | Sandbox | Sandbox / bare metal | No |
+| **Live browser view** | CDP streaming (shared) | Screenshot-based | No | Screenshot-based |
 | **User input in browser** | Yes (type directly) | No | No | No |
-| **File access** | HTTP links from server | In-chat artifacts | IDE file browser | N/A |
-| **File preview** | Preview rendering (side panel) | Artifacts | IDE editor tabs | N/A |
-| **Terminal** | ttyd + tmux (persistent, side panel) | N/A | Integrated terminal | N/A |
-| **Claude Code CLI** | Pre-installed, interactive TTY + MCP | N/A | Built-in | N/A |
+| **File access** | HTTP links from server | Side panel artifacts | REST API file ops | N/A |
+| **File preview** | Preview rendering (side panel) | Side panel artifacts | File display tool | N/A |
+| **Terminal** | ttyd + tmux (persistent, side panel) | Computer use (screenshot) | Process management tools | N/A |
+| **Claude Code CLI** | Pre-installed, interactive TTY + MCP | N/A | N/A | N/A |
 | **Skills system** | 13 built-in + custom | Projects / custom instructions | N/A | N/A |
-| **Escape hatch** | Open server URLs, work independently | N/A | N/A | N/A |
-| **Container isolation** | Docker (runc) | Docker (gVisor) | Docker | N/A |
+| **Escape hatch** | Open server URLs, work independently | N/A | Bare metal mode | N/A |
+| **Container isolation** | Docker (runc), per chat | Docker | Shared container (OS users) | N/A |
 
 Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
 

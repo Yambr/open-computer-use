@@ -1,6 +1,6 @@
 # Architecture & Features Deep Dive
 
-How Open Computer Use works under the hood, and how it differs from Claude.ai, Open Terminal, and other sandboxed AI environments.
+How Open Computer Use works under the hood, and how it differs from Claude.ai, [open-webui/open-terminal](https://github.com/open-webui/open-terminal), and other sandboxed AI environments.
 
 ## Shared Browser
 
@@ -19,7 +19,7 @@ One Chromium instance inside the sandbox container, shared between three actors:
 ### vs. Claude.ai
 Claude.ai uses **screenshot-based** browser interaction — the AI takes a screenshot, decides where to click, takes another screenshot. The user sees static images, not a live stream. There's no way for the user to type into the AI's browser.
 
-### vs. Open Terminal
+### vs. open-webui/open-terminal
 Open Terminal provides a **native file browser** but doesn't expose a shared browser with live streaming. The browser (if any) is agent-only.
 
 ## File Flow & Preview
@@ -29,7 +29,7 @@ Open Terminal provides a **native file browser** but doesn't expose a shared bro
 ### How files work
 
 1. **AI creates files** inside the sandbox container (`/mnt/user-data/outputs/`)
-2. **Computer Use Server** serves files via HTTP (`/api/outputs/{chat_id}/filename`)
+2. **Computer Use Server** serves files via HTTP (`/files/{chat_id}/filename`)
 3. **Chat shows links** — the AI's response contains clickable HTTP URLs to the files
 4. **Side panel renders preview** — docx, pdf, xlsx, images, code are rendered inline
 5. **User downloads** by clicking the link or using the archive/zip endpoint
@@ -44,9 +44,9 @@ Unlike Claude.ai where artifacts live inside the conversation, our files live on
 - **No re-upload** — files don't flow back into Open WebUI's storage
 
 ### vs. Claude.ai
-Claude.ai has **artifacts** embedded in the conversation. Files are part of the chat context. Our approach keeps files separate — the server is the source of truth.
+Claude.ai shows **artifacts** in a side panel alongside the conversation. Files are part of the chat context window. Our approach keeps files on the server — separate from the conversation, no size limits.
 
-### vs. Open Terminal
+### vs. open-webui/open-terminal
 Open Terminal uses a **native file browser** that shows the container filesystem directly. Our side panel is a **preview renderer** that fetches from the Computer Use Server and displays in an iframe (with HTML rendering for office documents, syntax highlighting for code, etc.).
 
 ## Claude Code CLI — When Chat Isn't Enough
@@ -101,11 +101,11 @@ The side panel (artifacts panel) in Open WebUI serves three functions:
 4. Server renders preview: LibreOffice converts docx → HTML, pdf is embedded, images are displayed
 5. User sees the result inline without downloading
 
-### vs. Open Terminal
+### vs. open-webui/open-terminal
 Open Terminal uses the **IDE's native file explorer** — files appear in the file tree and open in editor tabs. Our approach uses a **preview renderer** that works in any browser, without an IDE.
 
 ### vs. Claude.ai
-Claude.ai renders **artifacts** (HTML, React, SVG) inline in the chat. Our side panel is separate from the chat and supports a wider range of file types (office documents, PDFs, archives, etc.) via the preview renderer on the Computer Use Server.
+Claude.ai renders **artifacts** (HTML, React, SVG) in a side panel. Our preview panel also uses a side panel but supports a wider range of file types (office documents, PDFs, archives) via server-side conversion.
 
 ## File Transfer & Sync
 
@@ -145,7 +145,7 @@ Claude.ai renders **artifacts** (HTML, React, SVG) inline in the chat. Our side 
 - **Chat only has links** — lightweight, no file data in the conversation
 - **Volume persists** — survives container restarts, available until cleanup
 
-### vs. Open Terminal
+### vs. open-webui/open-terminal
 Open Terminal mounts files in a way visible to the **IDE file browser**. Our approach is HTTP-first — all file access goes through the Computer Use Server API.
 
 ### vs. Claude.ai
@@ -153,18 +153,18 @@ Claude.ai uses **project files** that are uploaded into the conversation context
 
 ## Summary: Architecture Comparison
 
-| Aspect | Open Computer Use | Claude.ai | Open Terminal |
+| Aspect | Open Computer Use | Claude.ai | [open-webui/open-terminal](https://github.com/open-webui/open-terminal) |
 |--------|-------------------|-----------|---------------|
-| **Browser** | Shared Chromium + CDP live stream | Screenshot-based | Agent-only |
+| **Browser** | Shared Chromium + CDP live stream | Screenshot-based | No |
 | **User input in browser** | Yes (type directly) | No | No |
-| **File access** | HTTP links from server | In-chat artifacts | IDE file browser |
-| **File preview** | Preview rendering (side panel) | Inline artifacts | IDE editor tabs |
-| **Terminal** | ttyd + tmux (persistent, side panel) | N/A | Integrated terminal |
+| **File access** | HTTP links from server | Side panel artifacts | REST API file ops |
+| **File preview** | Preview rendering (side panel) | Side panel artifacts | File display tool |
+| **Terminal** | ttyd + tmux (persistent, side panel) | Computer use (screenshot) | Process management tools |
 | **Claude Code** | Pre-installed CLI, interactive TTY | N/A | N/A |
-| **Escape hatch** | Open server URLs, work independently | N/A | N/A |
-| **File storage** | Docker volumes (server-side) | Chat context | Local/cloud mount |
-| **Self-hosted** | Yes | No | No |
-| **Any LLM** | Yes (OpenAI-compatible) | Claude only | Claude only |
+| **Escape hatch** | Open server URLs, work independently | N/A | Bare metal mode |
+| **File storage** | Docker volumes (server-side) | Chat context | Container filesystem |
+| **Self-hosted** | Yes | No | Yes |
+| **Any LLM** | Yes (OpenAI-compatible) | Claude only | Any (via Open WebUI) |
 
 ## Detailed Comparison: Open Computer Use vs open-webui/open-terminal
 
@@ -179,14 +179,14 @@ Claude.ai uses **project files** that are uploaded into the conversation context
 | Feature | Open Computer Use | open-webui/open-terminal |
 |---------|-------------------|--------------------------|
 | **Isolation model** | Container per chat | Shared container (OS users) |
-| **Production multi-user** | Yes (1,000+ MAU) | "Not designed for production" (per docs) |
+| **Production multi-user** | Yes (per-chat isolation) | Shared container (OS-level user isolation) |
 | **Live browser** | Playwright + CDP streaming | No |
 | **Skills system** | 13 built-in + custom | No |
 | **Sub-agent** | Claude Code with MCP auto-configured | No |
 | **Document creation** | PPTX, XLSX, DOCX, PDF skills | No (has format extraction libs) |
-| **MCP tools** | 5 (bash, view, create, edit, sub-agent) | 19 (file ops, process mgmt, ports, grep, glob) |
+| **MCP tools** | 5 (bash_tool, view, create_file, str_replace, sub_agent) | 19 (file ops, process mgmt, ports, grep, glob) |
 | **Pre-installed packages** | 200+ (LibreOffice, Playwright, Tesseract, FFmpeg...) | ~50 (data science, build tools, ffmpeg) |
-| **MCP client support** | Any (Open WebUI, Claude Desktop, n8n, LiteLLM) | Open WebUI only |
+| **MCP client support** | Any (Open WebUI, Claude Desktop, n8n, LiteLLM) | Open WebUI (primary), MCP server available |
 | **Jupyter notebooks** | No | Yes |
 | **Bare metal mode** | No (Docker only) | Yes (`pip install open-terminal`) |
 | **Port proxy** | No | Yes (reverse-proxy to localhost) |
@@ -198,7 +198,7 @@ Claude.ai uses **project files** that are uploaded into the conversation context
 
 **Open Computer Use** creates a new Docker container for every chat session. If the AI breaks something — installs wrong packages, corrupts files, fills disk — only that chat is affected. Next chat starts fresh. Containers are cleaned up automatically after idle timeout.
 
-**open-webui/open-terminal** runs a single container (or bare metal process) shared across sessions. Multi-user mode creates OS-level user accounts with `chmod 700` home directories for file isolation. The project docs explicitly note this is "not designed for production multi-user deployments" — all users share the same kernel, network, and system resources.
+**open-webui/open-terminal** runs a single container (or bare metal process) shared across sessions. Multi-user mode creates OS-level user accounts with `chmod 700` home directories for file isolation. All users share the same kernel, network, and system resources.
 
 **Trade-off**: Open Computer Use provides stronger isolation at the cost of higher resource usage (~200-500 MB per session). open-webui/open-terminal is more lightweight but less isolated.
 
