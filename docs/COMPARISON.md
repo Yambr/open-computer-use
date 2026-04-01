@@ -46,13 +46,13 @@ The two projects take opposite approaches to tool design.
 | `str_replace` | Edit files via find-and-replace |
 | `sub_agent` | Delegate complex tasks to Claude Code |
 
-**open-terminal** exposes 15 MCP tools (via FastMCP from its FastAPI routes):
+**open-terminal** exposes 15 core MCP tools via FastMCP (+ 4 notebook tools when enabled):
 
 | Category | Tools |
 |----------|-------|
 | Files | list, read, write, display, replace, upload, grep, glob |
 | Processes | execute, list, status, input, kill |
-| Notebooks | create session, execute cell |
+| Notebooks | create session, execute cell, get session, delete session |
 
 **Trade-off:** Fewer powerful primitives (the AI uses `bash_tool` for search, process management, and anything else) vs. fine-grained operations that don't require shell knowledge.
 
@@ -63,20 +63,27 @@ The two projects take opposite approaches to tool design.
 | **Isolation** | Docker containers (kernel namespaces) | OS user accounts (chmod 2770 + group membership) |
 | **Privilege escalation** | `no-new-privileges:true` | Passwordless sudo (full image only; slim/alpine have no sudo) |
 | **Resource limits** | Per-container (2 GB RAM, 1 CPU default) | OS-level only |
-| **Egress firewall** | Configurable (Docker network policies) | Built-in (dnsmasq + iptables + ipset + CAP_NET_ADMIN drop) |
+| **Egress firewall** | Configurable (Docker network policies) | Built-in DNS whitelist (dnsmasq + iptables + ipset), CAP_NET_ADMIN dropped after setup |
+| **API key auth** | Bearer token (MCP_API_KEY) | Bearer token, constant-time comparison (hmac.compare_digest) |
 | **Skill/upload mounts** | Read-only | N/A |
 
 ### What open-terminal offers that we don't
 
 - **Jupyter notebooks** — per-session kernels via nbclient, create and execute notebooks through the API
 - **Bare metal mode** — `pip install open-terminal`, no Docker needed
-- **Port proxy** — reverse-proxy to localhost services (web dev, databases)
+- **Port proxy** — HTTP reverse-proxy to localhost services for web development
 - **Lightweight image variants** — slim (430 MB, Debian) and alpine (230 MB) for minimal footprint
-- **Document text extraction** — reads PDF, DOCX, PPTX, XLSX, RTF, CSV as plain text
+- **Document text extraction** — reads 11 formats as plain text: PDF, DOCX, PPTX, XLSX, XLS, RTF, ODT, ODS, ODP, EPUB, EML
 - **Process stdin** — send input to running processes (interactive CLI tools)
-- **Terminal sessions** — real PTY terminals via WebSocket
+- **Terminal sessions** — real PTY terminals via WebSocket with resize support
+- **Session CWD tracking** — per-session working directory, all file/execute operations resolve relative paths against it
+- **Runtime package installation** — install apt/pip/npm packages at container startup via environment variables
+- **Docker-in-Docker** — Docker CLI + Compose + Buildx pre-installed, mount the socket for full DinD
+- **System prompt endpoint** — `/system` returns environment-aware prompt for LLM grounding
+- **TOML config files** — configure via `~/.config/open-terminal/config.toml` or `/etc/open-terminal/config.toml`
+- **Log management** — per-process JSONL logs with configurable retention (7 days default) and flush tuning
 - **Simpler setup** — single `docker run` command
-- **Built-in MCP server** — FastMCP integration from FastAPI routes
+- **Built-in MCP server** — `open-terminal mcp` via FastMCP, supports stdio and streamable-http transports
 
 ### When to choose what
 

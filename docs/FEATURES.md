@@ -11,7 +11,7 @@ One Chromium instance inside the sandbox container, shared between the AI and th
 | Actor | Access | What they do |
 |-------|--------|--------------|
 | **AI Agent** | Playwright CDP | Navigates, clicks, fills forms, scrapes data |
-| **User** | CDP stream (interactive, side panel) | Watches AI in real-time, clicks, types, scrolls — same browser session |
+| **User** | CDP streaming (interactive, side panel) | Watches AI in real-time, clicks, types, scrolls — same browser session |
 
 The user can enter sensitive information (passwords, 2FA codes, private data) directly into the browser — the AI never sees the raw credentials, only the resulting page state. Both the AI and the user operate on the same browser — true collaboration, not a screenshot relay.
 
