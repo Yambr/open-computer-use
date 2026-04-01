@@ -35,6 +35,8 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 | **File preview** | Auto artifacts panel | Artifacts | N/A |
 | **Container isolation** | Docker (runc) | Docker (gVisor) | N/A |
 
+See [docs/COMPARISON.md](docs/COMPARISON.md) for a detailed comparison with Open Terminal and other tools.
+
 Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
 
 > **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
