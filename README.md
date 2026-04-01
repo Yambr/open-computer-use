@@ -32,12 +32,12 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 | **Live browser view** | CDP streaming (shared) | Screenshot-based | No | Screenshot-based |
 | **User input in browser** | Yes (type directly) | No | No | Yes (take over) |
 | **File access** | HTTP links from server | Side panel artifacts | REST API file ops | N/A |
-| **File preview** | Preview rendering (side panel) | Side panel artifacts + IDE | File display tool | N/A |
+| **File preview** | Preview rendering (side panel) | Side panel artifacts + IDE | Client-side (via Open WebUI) | N/A |
 | **Terminal** | ttyd + tmux (persistent, side panel) | Claude Code web (IDE + terminal) | Process management tools | N/A |
 | **Claude Code** | Pre-installed CLI, interactive TTY + MCP | Claude Code web (built-in) | N/A | N/A |
-| **Skills system** | 13 built-in + custom | Built-in skills + custom instructions | N/A | N/A |
+| **Skills system** | 13 built-in (auto-injected) + custom | Built-in skills + custom instructions | Open WebUI native (text-only) | N/A |
 | **Escape hatch** | Open server URLs, work independently | N/A | Bare metal mode | N/A |
-| **Container isolation** | Docker (runc), per chat | Docker | Shared container (OS users) | N/A |
+| **Container isolation** | Docker (runc), per chat | Docker (gVisor) | Shared container (OS users) | N/A |
 
 Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
 

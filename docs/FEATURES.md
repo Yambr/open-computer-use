@@ -158,10 +158,10 @@ Claude Code web has a built-in file system with IDE access. Our files live in Do
 | **Browser** | Shared Chromium + CDP live stream | Screenshot-based | No |
 | **User input in browser** | Yes (type directly) | No | No |
 | **File access** | HTTP links from server | Side panel artifacts | REST API file ops |
-| **File preview** | Preview rendering (side panel) | Side panel artifacts + IDE | File display tool |
+| **File preview** | Preview rendering (side panel) | Side panel artifacts + IDE | Client-side (via Open WebUI) |
 | **Terminal** | ttyd + tmux (persistent, side panel) | Claude Code web (IDE + terminal) | Process management tools |
 | **Claude Code** | Pre-installed CLI, interactive TTY | Claude Code web (built-in) | N/A |
-| **Skills system** | 13 built-in + custom | Built-in skills + custom instructions | N/A |
+| **Skills system** | 13 built-in (auto-injected) + custom | Built-in skills + custom instructions | Open WebUI native (text-only) |
 | **Escape hatch** | Open server URLs, work independently | N/A | Bare metal mode |
 | **File storage** | Docker volumes (server-side) | Chat context | Container filesystem |
 | **Self-hosted** | Yes | No | Yes |
@@ -182,7 +182,7 @@ Claude Code web has a built-in file system with IDE access. Our files live in Do
 | **Isolation model** | Container per chat | Shared container (OS users) |
 | **Production multi-user** | Yes (1,000+ MAU, per-chat isolation) | Shared container (OS-level user isolation) |
 | **Live browser** | Playwright + CDP streaming | No |
-| **Skills system** | 13 built-in + custom | No |
+| **Skills system** | 13 built-in (auto-injected, with scripts/templates) + custom | Open WebUI native skills (text-only) |
 | **Sub-agent** | Claude Code with MCP auto-configured | No |
 | **Document creation** | PPTX, XLSX, DOCX, PDF skills | No (has format extraction libs) |
 | **MCP tools** | 5 (bash_tool, view, create_file, str_replace, sub_agent) | 19 (file ops, process mgmt, ports, grep, glob) |
