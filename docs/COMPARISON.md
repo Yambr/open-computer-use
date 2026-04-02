@@ -27,7 +27,9 @@ Both projects are self-hosted and give LLMs a place to run code. They solve the 
 
 **open-terminal** runs a single container (or bare metal process) shared across sessions. Multi-user mode creates OS-level user accounts with isolated home directories (`chmod 2770` + group membership), file ownership enforcement via `sudo chown`, and path validation to prevent cross-user access. For container-per-user isolation, the separate [Terminals](https://github.com/open-webui/terminals) project manages dedicated open-terminal containers per user.
 
-**Trade-off:** Open Computer Use provides stronger isolation at the cost of higher resource usage (~200-500 MB per session). open-terminal is lighter but shares kernel, network, and system resources between users. open-terminal's own documentation [notes](https://github.com/open-webui/open-terminal#built-in-multi-user-isolation) that single-container multi-user mode is not designed for production multi-user deployments.
+**Why this matters:** Non-technical users + AI agent executing arbitrary code is the worst case for a shared environment. The user doesn't control what the agent does, and the agent can do anything — install packages, fill disk, corrupt files, spawn processes. Container-per-chat means each session is disposable: if something breaks, only that chat is affected, and the next one starts clean.
+
+**Trade-off:** Stronger isolation costs more resources (~200-500 MB per session). open-terminal is lighter but shares kernel, network, and system resources between users. open-terminal's own documentation [notes](https://github.com/open-webui/open-terminal#built-in-multi-user-isolation) that single-container multi-user mode is not designed for production multi-user deployments.
 
 ---
 
