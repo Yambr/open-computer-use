@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.8.13.0 (2026-04-02)
+
+### Security
+- **Pillow 11 → 12.1.1**: fixes PSD out-of-bounds write CVE; migrated `Image.LANCZOS` → `Image.Resampling.LANCZOS` for Pillow 12 API compatibility
+- **urllib3 → 2.6.3**: decompression bomb + redirect bypass fix
+- **cryptography → 46.0.6**: SECT curves subgroup attack fix
+- **PyJWT → 2.12.1**: critical header extensions bypass fix
+- **pdfminer.six → 20251230**: pickle deserialization RCE fix
+- **pdfplumber → 0.11.9**: constraint resolution with pdfminer.six
+- **python-multipart → 0.0.22** (orchestrator): CVE patch
+
+### Tests
+- 15 new unit tests for `view()` image processing path (`tests/orchestrator/test_view_image.py`)
+  - Pillow 12 API guard: fails if deprecated `Image.LANCZOS` form is used
+  - Structured content return format (`[text, image_url]`)
+  - All 5 image extensions + case-insensitive matching
+  - Container failure error handling
+- 7 new version regression tests (`tests/test_requirements.py`)
+  - Prevents accidental downgrade of CVE-patched dependencies
+
 ## v0.8.12.3 (2026-04-01)
 
 ### Security
