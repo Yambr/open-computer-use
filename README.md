@@ -22,6 +22,8 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 - **Run Claude Code** — autonomous sub-agent with interactive terminal, MCP servers auto-configured
 - **Use 13+ skills** — battle-tested workflows for document creation, web testing, design, and more
 
+**Built for production multi-user deployments.** Tested with 1,000+ MAU. Each chat session runs in its own isolated Docker container — the AI can install packages, create files, run servers, and nothing leaks between users. Works seamlessly across MCP clients: start with Open WebUI today, switch to Claude Desktop or n8n tomorrow — same backend, no migration.
+
 ### Key differentiators
 
 | Feature | Open Computer Use | Claude.ai (Claude Code web) | [open-terminal](https://github.com/open-webui/open-terminal) | OpenAI Operator |
