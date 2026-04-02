@@ -106,7 +106,6 @@ The two projects take opposite approaches to tool design.
 - **TOML config files** — configure via `~/.config/open-terminal/config.toml` or `/etc/open-terminal/config.toml`
 - **Log management** — per-process JSONL logs with configurable retention (7 days default) and flush tuning
 - **Simpler setup** — single `docker run` command
-- **Built-in MCP server** — `open-terminal mcp` via FastMCP, supports stdio and streamable-http transports
 
 ---
 
