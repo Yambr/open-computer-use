@@ -89,7 +89,6 @@ The two projects take opposite approaches to tool design.
   - **DOCX**: create from scratch with `docx-js`, or edit existing with tracked changes (OOXML redlining via `<w:ins>`/`<w:del>` tags)
   - **XLSX**: formula-based spreadsheets with `openpyxl`, automatic recalculation via LibreOffice UNO (`recalc.py`), error scanning (#REF!, #DIV/0!)
   - **PDF**: create with ReportLab (pre-registered Cyrillic/Emoji fonts), extract tables with tabula-py/camelot, fill forms, merge/split
-  - open-terminal can extract text from 11 document formats but has no document creation pipeline
 - **Skill auto-injection** — skills with scripts, templates, and examples are mounted read-only into containers and injected into the system prompt. The AI gets structured instructions, not just text. Per-user custom skills via Settings Wrapper API.
 - **Live shared browser** — Playwright + CDP streaming: AI automates via CDP, user watches and interacts in real-time (clicks, types passwords, scrolls) in the same Chromium instance. Not screenshot-based.
 - **Claude Code sub-agent** — delegate complex multi-step tasks to Claude Code running autonomously inside the container. Supports model selection (sonnet/opus), session resume after timeout, cost/turns tracking, and auto-configured MCP servers.
@@ -107,7 +106,7 @@ The two projects take opposite approaches to tool design.
 - **Jupyter notebooks** — per-session kernels via nbclient, create and execute notebooks through the API
 - **Bare metal mode** — `pip install open-terminal`, no Docker needed
 - **Port proxy** — HTTP reverse-proxy to localhost services for web development
-- **Lightweight image variants** — slim (430 MB, Debian) and alpine (230 MB) for minimal footprint
+- **Lightweight image variants** — slim (~200 MB, Debian) and alpine (~100 MB) for minimal footprint
 - **Document text extraction as API** — dedicated endpoint reads 11 formats as plain text (PDF, DOCX, PPTX, XLSX, XLS, RTF, ODT, ODS, ODP, EPUB, EML)
 - **Process stdin** — send input to running processes (interactive CLI tools)
 - **Session CWD tracking** — per-session working directory for the API, since open-terminal is stateless between requests
