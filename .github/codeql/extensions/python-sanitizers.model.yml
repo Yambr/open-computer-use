@@ -1,0 +1,25 @@
+# CodeQL model extension: mark custom security sanitizers as taint barriers.
+#
+# safe_path() in security.py validates that constructed paths stay within
+# a base directory (via resolve() + is_relative_to()).  CodeQL does not
+# auto-recognise is_relative_to() as a path-injection sanitizer, so we
+# declare these functions as "neutral" — telling CodeQL they do NOT
+# propagate taint from their arguments to their return values.
+#
+# sanitize_chat_id() rejects path-traversal characters (.., /, \, \x00)
+# and is called before every path construction.
+
+extensions:
+  # ── Python: computer-use-server/security.py ──────────────────────────
+  - addsTo:
+      pack: codeql/python-all
+      extensible: summaryModel
+    data:
+      # safe_path: arguments are validated; return value is safe.
+      # Format: [type, path, input, output, kind]
+      # By providing an explicit "value" summary (not "taint"),
+      # we tell CodeQL the return value is derived but sanitised.
+      - ["security", "Member[safe_path]", "Argument[0..]", "ReturnValue", "value"]
+
+      # sanitize_chat_id: returns a validated string, no taint propagation.
+      - ["security", "Member[sanitize_chat_id]", "Argument[0]", "ReturnValue", "value"]
