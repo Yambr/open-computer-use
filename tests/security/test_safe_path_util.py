@@ -1,4 +1,5 @@
 """Tests for security utilities: safe_path() and sanitize_chat_id()."""
+import inspect
 import sys
 from pathlib import Path
 
@@ -7,7 +8,42 @@ from fastapi import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "computer-use-server"))
 
+import security
 from security import safe_path, sanitize_chat_id
+
+
+class TestSafePathImplementation:
+    """Verify safe_path() uses os.path pattern that CodeQL natively recognizes.
+
+    CodeQL py/path-injection does NOT recognize pathlib.Path.resolve() + is_relative_to()
+    as a containment check barrier (codeql issue #17226). It DOES natively recognize
+    os.path.realpath() + startswith() as a sanitizer without any model extensions.
+    """
+
+    def test_uses_os_path_realpath_not_pathlib_resolve(self):
+        """safe_path() must use os.path.realpath — CodeQL recognizes this as sanitizer."""
+        source = inspect.getsource(security.safe_path)
+        assert "os.path.realpath" in source, (
+            "safe_path() must use os.path.realpath() for CodeQL to suppress "
+            "py/path-injection false positives. pathlib.Path.resolve() + "
+            "is_relative_to() is NOT recognized by CodeQL as a containment barrier."
+        )
+
+    def test_uses_startswith_containment_check(self):
+        """safe_path() must use startswith() containment check — the CodeQL-recognized pattern."""
+        source = inspect.getsource(security.safe_path)
+        assert "startswith" in source, (
+            "safe_path() must use startswith() for the containment check. "
+            "is_relative_to() is not recognized by CodeQL py/path-injection."
+        )
+
+    def test_does_not_use_is_relative_to(self):
+        """safe_path() must NOT use is_relative_to() — CodeQL does not recognise it."""
+        source = inspect.getsource(security.safe_path)
+        assert "is_relative_to" not in source, (
+            "safe_path() uses pathlib is_relative_to() which CodeQL does not "
+            "recognise as a path containment sanitizer. Use os.path.realpath + startswith."
+        )
 
 
 class TestSafePath:
