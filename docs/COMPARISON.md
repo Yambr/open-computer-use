@@ -100,7 +100,7 @@ The two projects take opposite approaches to tool design.
 - **Document text extraction as API** — dedicated endpoint reads 11 formats as plain text (PDF, DOCX, PPTX, XLSX, XLS, RTF, ODT, ODS, ODP, EPUB, EML). In Open Computer Use the model has a full Linux sandbox with LibreOffice, pandoc, pdfplumber, python-docx, openpyxl and other tools — it reads and converts documents itself via `bash_tool`, choosing the best approach for the task (extract tables, parse structure, convert format, etc.)
 - **Process stdin** — send input to running processes (interactive CLI tools)
 - **Session CWD tracking** — per-session working directory for the API, since open-terminal is stateless between requests. Open Computer Use doesn't need this — the model works in a persistent container with a real filesystem (`/home/assistant/`), volumes for uploads (read-only) and outputs (read-write), and the workspace survives across requests until cron cleanup
-- **Runtime package installation** — install apt/pip/npm packages at container startup via environment variables
+- **Runtime package installation via env vars** — `OPEN_TERMINAL_PACKAGES="cowsay"` installs apt/pip/npm packages at container startup without rebuilding the image. In Open Computer Use the model installs whatever it needs via `bash_tool` (`apt install`, `pip install`) during the session, and 200+ packages are already pre-installed in the image
 - **Docker-in-Docker** — Docker CLI + Compose + Buildx pre-installed, mount the socket for full DinD
 - **System prompt endpoint** — `/system` returns environment-aware prompt for LLM grounding
 - **TOML config files** — configure via `~/.config/open-terminal/config.toml` or `/etc/open-terminal/config.toml`
