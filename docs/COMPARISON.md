@@ -1,6 +1,10 @@
 # Comparison: Open Computer Use vs open-webui/open-terminal
 
-Both projects are self-hosted and give LLMs a place to run code. They solve the same core problem with different architectures. Claude.ai and OpenAI Operator are cloud-only, not self-hosted — we drew inspiration from them, but a detailed comparison isn't useful here. See the overview table for a quick reference.
+Both projects are self-hosted and give LLMs a place to run code. They solve the same core problem with two fundamentally different architectural approaches — both for the technical stack and for the AI/user interaction model. This is not a "which is better" document; it's a map of trade-offs to help you pick the right tool for your use case.
+
+> **Note:** We respect the open-terminal team and their work. If you spot any inaccuracies in this comparison, please [open an issue](https://github.com/Yambr/open-computer-use/issues) — we want this to be fair and factual.
+
+Claude.ai and OpenAI Operator are cloud-only, not self-hosted — we drew inspiration from them, but a detailed comparison isn't useful here. See the overview table for a quick reference.
 
 ## Overview
 
