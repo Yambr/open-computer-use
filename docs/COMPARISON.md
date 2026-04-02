@@ -1,38 +1,37 @@
-# Comparison with Alternatives
+# Comparison: Open Computer Use vs open-webui/open-terminal
 
-How Open Computer Use compares to [open-webui/open-terminal](https://github.com/open-webui/open-terminal), Claude.ai (Claude Code web), and OpenAI Operator.
+Both projects are self-hosted and give LLMs a place to run code. They solve the same core problem with different architectures. Claude.ai and OpenAI Operator are cloud-only, not self-hosted — we drew inspiration from them, but a detailed comparison isn't useful here. See the overview table for a quick reference.
 
 ## Overview
 
-| Feature | Open Computer Use | Claude.ai (Claude Code web) | [open-terminal](https://github.com/open-webui/open-terminal) | OpenAI Operator |
-|---------|-------------------|-----------|---------------|-----------------|
-| **Self-hosted** | Yes | No | Yes | No |
-| **Any LLM** | Yes (OpenAI-compatible) | Claude only | Any (via Open WebUI) | GPT only |
-| **Code execution** | Full Linux sandbox | Sandbox (Claude Code web) | Sandbox / bare metal | No |
-| **Live browser** | CDP streaming (shared, interactive) | Screenshot-based | No | Screenshot-based |
-| **Terminal** | ttyd + tmux (persistent, side panel) | Claude Code web (IDE + terminal) | PTY + WebSocket | N/A |
-| **Sub-agent** | Claude Code CLI, interactive TTY + MCP | Claude Code web (built-in) | N/A | N/A |
-| **Skills system** | 13 built-in (auto-injected) + custom | Built-in skills + custom instructions | Open WebUI native (text-only) | N/A |
-| **File preview** | Server-side rendering (side panel) | Side panel artifacts + IDE | Client-side (via Open WebUI) | N/A |
-| **Container isolation** | Docker (runc), per chat | Docker (gVisor) | Shared container (OS-level users) | N/A |
-| **MCP server** | Yes (Streamable HTTP) | N/A | Yes (FastMCP) | N/A |
-| **Image size** | ~11 GB (full stack) | N/A | 4 GB / 430 MB / 230 MB | N/A |
+| Feature | Open Computer Use | [open-terminal](https://github.com/open-webui/open-terminal) | Claude.ai | OpenAI Operator |
+|---------|-------------------|---------------|-----------|-----------------|
+| **Self-hosted** | Yes | Yes | No | No |
+| **Any LLM** | Yes (OpenAI-compatible) | Any (via Open WebUI) | Claude only | GPT only |
+| **Code execution** | Full Linux sandbox | Sandbox / bare metal | Sandbox | No |
+| **Live browser** | CDP streaming (shared, interactive) | No | Screenshot-based | Screenshot-based |
+| **Terminal** | ttyd + tmux (persistent, side panel) | PTY + WebSocket | IDE + terminal | N/A |
+| **Sub-agent** | Claude Code CLI, interactive TTY + MCP | N/A | Built-in | N/A |
+| **Skills system** | 13 built-in (auto-injected) + custom | Open WebUI native (text-only) | Custom instructions | N/A |
+| **Document creation** | PPTX, DOCX, XLSX, PDF via skills | No | Via code | N/A |
+| **File preview** | Server-side rendering (DOCX, PDF, PPTX, XLSX, code) | Client-side (via Open WebUI) | IDE | N/A |
+| **Container isolation** | Docker (runc), per chat | Shared container (OS-level users) | Docker (gVisor) | N/A |
+| **MCP server** | Streamable HTTP | FastMCP (stdio + streamable-http) | N/A | N/A |
+| **Image size** | ~11 GB (full stack) | 4 GB / 430 MB / 230 MB | N/A | N/A |
 
 ---
 
-## vs. open-webui/open-terminal
+## Architecture and Isolation
 
-[Open Terminal](https://github.com/open-webui/open-terminal) is a lightweight, self-hosted terminal that gives AI agents a dedicated environment to run commands, manage files, and execute code via a REST API. Both projects solve the same core problem — LLMs need somewhere to run code — but take different architectural approaches.
-
-### Architecture and Isolation
-
-**Open Computer Use** creates a new Docker container for every chat session. If the AI breaks something (installs wrong packages, corrupts files, fills disk), only that chat is affected. Next chat starts fresh. Containers are cleaned up automatically after idle timeout.
+**Open Computer Use** creates a new Docker container for every chat session. If the AI breaks something (installs wrong packages, corrupts files, fills disk), only that chat is affected. Next chat starts fresh. Containers are cleaned up automatically after idle timeout. Resource limits (2 GB RAM, 1 CPU) are enforced per container.
 
 **open-terminal** runs a single container (or bare metal process) shared across sessions. Multi-user mode creates OS-level user accounts with isolated home directories (`chmod 2770` + group membership), file ownership enforcement via `sudo chown`, and path validation to prevent cross-user access. For container-per-user isolation, the separate [Terminals](https://github.com/open-webui/terminals) project manages dedicated open-terminal containers per user.
 
 **Trade-off:** Open Computer Use provides stronger isolation at the cost of higher resource usage (~200-500 MB per session). open-terminal is lighter but shares kernel, network, and system resources between users. open-terminal's own documentation [notes](https://github.com/open-webui/open-terminal#built-in-multi-user-isolation) that single-container multi-user mode is not designed for production multi-user deployments.
 
-### MCP Tools: 5 vs 15
+---
+
+## MCP Tools: 5 vs 15
 
 The two projects take opposite approaches to tool design.
 
@@ -40,11 +39,11 @@ The two projects take opposite approaches to tool design.
 
 | Tool | Description |
 |------|-------------|
-| `bash_tool` | Run commands with progress streaming and timeout |
-| `view` | Read files/directories, resize images for context |
-| `create_file` | Create files with content |
-| `str_replace` | Edit files via find-and-replace |
-| `sub_agent` | Delegate complex tasks to Claude Code |
+| `bash_tool` | Run commands with real-time progress streaming, 15s heartbeats, 30K char output cap, timeout handling |
+| `view` | Read files/directories with line numbers, auto-resize images to base64, detect binary formats |
+| `create_file` | Create files with auto-parent-directory creation |
+| `str_replace` | Edit files via find-and-replace with uniqueness validation |
+| `sub_agent` | Delegate to Claude Code with model selection, session resume, MCP auto-config, cost tracking |
 
 **open-terminal** exposes 15 core MCP tools via FastMCP (+ 4 notebook tools when enabled):
 
@@ -56,7 +55,9 @@ The two projects take opposite approaches to tool design.
 
 **Trade-off:** Fewer powerful primitives (the AI uses `bash_tool` for search, process management, and anything else) vs. fine-grained operations that don't require shell knowledge.
 
-### Security
+---
+
+## Security
 
 | Aspect | Open Computer Use | open-terminal |
 |--------|-------------------|---------------|
@@ -65,9 +66,25 @@ The two projects take opposite approaches to tool design.
 | **Resource limits** | Per-container (2 GB RAM, 1 CPU default) | OS-level only |
 | **Egress firewall** | Configurable (Docker network policies) | Built-in DNS whitelist (dnsmasq + iptables + ipset), CAP_NET_ADMIN dropped after setup |
 | **API key auth** | Bearer token (MCP_API_KEY) | Bearer token, constant-time comparison (hmac.compare_digest) |
+| **Path traversal** | Sanitized chat_id + safe_path validation | resolve_path + is_path_allowed validation |
 | **Skill/upload mounts** | Read-only | N/A |
 
-### What open-terminal offers that we don't
+---
+
+## What Open Computer Use offers that open-terminal doesn't
+
+- **Live shared browser** — Playwright + CDP streaming: AI automates via CDP, user watches and interacts in real-time (clicks, types passwords, scrolls) in the same Chromium instance. Not screenshot-based.
+- **Document creation skills** — 13 built-in skills for generating PPTX, DOCX, XLSX, PDF with professional styling, templates, and scripts. open-terminal can extract text from documents but not create them.
+- **Claude Code sub-agent** — delegate complex multi-step tasks to Claude Code running autonomously inside the container. Supports model selection (sonnet/opus), session resume after timeout, cost/turns tracking, and auto-configured MCP servers.
+- **Server-side file preview** — preview panel renders DOCX (via Mammoth), XLSX (multi-sheet tables), PDF (page-by-page canvas), PPTX (slide navigation), Markdown, images, and code with syntax highlighting. Works from any MCP client, not tied to Open WebUI's UI.
+- **Container-per-chat isolation** — every chat gets a fresh Docker container with its own filesystem, network, and resource limits. Containers auto-cleanup after idle timeout. No cross-session contamination.
+- **Persistent terminal** — ttyd + tmux: terminal sessions survive disconnects, user can switch between chat and terminal freely, or leave the chat interface entirely and work in the container via direct URL.
+- **Skill auto-injection** — skills with scripts, templates, and examples are mounted read-only into containers and injected into the system prompt. The AI gets structured instructions, not just text. Per-user custom skills via Settings Wrapper API.
+- **Multi-client MCP support** — tested with Open WebUI, Claude Desktop, n8n, LiteLLM, and custom HTTP clients. open-terminal focuses on Open WebUI integration.
+- **Container resurrection** — if a container is removed (e.g. by cron), saved metadata allows recreating it with the same volumes, environment, and MCP config.
+- **Smart tool output** — bash_tool streams progress with 15s heartbeats, caps output at 30K chars (first/last 15K), handles semantic exit codes (grep returning 1 is "no match", not error).
+
+## What open-terminal offers that we don't
 
 - **Jupyter notebooks** — per-session kernels via nbclient, create and execute notebooks through the API
 - **Bare metal mode** — `pip install open-terminal`, no Docker needed
@@ -85,32 +102,12 @@ The two projects take opposite approaches to tool design.
 - **Simpler setup** — single `docker run` command
 - **Built-in MCP server** — `open-terminal mcp` via FastMCP, supports stdio and streamable-http transports
 
-### When to choose what
+---
 
-**Choose Open Computer Use** for: production multi-user deployments, live browser automation, document creation skills (PPTX, DOCX, XLSX, PDF), Claude Code sub-agent, workflows that need multiple MCP clients, and cloud agent pipelines.
+## When to choose what
+
+**Choose Open Computer Use** for: production multi-user deployments with per-chat isolation, live browser automation, document creation (PPTX, DOCX, XLSX, PDF), Claude Code sub-agent delegation, server-side file preview, and workflows that span multiple MCP clients.
 
 **Choose open-terminal** for: lightweight code execution, bare metal usage, Jupyter notebooks, port proxying for web development, minimal resource footprint, and simple single-container personal setups.
 
 **Use both together:** Open WebUI supports connecting to both simultaneously. Use open-terminal for quick code execution and Open Computer Use for complex workflows that need browser, skills, or sub-agents.
-
----
-
-## vs. Claude.ai (Claude Code web)
-
-Claude.ai offers [Computer Use](https://docs.anthropic.com/en/docs/agents-and-tools/computer-use) and Claude Code web — a cloud-based IDE with terminal, browser, and file management. The key architectural differences:
-
-**Browser:** Claude.ai Computer Use is screenshot-based — the AI takes a screenshot, analyzes it with vision, decides where to click, then takes another screenshot. Open Computer Use uses live CDP streaming where both the AI and user interact with the same Chromium instance in real-time. The user can type directly into the browser (e.g. login credentials) while the AI automates via Playwright.
-
-**Files:** Claude.ai shows artifacts in a side panel alongside the conversation — files are part of the chat context. Open Computer Use keeps files on the server (Docker volumes) and the chat only contains HTTP links. No size limits, direct URL access, zip download.
-
-**Terminal:** Claude Code web provides a built-in IDE with terminal. Open Computer Use pre-installs Claude Code CLI in every sandbox — users can access it via the sub-agent tool or open a terminal tab and work independently. Users can also leave the chat interface entirely and work directly in the container.
-
-**Key differences:** Open Computer Use is self-hosted, works with any LLM (not just Claude), and is open source. Claude.ai is a managed cloud service with tighter integration but no self-hosting option.
-
----
-
-## vs. OpenAI Operator
-
-[OpenAI Operator](https://operator.chatgpt.com/) is a cloud-based browser automation agent. It navigates websites via screenshots (similar to Claude.ai Computer Use) and can hand control to the user for sensitive actions like login.
-
-Open Computer Use is a fundamentally different product: a self-hosted MCP server with full Linux sandboxes, code execution, document creation, and terminal access. The overlap is limited to browser automation, where Open Computer Use uses live CDP streaming instead of screenshots.
