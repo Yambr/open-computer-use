@@ -75,13 +75,13 @@ The two projects take opposite approaches to tool design.
 
 ## What Open Computer Use offers that open-terminal doesn't
 
-- **Live shared browser** — Playwright + CDP streaming: AI automates via CDP, user watches and interacts in real-time (clicks, types passwords, scrolls) in the same Chromium instance. Not screenshot-based.
 - **Document creation skills** — 13 built-in skills with scripts and templates for generating professional documents:
   - **PPTX**: HTML/CSS → PowerPoint via custom `html2pptx` library, or template-based editing with `inventory.py` (extract shapes), `replace.py` (smart text replacement), `thumbnail.py` (visual validation)
   - **DOCX**: create from scratch with `docx-js`, or edit existing with tracked changes (OOXML redlining via `<w:ins>`/`<w:del>` tags)
   - **XLSX**: formula-based spreadsheets with `openpyxl`, automatic recalculation via LibreOffice UNO (`recalc.py`), error scanning (#REF!, #DIV/0!)
   - **PDF**: create with ReportLab (pre-registered Cyrillic/Emoji fonts), extract tables with tabula-py/camelot, fill forms, merge/split
   - open-terminal can extract text from 11 document formats but has no document creation pipeline
+- **Live shared browser** — Playwright + CDP streaming: AI automates via CDP, user watches and interacts in real-time (clicks, types passwords, scrolls) in the same Chromium instance. Not screenshot-based.
 - **Claude Code sub-agent** — delegate complex multi-step tasks to Claude Code running autonomously inside the container. Supports model selection (sonnet/opus), session resume after timeout, cost/turns tracking, and auto-configured MCP servers.
 - **Server-side file preview** — preview panel renders DOCX (via Mammoth), XLSX (multi-sheet tables), PDF (page-by-page canvas), PPTX (slide navigation), Markdown, images, and code with syntax highlighting. Works from any MCP client, not tied to Open WebUI's UI.
 - **Container-per-chat isolation** — every chat gets a fresh Docker container with its own filesystem, network, and resource limits. Containers auto-cleanup after idle timeout. No cross-session contamination.
