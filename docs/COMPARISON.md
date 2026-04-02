@@ -33,7 +33,7 @@ Claude.ai and OpenAI Operator are cloud-only, not self-hosted — we drew inspir
 
 **Why this matters:** Non-technical users + AI agent executing arbitrary code is the worst case for a shared environment. The user doesn't control what the agent does, and the agent can do anything — install packages, fill disk, corrupt files, spawn processes. Container-per-chat means each session is disposable: if something breaks, only that chat is affected, and the next one starts clean.
 
-**Trade-off:** Each container has a 2 GB RAM limit (configurable via `CONTAINER_MEM_LIMIT`), so stronger isolation requires more memory than a shared process. open-terminal is lighter but shares kernel, network, and system resources between users. open-terminal's own documentation [notes](https://github.com/open-webui/open-terminal#built-in-multi-user-isolation) that single-container multi-user mode is not designed for production multi-user deployments.
+**Trade-off:** Each container has a 2 GB RAM limit (configurable via `CONTAINER_MEM_LIMIT`). This is a ceiling, not an allocation — an idle container or one running simple commands uses very little memory. Heavy tasks like Chromium or LibreOffice consume more, up to the limit. open-terminal is lighter but shares kernel, network, and system resources between users. open-terminal's own documentation [notes](https://github.com/open-webui/open-terminal#built-in-multi-user-isolation) that single-container multi-user mode is not designed for production multi-user deployments.
 
 ---
 
