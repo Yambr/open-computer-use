@@ -22,40 +22,41 @@ An MCP server that gives any LLM a fully-equipped Ubuntu sandbox with isolated D
 - **Run Claude Code** — autonomous sub-agent with interactive terminal, MCP servers auto-configured
 - **Use 13+ skills** — battle-tested workflows for document creation, web testing, design, and more
 
+**Built for production multi-user deployments.** Tested with 1,000+ MAU. Each chat session runs in its own isolated Docker container — the AI can install packages, create files, run servers, and nothing leaks between users. Works seamlessly across MCP clients: start with Open WebUI today, switch to Claude Desktop or n8n tomorrow — same backend, no migration.
+
 ### Key differentiators
 
-| Feature | Open Computer Use | Claude.ai | OpenAI Operator |
-|---------|-------------------|-----------|-----------------|
-| **Self-hosted** | Yes | No | No |
-| **Any LLM** | Yes (OpenAI-compatible) | Claude only | GPT only |
-| **Code execution** | Full Linux sandbox | Sandbox (gVisor) | No |
-| **Live browser view** | CDP streaming | Screenshot-based | Screenshot-based |
-| **Sub-agent (Claude Code)** | Interactive TTY + MCP | N/A | N/A |
-| **Skills system** | 13 built-in + custom | Projects / custom instructions | N/A |
-| **File preview** | Auto artifacts panel | Artifacts | N/A |
-| **Container isolation** | Docker (runc) | Docker (gVisor) | N/A |
+| Feature | Open Computer Use | Claude.ai (Claude Code web) | [open-terminal](https://github.com/open-webui/open-terminal) | OpenAI Operator |
+|---------|-------------------|-----------|---------------|-----------------|
+| **Self-hosted** | Yes | No | Yes | No |
+| **Any LLM** | Yes (OpenAI-compatible) | Claude only | Any (via Open WebUI) | GPT only |
+| **Code execution** | Full Linux sandbox | Sandbox (Claude Code web) | Sandbox / bare metal | No |
+| **Live browser** | CDP streaming (shared, interactive) | Screenshot-based | No | Screenshot-based |
+| **Terminal + Claude Code** | ttyd + tmux + Claude Code CLI | Claude Code web (built-in) | PTY + WebSocket | N/A |
+| **Skills system** | 13 built-in (auto-injected) + custom | Built-in skills + custom instructions | Open WebUI native (text-only) | N/A |
+| **Container isolation** | Docker (runc), per chat | Docker (gVisor) | Shared container (OS-level users) | N/A |
 
-Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration.
+Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n8n, or your own integration. See [docs/COMPARISON.md](docs/COMPARISON.md) for a detailed comparison with alternatives.
 
-> **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
-
-### Live browser streaming (CDP viewer)
+### Live browser streaming
 
 ![Browser Viewer](docs/screenshots/03-browser-viewer.png)
-
-### Claude Code — interactive terminal in the cloud
-
-![Claude Code Terminal](docs/screenshots/04-sub-agent-terminal.png)
 
 ### File preview with skills
 
 ![File Preview](docs/screenshots/02-file-preview.png)
 
+### Claude Code — interactive terminal in the cloud
+
+![Claude Code Terminal](docs/screenshots/04-sub-agent-terminal.png)
+
 ### Sub-agent dashboard — monitor and control
 
 ![Sub-Agent Dashboard](docs/screenshots/06-sub-agent-dashboard.png)
 
-See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
+See [docs/FEATURES.md](docs/FEATURES.md) for architecture details and [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
+
+> **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
 
 ## Architecture
 

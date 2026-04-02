@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 480" font-family="Inter, -apple-system, system-ui, sans-serif">
+  <defs>
+    <style>
+      .box { rx: 10; stroke-width: 1.5; }
+      .label { font-size: 13px; font-weight: 600; fill: #fff; }
+      .sublabel { font-size: 10px; fill: rgba(255,255,255,0.8); }
+      .item { font-size: 10.5px; fill: #374151; }
+      .arrow { stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .arrow-label { font-size: 9px; fill: #6b7280; }
+      .note { font-size: 9.5px; fill: #64748b; }
+    </style>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#94a3b8"/>
+    </marker>
+    <marker id="ah-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#22c55e"/>
+    </marker>
+    <marker id="ah-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#3b82f6"/>
+    </marker>
+    <marker id="ah-amber" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#f59e0b"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="920" height="480" rx="12" fill="#fafbfc"/>
+  <text x="460" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="#1e293b">File Flow &amp; Preview Architecture</text>
+
+  <!-- User / Open WebUI -->
+  <rect x="50" y="55" width="200" height="100" class="box" fill="#6366f1" stroke="#4f46e5"/>
+  <text x="150" y="78" text-anchor="middle" class="label">Open WebUI (Chat)</text>
+  <text x="150" y="96" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">User types prompts</text>
+  <text x="150" y="110" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">Sees links to files</text>
+  <text x="150" y="124" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.7)">Files do NOT upload back</text>
+
+  <!-- Side Panel -->
+  <rect x="50" y="185" width="200" height="90" class="box" fill="#8b5cf6" stroke="#7c3aed"/>
+  <text x="150" y="208" text-anchor="middle" class="label">Side Panel (Artifacts)</text>
+  <text x="150" y="226" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">File preview: docx, pdf, xlsx</text>
+  <text x="150" y="240" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">Browser viewer (CDP stream)</text>
+  <text x="150" y="254" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">Terminal (Claude Code CLI)</text>
+
+  <!-- Computer Use Server -->
+  <rect x="350" y="55" width="220" height="120" class="box" fill="#1e40af" stroke="#1e3a8a"/>
+  <text x="460" y="78" text-anchor="middle" class="label">Computer Use Server</text>
+  <text x="460" y="96" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">File Server (HTTP)</text>
+  <text x="460" y="112" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">Preview renderer</text>
+  <text x="460" y="128" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">CDP &amp; Terminal proxy</text>
+  <text x="460" y="144" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.7)">/api/outputs/{chat_id}/</text>
+
+  <!-- Sandbox Container -->
+  <rect x="350" y="215" width="220" height="110" class="box" fill="#0f766e" stroke="#0d9488"/>
+  <text x="460" y="238" text-anchor="middle" class="label">Sandbox Container</text>
+  <text x="460" y="256" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">/mnt/user-data/outputs/ (RW)</text>
+  <text x="460" y="272" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">/mnt/user-data/uploads/ (RO)</text>
+  <text x="460" y="288" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">/mnt/skills/ (RO)</text>
+  <text x="460" y="304" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.7)">AI writes files here</text>
+
+  <!-- Docker Volume -->
+  <rect x="660" y="215" width="210" height="80" class="box" fill="#475569" stroke="#334155"/>
+  <text x="765" y="240" text-anchor="middle" class="label">Docker Volume</text>
+  <text x="765" y="258" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">user-data-{chat_id}/</text>
+  <text x="765" y="274" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.7)">Persists across container restarts</text>
+
+  <!-- External Access -->
+  <rect x="660" y="55" width="210" height="80" class="box" fill="#b45309" stroke="#a16207"/>
+  <text x="765" y="78" text-anchor="middle" class="label">Direct Access</text>
+  <text x="765" y="96" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">Open link in new tab</text>
+  <text x="765" y="112" text-anchor="middle" font-size="9.5" fill="rgba(255,255,255,0.85)">Download zip archive</text>
+
+  <!-- Arrows -->
+  <!-- Chat -> Server: tool calls -->
+  <path d="M250,90 L345,90" class="arrow" stroke="#3b82f6" marker-end="url(#ah-blue)"/>
+  <text x="297" y="83" text-anchor="middle" class="arrow-label">MCP tool calls</text>
+
+  <!-- Server -> Sandbox: commands -->
+  <path d="M460,175 L460,210" class="arrow" stroke="#3b82f6" marker-end="url(#ah-blue)"/>
+  <text x="515" y="197" class="arrow-label">Docker exec</text>
+
+  <!-- Sandbox -> Server: files via volume -->
+  <path d="M400,215 L400,175" class="arrow" stroke="#22c55e" marker-end="url(#ah-green)"/>
+  <text x="375" y="197" text-anchor="end" class="arrow-label">files</text>
+
+  <!-- Server -> Chat: links in response -->
+  <path d="M350,120 L250,120" class="arrow" stroke="#22c55e" marker-end="url(#ah-green)"/>
+  <text x="300" y="137" text-anchor="middle" class="arrow-label">HTTP links in chat</text>
+
+  <!-- Chat -> Side Panel -->
+  <path d="M150,155 L150,180" class="arrow" stroke="#8b5cf6" marker-end="url(#ah)"/>
+  <text x="200" y="172" class="arrow-label">auto-open</text>
+
+  <!-- Side Panel -> Server: fetch preview -->
+  <path d="M250,230 L345,130" class="arrow" stroke="#f59e0b" marker-end="url(#ah-amber)"/>
+  <text x="260" y="170" class="arrow-label">fetch preview</text>
+
+  <!-- Sandbox -> Volume -->
+  <path d="M570,260 L655,260" class="arrow" stroke="#94a3b8"/>
+  <text x="612" y="252" text-anchor="middle" class="arrow-label">mount</text>
+
+  <!-- Server -> External: direct links -->
+  <path d="M570,90 L655,90" class="arrow" stroke="#f59e0b" marker-end="url(#ah-amber)"/>
+  <text x="612" y="83" text-anchor="middle" class="arrow-label">HTTP URL</text>
+
+  <!-- Legend -->
+  <rect x="50" y="350" width="820" height="110" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="70" y="375" font-size="11" font-weight="600" fill="#1e293b">Key Differences from Claude.ai / Open Terminal</text>
+
+  <line x1="70" y1="395" x2="90" y2="395" stroke="#22c55e" stroke-width="2"/>
+  <text x="95" y="399" class="note">Files stay on the server — chat only receives HTTP links (no re-upload to WebUI)</text>
+
+  <line x1="70" y1="415" x2="90" y2="415" stroke="#8b5cf6" stroke-width="2"/>
+  <text x="95" y="419" class="note">Side panel renders previews via Computer Use Server — not a native file browser</text>
+
+  <line x1="70" y1="435" x2="90" y2="435" stroke="#f59e0b" stroke-width="2"/>
+  <text x="95" y="439" class="note">User can open any file link in a new browser tab, download as zip, or work directly in the container terminal</text>
+
+  <line x1="480" y1="395" x2="500" y2="395" stroke="#3b82f6" stroke-width="2"/>
+  <text x="505" y="399" class="note">Everything syncs with remote server (Docker volumes), not local filesystem</text>
+
+  <line x1="480" y1="415" x2="500" y2="415" stroke="#0f766e" stroke-width="2"/>
+  <text x="505" y="419" class="note">Container terminal accessible independently — Claude Code CLI or manual work</text>
+
+  <line x1="480" y1="435" x2="500" y2="435" stroke="#b45309" stroke-width="2"/>
+  <text x="505" y="439" class="note">User can leave chat and navigate to server URLs to interact with files directly</text>
+</svg>

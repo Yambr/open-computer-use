@@ -1,5 +1,9 @@
 # Project Instructions
 
+## Language
+
+All code, comments, commit messages, PR titles, PR descriptions, documentation, and any text visible in the repository MUST be written in **English only**. No exceptions.
+
 ## Building Docker Image
 
 Always build with `--platform linux/amd64`:

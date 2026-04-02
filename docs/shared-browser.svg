@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 520" font-family="Inter, -apple-system, system-ui, sans-serif">
+  <defs>
+    <style>
+      .box { rx: 10; stroke-width: 1.5; }
+      .label { font-size: 13px; font-weight: 600; fill: #fff; }
+      .sublabel { font-size: 10px; fill: rgba(255,255,255,0.8); }
+      .arrow { stroke-width: 1.8; fill: none; marker-end: url(#ah2); }
+      .arrow-label { font-size: 9px; fill: #6b7280; }
+      .note { font-size: 9.5px; fill: #64748b; }
+      .highlight { font-size: 10px; font-weight: 600; }
+    </style>
+    <marker id="ah2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#94a3b8"/>
+    </marker>
+    <marker id="ah2-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#22c55e"/>
+    </marker>
+    <marker id="ah2-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#3b82f6"/>
+    </marker>
+    <marker id="ah2-red" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#ef4444"/>
+    </marker>
+  </defs>
+
+  <rect width="920" height="520" rx="12" fill="#fafbfc"/>
+  <text x="460" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="#1e293b">Shared Browser &amp; Interactive Access</text>
+
+  <!-- Sandbox Container (big box) -->
+  <rect x="350" y="50" width="530" height="200" class="box" fill="#0f766e" stroke="#0d9488"/>
+  <text x="615" y="73" text-anchor="middle" class="label">Sandbox Container</text>
+
+  <!-- Chromium inside sandbox -->
+  <rect x="380" y="90" width="180" height="70" rx="8" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="470" y="113" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Chromium Browser</text>
+  <text x="470" y="128" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.7)">CDP :9222</text>
+  <text x="470" y="142" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.7)">Single instance, shared state</text>
+
+  <!-- ttyd inside sandbox -->
+  <rect x="580" y="90" width="140" height="70" rx="8" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="650" y="113" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Terminal (ttyd)</text>
+  <text x="650" y="128" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.7)">:7681 + tmux</text>
+  <text x="650" y="142" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.7)">Claude Code CLI</text>
+
+  <!-- Claude Code in sandbox -->
+  <rect x="740" y="90" width="120" height="70" rx="8" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)"/>
+  <text x="800" y="113" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Claude Code</text>
+  <text x="800" y="128" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.7)">Autonomous agent</text>
+  <text x="800" y="142" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.7)">Full sandbox access</text>
+
+  <!-- Filesystem -->
+  <rect x="380" y="175" width="480" height="55" rx="6" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.2)"/>
+  <text x="620" y="195" text-anchor="middle" font-size="10" font-weight="500" fill="rgba(255,255,255,0.9)">Shared Filesystem: /home/assistant/</text>
+  <text x="620" y="210" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,0.65)">AI, User (via terminal), and Claude Code all see the same files</text>
+
+  <!-- Three actors -->
+  <!-- AI Agent -->
+  <rect x="40" y="60" width="170" height="80" class="box" fill="#1e40af" stroke="#1e3a8a"/>
+  <text x="125" y="83" text-anchor="middle" class="label">AI Agent (LLM)</text>
+  <text x="125" y="100" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.85)">Playwright automation</text>
+  <text x="125" y="114" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.85)">bash_tool, create_file</text>
+
+  <!-- User via Chat -->
+  <rect x="40" y="170" width="170" height="80" class="box" fill="#6366f1" stroke="#4f46e5"/>
+  <text x="125" y="193" text-anchor="middle" class="label">User (Chat)</text>
+  <text x="125" y="210" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.85)">Watches browser live</text>
+  <text x="125" y="224" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.85)">Sees AI actions in real-time</text>
+
+  <!-- User via Terminal -->
+  <rect x="40" y="280" width="170" height="80" class="box" fill="#b45309" stroke="#a16207"/>
+  <text x="125" y="303" text-anchor="middle" class="label">User (Terminal)</text>
+  <text x="125" y="320" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.85)">Direct CLI access</text>
+  <text x="125" y="334" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.85)">Claude Code, manual work</text>
+
+  <!-- Arrows from actors to sandbox -->
+  <path d="M210,100 L375,115" class="arrow" stroke="#3b82f6" marker-end="url(#ah2-blue)"/>
+  <text x="290" y="97" class="arrow-label">Playwright CDP</text>
+
+  <path d="M210,210 L375,130" class="arrow" stroke="#22c55e" marker-end="url(#ah2-green)"/>
+  <text x="270" y="178" class="arrow-label">CDP viewer (interactive)</text>
+
+  <path d="M210,310 L575,125" class="arrow" stroke="#ef4444" marker-end="url(#ah2-red)"/>
+  <text x="370" y="280" class="arrow-label">WebSocket TTY (read-write)</text>
+
+  <!-- Key insight boxes -->
+  <rect x="40" y="390" width="410" height="115" rx="8" fill="#fef3c7" stroke="#f59e0b"/>
+  <text x="60" y="413" class="highlight" fill="#92400e">Shared Browser = One Chromium, Three Users</text>
+  <text x="60" y="432" class="note" fill="#78350f">1. AI navigates via Playwright (automated)</text>
+  <text x="60" y="449" class="note" fill="#78350f">2. User watches live via CDP stream in side panel</text>
+  <text x="60" y="466" class="note" fill="#78350f">3. User can type in the browser directly (e.g. login credentials)</text>
+  <text x="60" y="483" class="note" fill="#78350f">4. AI sees user's input — true collaboration on one browser</text>
+
+  <rect x="470" y="390" width="410" height="115" rx="8" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="490" y="413" class="highlight" fill="#1e3a8a">Claude Code CLI = Power User Escape Hatch</text>
+  <text x="490" y="432" class="note" fill="#1e40af">1. When chat capabilities are not enough — open terminal</text>
+  <text x="490" y="449" class="note" fill="#1e40af">2. Full Claude Code CLI with all MCP servers</text>
+  <text x="490" y="466" class="note" fill="#1e40af">3. User can also work manually: git, vim, code</text>
+  <text x="490" y="483" class="note" fill="#1e40af">4. Leave OpenWebUI entirely — work in container directly</text>
+
+  <!-- Title annotations -->
+  <text x="460" y="375" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">vs. Open Terminal: native file browser | vs. Claude.ai: screenshot-based browser</text>
+</svg>
