@@ -111,8 +111,8 @@ The two projects take opposite approaches to tool design.
 
 ## When to choose what
 
-**Choose Open Computer Use** for: production multi-user deployments with per-chat isolation, live browser automation, document creation (PPTX, DOCX, XLSX, PDF), Claude Code sub-agent delegation, server-side file preview, and workflows that span multiple MCP clients.
+**Choose Open Computer Use** for production multi-user deployments. Tested with 1,000+ MAU. Container-per-chat isolation means scaling to 10K users doesn't require rethinking security — each session is already sandboxed with its own filesystem, network, and resource limits. No shared state, no cross-user contamination, no OS-level user management. Add nodes, not workarounds. Works seamlessly across MCP clients (Open WebUI, Claude Desktop, n8n, LiteLLM) — switch frontends without changing the backend. Best for: live browser automation, document creation skills, Claude Code sub-agent, and cloud agent pipelines.
 
-**Choose open-terminal** for: lightweight code execution, bare metal usage, Jupyter notebooks, port proxying for web development, minimal resource footprint, and simple single-container personal setups.
+**Choose open-terminal** for lightweight personal use and development workflows. Single `docker run`, minimal footprint (down to 230 MB alpine image), bare metal option. Great for quick code execution, Jupyter notebooks, port proxying, and situations where full sandbox isolation isn't needed. For multi-user scaling, the separate [Terminals](https://github.com/open-webui/terminals) project provisions container-per-user, but this adds operational complexity that Open Computer Use handles by design.
 
 **Use both together:** Open WebUI supports connecting to both simultaneously. Use open-terminal for quick code execution and Open Computer Use for complex workflows that need browser, skills, or sub-agents.
