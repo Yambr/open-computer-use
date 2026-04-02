@@ -81,12 +81,12 @@ The two projects take opposite approaches to tool design.
   - **XLSX**: formula-based spreadsheets with `openpyxl`, automatic recalculation via LibreOffice UNO (`recalc.py`), error scanning (#REF!, #DIV/0!)
   - **PDF**: create with ReportLab (pre-registered Cyrillic/Emoji fonts), extract tables with tabula-py/camelot, fill forms, merge/split
   - open-terminal can extract text from 11 document formats but has no document creation pipeline
+- **Skill auto-injection** — skills with scripts, templates, and examples are mounted read-only into containers and injected into the system prompt. The AI gets structured instructions, not just text. Per-user custom skills via Settings Wrapper API.
 - **Live shared browser** — Playwright + CDP streaming: AI automates via CDP, user watches and interacts in real-time (clicks, types passwords, scrolls) in the same Chromium instance. Not screenshot-based.
 - **Claude Code sub-agent** — delegate complex multi-step tasks to Claude Code running autonomously inside the container. Supports model selection (sonnet/opus), session resume after timeout, cost/turns tracking, and auto-configured MCP servers.
 - **Server-side file preview** — preview panel renders DOCX (via Mammoth), XLSX (multi-sheet tables), PDF (page-by-page canvas), PPTX (slide navigation), Markdown, images, and code with syntax highlighting. Works from any MCP client, not tied to Open WebUI's UI.
 - **Container-per-chat isolation** — every chat gets a fresh Docker container with its own filesystem, network, and resource limits. Containers auto-cleanup after idle timeout. No cross-session contamination.
 - **Persistent terminal** — ttyd + tmux: terminal sessions survive disconnects, user can switch between chat and terminal freely, or leave the chat interface entirely and work in the container via direct URL.
-- **Skill auto-injection** — skills with scripts, templates, and examples are mounted read-only into containers and injected into the system prompt. The AI gets structured instructions, not just text. Per-user custom skills via Settings Wrapper API.
 - **Pre-installed stack** — 200+ packages: LibreOffice suite, Playwright + Chromium, OCR (Tesseract), computer vision (OpenCV), image processing (ImageMagick, Pillow, sharp), GitLab CLI (glab), fonts (DejaVu, Noto CJK/Emoji for PDF/reports), ML libraries (JAX, ONNX Runtime, MediaPipe). open-terminal's full image has ~50 packages.
 - **Vision AI** — `describe-image` skill for multi-modal image analysis (charts, diagrams, screenshots) via Vision API.
 - **Multi-client MCP support** — tested with Open WebUI, Claude Desktop, n8n, LiteLLM, and custom HTTP clients. open-terminal also supports multiple transports (stdio + streamable-http via FastMCP) but is primarily tested with Open WebUI.
