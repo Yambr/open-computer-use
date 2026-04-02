@@ -99,7 +99,6 @@ The two projects take opposite approaches to tool design.
 - **Lightweight image variants** — slim (430 MB, Debian) and alpine (230 MB) for minimal footprint
 - **Document text extraction as API** — dedicated endpoint reads 11 formats as plain text (PDF, DOCX, PPTX, XLSX, XLS, RTF, ODT, ODS, ODP, EPUB, EML). In Open Computer Use the model has a full Linux sandbox with LibreOffice, pandoc, pdfplumber, python-docx, openpyxl and other tools — it reads and converts documents itself via `bash_tool`, choosing the best approach for the task (extract tables, parse structure, convert format, etc.)
 - **Process stdin** — send input to running processes (interactive CLI tools)
-- **Terminal sessions** — real PTY terminals via WebSocket with resize support
 - **Session CWD tracking** — per-session working directory, all file/execute operations resolve relative paths against it
 - **Runtime package installation** — install apt/pip/npm packages at container startup via environment variables
 - **Docker-in-Docker** — Docker CLI + Compose + Buildx pre-installed, mount the socket for full DinD
