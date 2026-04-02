@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.8.13.0 (2026-04-02)
+## v0.8.12.4 (2026-04-02)
 
 ### Security
 - **Pillow 11 → 12.1.1**: fixes PSD out-of-bounds write CVE; migrated `Image.LANCZOS` → `Image.Resampling.LANCZOS` for Pillow 12 API compatibility
