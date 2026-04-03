@@ -2,6 +2,21 @@
 
 The Computer Use Server exposes a standard [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) endpoint that works with any MCP-compatible client.
 
+This server is published in the [MCP Registry](https://github.com/modelcontextprotocol/registry) as `io.github.yambr/open-computer-use`.
+
+## Deployment Prerequisite
+
+This is a **self-hosted** MCP server. You must deploy it before connecting:
+
+```bash
+git clone https://github.com/yambr/open-computer-use.git
+cd open-computer-use
+docker build --platform linux/amd64 -t open-computer-use:latest .
+docker compose up -d
+```
+
+The MCP endpoint will be available at `http://localhost:8081/mcp`.
+
 ## Endpoint
 
 ```
@@ -187,6 +202,41 @@ Currently, the Open WebUI tool (`computer_use_tools.py`) does not pass MCP serve
 
 1. Use a custom MCP client that sets the `X-MCP-Servers` header
 2. Or add MCP server forwarding to the Open WebUI tool (contributions welcome)
+
+## Dynamic Configuration Endpoints
+
+The server provides API endpoints that MCP clients should use to get up-to-date configuration instead of hardcoding values.
+
+### GET /system-prompt
+
+Returns the full system prompt as plain text with current skills and correct file URLs.
+
+```bash
+curl "http://localhost:8081/system-prompt?chat_id=my-session&user_email=user@example.com"
+```
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `chat_id` | Session ID — server constructs file download URLs from this | Recommended |
+| `user_email` | Returns prompt with user-specific skills | No |
+
+### GET /skill-list
+
+Returns available skills as formatted text for sub-agent delegation.
+
+```bash
+curl "http://localhost:8081/skill-list?user_email=user@example.com"
+```
+
+### GET /mcp-info
+
+Returns MCP endpoint metadata as JSON: available tools, required headers, endpoint URL.
+
+```bash
+curl "http://localhost:8081/mcp-info" -H "Authorization: Bearer $MCP_API_KEY"
+```
+
+**Best practice:** Fetch the system prompt dynamically via `/system-prompt?chat_id={id}` at session start. This ensures the AI model gets correct file URLs and the latest skill set. See [System Prompt Reference](system-prompt.md) for details.
 
 ## Browser Viewer (CDP)
 
