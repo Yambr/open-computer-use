@@ -99,9 +99,11 @@ def download_skill(
     _check_auth(api_key)
     name = _validate_skill_name(name)
 
-    zip_path = SKILLS_DIR / f"{name}.zip"
-    if not zip_path.resolve().is_relative_to(SKILLS_DIR.resolve()):
+    zip_resolved = os.path.realpath(os.path.join(str(SKILLS_DIR), f"{name}.zip"))
+    base_resolved = os.path.realpath(str(SKILLS_DIR))
+    if not zip_resolved.startswith(base_resolved + os.sep):
         raise HTTPException(status_code=403, detail="Access denied")
+    zip_path = Path(zip_resolved)
     if zip_path.exists():
         return FileResponse(zip_path, media_type="application/zip", filename=f"{name}.zip")
 

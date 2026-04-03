@@ -1,5 +1,6 @@
 """Tests for path traversal protection in settings-wrapper/app.py."""
 import importlib
+import inspect
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -29,6 +30,37 @@ def settings_client(tmp_path):
     with patch.object(settings_app, "SKILLS_DIR", skills_dir), \
          patch.object(settings_app, "API_KEY", ""):
         yield TestClient(settings_app.app)
+
+
+class TestDownloadSkillImplementation:
+    """Verify download_skill uses os.path pattern that CodeQL natively recognizes.
+
+    CodeQL py/path-injection does NOT recognize pathlib.Path.resolve() + is_relative_to()
+    as a containment check barrier. It DOES natively recognize os.path.realpath() +
+    startswith() when used in the same function scope.
+    """
+
+    def test_uses_os_path_realpath_not_is_relative_to(self, settings_client):
+        """download_skill must use os.path.realpath, not is_relative_to."""
+        settings_wrapper_path = Path(__file__).resolve().parent.parent.parent / "settings-wrapper"
+        spec = importlib.util.spec_from_file_location(
+            "_settings_wrapper_impl_check",
+            str(settings_wrapper_path / "app.py"),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        source = inspect.getsource(mod.download_skill)
+        assert "is_relative_to" not in source, (
+            "download_skill uses is_relative_to() which CodeQL does not recognise "
+            "as a path containment sanitizer. Use os.path.realpath + startswith."
+        )
+        assert "os.path.realpath" in source, (
+            "download_skill must use os.path.realpath() for CodeQL to suppress "
+            "py/path-injection false positives."
+        )
+        assert "startswith" in source, (
+            "download_skill must use startswith() for the containment check."
+        )
 
 
 class TestDownloadSkillTraversal:

@@ -1,8 +1,11 @@
 # CodeQL configuration for open-computer-use.
 #
-# py/path-injection false positives are eliminated at the source:
-# computer-use-server/security.py safe_path() uses os.path.realpath + startswith,
-# which CodeQL natively recognises as a containment check barrier.
-# No model extensions are needed.
+# py/path-injection alerts are suppressed via two mechanisms:
+# 1. safe_path() / sanitize_chat_id() use os.path.realpath + startswith internally.
+# 2. .github/codeql/extensions/python-sanitizers.model.yml declares barrierModel
+#    entries for their return values — CodeQL traces taint through function boundaries,
+#    so the barrierModel is required to stop propagation at call sites.
+# Extensions are auto-discovered from .github/codeql/extensions/security-models/
+# (subdirectory with qlpack.yml using extensionTargets is required for auto-discovery).
 
 name: "open-computer-use-codeql-config"

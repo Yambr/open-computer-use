@@ -1,0 +1,17 @@
+extensions:
+  # Mark the return values of security.py sanitization functions as path-injection barriers.
+  #
+  # CodeQL traces taint through function return values even when the function internally
+  # validates using os.path.realpath + startswith. The barrierModel extensible explicitly
+  # tells CodeQL that the return value of these functions is safe for path operations.
+  #
+  # Format: [type (module name), path (AccessPath), kind]
+  - addsTo:
+      pack: codeql/python-all
+      extensible: barrierModel
+    data:
+      # safe_path() validates that the path stays within base_dir using
+      # os.path.realpath + startswith (raises HTTPException(403) on traversal).
+      - ["security", "Member[safe_path].ReturnValue", "path-injection"]
+      # sanitize_chat_id() rejects '..', '/', '\\', null-bytes in chat IDs.
+      - ["security", "Member[sanitize_chat_id].ReturnValue", "path-injection"]
