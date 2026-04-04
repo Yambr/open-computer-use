@@ -1,5 +1,6 @@
 {
   "name": "open-computer-use",
+  "mcpName": "io.github.yambr/open-computer-use",
   "version": "1.0.0",
   "description": "Open Computer Use - Node.js Dependencies",
   "license": "BUSL-1.1",

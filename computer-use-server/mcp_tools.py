@@ -87,28 +87,56 @@ from context_vars import (
 )
 
 
-# Chat ID validation error message
-CHAT_ID_REQUIRED_ERROR = """Error: X-Chat-Id header is required.
+# Single-user mode: "" (lenient default), "true" (solo), "false" (strict multi-user)
+SINGLE_USER_MODE = os.getenv("SINGLE_USER_MODE", "").lower()
 
-Please provide the X-Chat-Id header in your request. This header is used to isolate
-your container environment from other users.
+# Warning appended to tool responses when using default container in lenient mode
+DEFAULT_CHAT_ID_WARNING = (
+    "\n\n---\n"
+    "Note: No X-Chat-Id header provided — using shared 'default' container.\n"
+    "All sessions without a chat ID share the same container (files, processes, state).\n\n"
+    "Options:\n"
+    "- Set SINGLE_USER_MODE=true in .env to always use one container (single-user setup)\n"
+    "- Set SINGLE_USER_MODE=false to require X-Chat-Id (multi-user setup)\n"
+    "- Pass X-Chat-Id header in your MCP client for per-session isolation\n"
+)
 
-If using LiteLLM, ensure extra_headers includes "x-chat-id" or "x-openwebui-chat-id".
-If using direct MCP access, add: -H "X-Chat-Id: your-unique-chat-id"
-"""
+# Error returned when chat_id is missing in strict multi-user mode
+CHAT_ID_REQUIRED_ERROR = (
+    "Error: X-Chat-Id header is required (SINGLE_USER_MODE=false).\n\n"
+    "In multi-user mode, every request must include X-Chat-Id for container isolation.\n"
+    "Pass -H \"X-Chat-Id: your-unique-id\" or set SINGLE_USER_MODE=true for single-user setup."
+)
 
 
 def _validate_chat_id() -> tuple[str, str | None]:
     """
-    Validate that chat_id is provided (not default).
+    Validate chat_id based on SINGLE_USER_MODE setting.
 
     Returns:
         tuple: (chat_id, error_message) - error_message is None if valid
     """
     chat_id = current_chat_id.get()
+
+    if SINGLE_USER_MODE == "true":
+        return "default", None
+
     if chat_id == "default":
-        return chat_id, CHAT_ID_REQUIRED_ERROR
+        if SINGLE_USER_MODE == "false":
+            return chat_id, CHAT_ID_REQUIRED_ERROR
+        return chat_id, None
+
     return chat_id, None
+
+
+def _get_default_chat_warning() -> str:
+    """Return warning suffix if using default chat_id in lenient mode."""
+    if SINGLE_USER_MODE in ("true", "false"):
+        return ""
+    if current_chat_id.get() == "default":
+        print("[WARN] No X-Chat-Id header and SINGLE_USER_MODE not set — using shared 'default' container")
+        return DEFAULT_CHAT_ID_WARNING
+    return ""
 
 
 # Configuration from environment
@@ -404,7 +432,7 @@ async def bash_tool(command: str, description: str, ctx: Context) -> str:
                 pass
 
         output = _apply_command_semantics(command, result["exit_code"], result["output"])
-        return _truncate_output(output)
+        return _truncate_output(output) + _get_default_chat_warning()
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -480,7 +508,7 @@ except Exception as e:
 """
         payload = json.dumps({"path": path, "old_str": old_str, "new_str": new_str})
         result = await asyncio.to_thread(_execute_python_with_stdin, container, script, payload)
-        return result["output"]
+        return result["output"] + _get_default_chat_warning()
 
     except Exception as e:
         return f"Error: {str(e)}"
@@ -539,7 +567,8 @@ except Exception as e:
 """
         payload = json.dumps({"path": path, "file_text": file_text})
         result = await asyncio.to_thread(_execute_python_with_stdin, container, script, payload)
-        return result["output"] if result["success"] else f"Error: {result['output']}"
+        output = result["output"] if result["success"] else f"Error: {result['output']}"
+        return output + _get_default_chat_warning()
 
     except Exception as e:
         return f"Error: {str(e)}"
@@ -674,7 +703,7 @@ fi
             truncation_msg = f"\n\n... [File truncated - middle omitted. Total: {len(output)} chars. Use view_range.] ...\n\n"
             output = output[:15000] + truncation_msg + output[-15000:]
 
-        return output
+        return output + _get_default_chat_warning()
 
     except Exception as e:
         return f"Error: {str(e)}"
@@ -1027,7 +1056,8 @@ Use `cat <skill-location>` to read skill instructions.
             return timeout_msg
 
         # Parse JSON result and format response
-        return await _format_sub_agent_result(output, model_display, max_turns, duration)
+        result_text = await _format_sub_agent_result(output, model_display, max_turns, duration)
+        return result_text + _get_default_chat_warning()
 
     except Exception as e:
         return f"Sub-agent error: {str(e)}"

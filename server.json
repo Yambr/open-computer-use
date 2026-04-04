@@ -1,0 +1,97 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/registry/main/schema/server-v0.json",
+  "name": "io.github.yambr/open-computer-use",
+  "title": "Open Computer Use",
+  "version": "0.8.12.4",
+  "description": "Self-hosted MCP server that gives any LLM an isolated Ubuntu sandbox with bash, file editing, browser automation (Playwright), document creation (docx/xlsx/pptx/pdf), and Claude Code sub-agent. Each chat session gets its own Docker container. Deploy with docker compose, then connect any MCP client via Streamable HTTP.",
+  "websiteUrl": "https://github.com/yambr/open-computer-use",
+  "repository": {
+    "url": "https://github.com/yambr/open-computer-use",
+    "source": "github",
+    "id": "yambr/open-computer-use"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "{server_url}/mcp",
+      "variables": {
+        "server_url": {
+          "description": "URL of your deployed Open Computer Use server",
+          "isRequired": true,
+          "default": "http://localhost:8081"
+        }
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer token for MCP API authentication (value of MCP_API_KEY env var on server)",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "X-Chat-Id",
+          "description": "Session identifier — each unique ID gets its own isolated sandbox container. Required when SINGLE_USER_MODE=false, optional otherwise.",
+          "isRequired": false
+        },
+        {
+          "name": "X-User-Email",
+          "description": "User email for per-user skills and token lookup",
+          "isRequired": false
+        }
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/yambr/open-computer-use",
+      "version": "latest",
+      "transport": {
+        "type": "streamable-http"
+      },
+      "environmentVariables": [
+        {
+          "name": "MCP_API_KEY",
+          "description": "API key for authenticating MCP requests. Leave empty for development (no auth).",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "DOCKER_IMAGE",
+          "description": "Sandbox container image name",
+          "isRequired": false,
+          "default": "open-computer-use:latest"
+        },
+        {
+          "name": "CONTAINER_MEM_LIMIT",
+          "description": "RAM limit per sandbox container",
+          "isRequired": false,
+          "default": "2g"
+        },
+        {
+          "name": "CONTAINER_CPU_LIMIT",
+          "description": "CPU limit per sandbox container",
+          "isRequired": false,
+          "default": "1.0"
+        },
+        {
+          "name": "CONTAINER_IDLE_TIMEOUT",
+          "description": "Auto-stop idle containers after N seconds",
+          "isRequired": false,
+          "default": "600"
+        },
+        {
+          "name": "ENABLE_NETWORK",
+          "description": "Allow sandbox containers to access the network",
+          "isRequired": false,
+          "default": "true"
+        },
+        {
+          "name": "SINGLE_USER_MODE",
+          "description": "Set to 'true' for single-user setup (no X-Chat-Id needed), 'false' to require X-Chat-Id (multi-user). Unset = lenient (works without chat ID but shows a warning)",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
