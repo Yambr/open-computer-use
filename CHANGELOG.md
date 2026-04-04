@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.8.12.6 (2026-04-04)
+
+### Features
+- **SINGLE_USER_MODE**: new env var for easy onboarding without `X-Chat-Id` header
+  - Not set (default): lenient — uses shared container + warning in tool response and server logs
+  - `true`: single-user — one container, no headers needed (recommended for Claude Desktop)
+  - `false`: strict multi-user — `X-Chat-Id` required, error if missing
+- **MCP Registry manifest** (`server.json`): published as `io.github.yambr/open-computer-use`
+- **Dynamic config endpoints**: documented `/system-prompt`, `/skill-list`, `/mcp-info` in docs/MCP.md
+- **System prompt reference**: new `docs/system-prompt.md` with prompt structure documentation
+
+### Tests
+- 13 unit tests for single-user mode (`tests/orchestrator/test_single_user_mode.py`)
+- 6 Docker integration tests (`tests/test-single-user-mode.sh`)
+
 ## v0.8.12.5 (2026-04-04)
 
 ### License
