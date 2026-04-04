@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Tests for fix_large_tool_results.py patch.
 
 Tests the patch application logic and the truncation functions.

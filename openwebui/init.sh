@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 # Open WebUI initialization script
 # Waits for Open WebUI to be ready, then installs tools, functions, and configures valves.
 # Runs once on first startup — skips if already configured.

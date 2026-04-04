@@ -2,6 +2,7 @@
   "name": "open-computer-use",
   "version": "1.0.0",
   "description": "Open Computer Use - Node.js Dependencies",
+  "license": "BUSL-1.1",
   "engines": {
     "node": ">=22.20.0",
     "npm": ">=10.9.3"

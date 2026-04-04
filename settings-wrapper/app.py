@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """
 Settings Wrapper — mock skill registry for Open Computer Use.
 

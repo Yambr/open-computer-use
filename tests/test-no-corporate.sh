@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 # Test: No internal/corporate references remain in the codebase.
 # Uses patterns from tests/corporate-patterns.txt
 # Usage: ./tests/test-no-corporate.sh [project-root]

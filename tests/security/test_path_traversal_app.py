@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Tests for path traversal protection in computer-use-server/app.py endpoints.
 
 Note: FastAPI/Starlette normalizes `..` in URL paths at the HTTP level,

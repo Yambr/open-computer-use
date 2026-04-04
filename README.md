@@ -3,7 +3,7 @@
 [![Build](https://github.com/Yambr/open-computer-use/actions/workflows/build.yml/badge.svg)](https://github.com/Yambr/open-computer-use/actions/workflows/build.yml)
 [![CodeQL](https://github.com/Yambr/open-computer-use/actions/workflows/codeql.yml/badge.svg)](https://github.com/Yambr/open-computer-use/actions/workflows/codeql.yml)
 [![Release](https://img.shields.io/github/v/release/Yambr/open-computer-use)](https://github.com/Yambr/open-computer-use/releases)
-[![License](https://img.shields.io/github/license/Yambr/open-computer-use)](LICENSE)
+[![License](https://img.shields.io/badge/license-BSL%201.1-blue)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/Yambr/open-computer-use)](https://github.com/Yambr/open-computer-use/stargazers)
 [![Issues](https://img.shields.io/github/issues/Yambr/open-computer-use)](https://github.com/Yambr/open-computer-use/issues)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -284,4 +284,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome!
 
 ## License
 
-[MIT](LICENSE)
+This project uses a multi-license model:
+
+- **Core** (`computer-use-server/`, `openwebui/`, `settings-wrapper/`, Docker configs): [Business Source License 1.1](LICENSE) — free for production use, modification, and self-hosting. Converts to [Apache 2.0](LICENSE-APACHE) on the Change Date. Offering as a managed/hosted service requires a [commercial agreement](https://t.me/yambrcom).
+- **Our skills** (`skills/public/describe-image`, `skills/public/sub-agent`): [MIT](LICENSE-MIT)
+- **Third-party skills**: see individual LICENSE.txt files or original sources.
+
+**Attribution required**: include "Open Computer Use" and a link to this repository.
+
+See [NOTICE](NOTICE) for details.

@@ -60,3 +60,13 @@ To release:
 - `tests/` — Test scripts
 - `docker-compose.yml` — Computer Use Server
 - `docker-compose.webui.yml` — Open WebUI + PostgreSQL (connects to server via `host.docker.internal`)
+
+## License Headers
+
+All new source files MUST include an SPDX license header as the first comment:
+
+- Files in `skills/public/describe-image/` or `skills/public/sub-agent/`: `# SPDX-License-Identifier: MIT`
+- Files in other `skills/` directories with their own LICENSE.txt: DO NOT add headers
+- All other new files: `# SPDX-License-Identifier: BUSL-1.1`
+
+Always include: `# Copyright (c) 2025 Open Computer Use Contributors`

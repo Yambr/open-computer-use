@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 # Test: Project structure matches open-computer-use layout.
 # Verifies correct directory structure after migration.
 # Usage: ./tests/test-project-structure.sh [project-root]

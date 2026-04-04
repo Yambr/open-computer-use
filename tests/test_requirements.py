@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Regression guard for security-critical dependency versions.
 
 Ensures that patched CVE versions from PR #22 are not accidentally downgraded.

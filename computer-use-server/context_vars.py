@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Context variables for request-scoped data (set from HTTP headers)."""
 
 from contextvars import ContextVar

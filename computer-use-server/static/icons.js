@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2025 Open Computer Use Contributors
 // SVG Icons — Lucide-style, stroke-based, themed via currentColor
 // Usage: icon('file') returns SVG string
 

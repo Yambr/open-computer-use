@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Tests for path traversal protection in docker_manager._get_meta_path."""
 import sys
 from pathlib import Path

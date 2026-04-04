@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 # Computer Use Server — core MCP server + workspace image
 # Start: docker compose up
 # Build workspace first: docker compose up --build

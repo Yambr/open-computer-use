@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Unified patch: error handling for tool loop, code interpreter, SSE, and background tasks.
 
 Replaces 3 separate patches:

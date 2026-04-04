@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.12.5 (2026-04-04)
+
+### License
+- **License change**: core code migrated from MIT to Business Source License 1.1 (BSL 1.1)
+  - Change License: Apache 2.0 (auto-converts after Change Date: 2029-04-04)
+  - Additional Use Grant: free for all use except offering as a competing managed/hosted service
+  - Attribution required: project name + link to repository
+- Skills `describe-image` and `sub-agent` remain MIT; third-party skills unchanged
+- Added SPDX license headers to all core source files
+- Added NOTICE file documenting multi-license model
+- Added LICENSE-MIT and LICENSE-APACHE alongside BSL LICENSE
+
 ## v0.8.12.4 (2026-04-02)
 
 ### Security

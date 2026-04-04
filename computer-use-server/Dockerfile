@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 # Computer Use Orchestrator Dockerfile - Production
 FROM python:3.12-slim
 

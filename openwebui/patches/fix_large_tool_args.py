@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """
 Patch for Open WebUI: truncate large tool call arguments in HTML attributes
 + base64 storage of full arguments for reconstruction.

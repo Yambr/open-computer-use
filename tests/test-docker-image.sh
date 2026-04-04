@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 # Test Docker image for package availability, CLI tools, and correct npm layout.
 # Usage: ./tests/test-docker-image.sh [image-name]
 # Default image: ai-computer-use-test:latest

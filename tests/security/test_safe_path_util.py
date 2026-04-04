@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Tests for security utilities: safe_path() and sanitize_chat_id()."""
 import inspect
 import sys

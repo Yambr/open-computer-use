@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Tests for XSS protection in _generate_preview_html."""
 import sys
 from pathlib import Path

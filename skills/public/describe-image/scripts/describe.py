@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Open Computer Use Contributors
 #!/usr/bin/env python3
 """
 Describe image using Vision API (Qwen3-VL).

@@ -53,4 +53,15 @@ See [docs/DYNAMIC-SKILLS.md](docs/DYNAMIC-SKILLS.md) for the skill format.
 
 ## License
 
-By contributing, you agree your contributions will be licensed under the MIT License.
+By contributing to this project, you agree that:
+
+- Contributions to `skills/public/describe-image/` and `skills/public/sub-agent/` are licensed under the [MIT License](LICENSE-MIT).
+- Contributions to all other directories (except third-party skills) are licensed under the [Business Source License 1.1](LICENSE).
+
+See [NOTICE](NOTICE) for the full licensing model.
+
+## Release Process — Change Date
+
+Each tagged release sets its own BSL Change Date to approximately 3 years in the future.
+When cutting a new release, update the `Change Date` field in `LICENSE` to 3 years from the
+release date (e.g., a release on 2026-07-01 gets Change Date 2029-07-01).

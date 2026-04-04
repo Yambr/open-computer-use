@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 # Quick cleanup — runs every 2 hours
 # Removes stopped sandbox containers and dangling images.
 # Fast and safe — doesn't touch running containers or volumes.

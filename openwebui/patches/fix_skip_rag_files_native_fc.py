@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """
 Patch for Open WebUI: disable forced RAG for chat files
 when the ai_computer_use tool is enabled.

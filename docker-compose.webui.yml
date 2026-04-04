@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 # Open WebUI + PostgreSQL — example client for Computer Use
 # Communicates with Computer Use Server via host network (localhost:8081)
 #

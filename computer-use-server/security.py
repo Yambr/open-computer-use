@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Centralized security utilities for path validation and input sanitization."""
 import os
 from pathlib import Path

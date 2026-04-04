@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """
 Patch for Open WebUI v0.8.11–0.8.12: auto-open Artifacts panel
 

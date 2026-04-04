@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
 """Tests for MCP tools — output truncation, command semantics, uniqueness check.
 
 Uses mock Docker to test tool logic without real containers.
