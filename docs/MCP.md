@@ -17,6 +17,40 @@ docker compose up -d
 
 The MCP endpoint will be available at `http://localhost:8081/mcp`.
 
+### Session isolation modes
+
+The server supports three modes controlled by the `SINGLE_USER_MODE` environment variable. This determines how `X-Chat-Id` headers are handled and whether sessions get isolated containers.
+
+| `SINGLE_USER_MODE` | `X-Chat-Id` sent | Behavior |
+|---------------------|-------------------|----------|
+| _(not set)_ | Yes | Normal: isolated container per chat ID |
+| _(not set)_ | No | Lenient: uses shared `default` container + appends a warning to every tool response |
+| `true` | _(any)_ | Single-user: always uses one `default` container, no warnings, header ignored |
+| `false` | Yes | Strict multi-user: isolated container per chat ID |
+| `false` | No | **Error** — `X-Chat-Id` is required, tool call rejected |
+
+**Default behavior (no env var):** the server accepts requests without `X-Chat-Id` but appends a note to every tool response explaining the options. This makes onboarding easy — things work immediately, and the warning guides users toward the right setup.
+
+#### Single-user mode (recommended for Claude Desktop)
+
+If you're the only user, set `SINGLE_USER_MODE=true` in `.env`. All sessions share one persistent container — no headers needed:
+
+```bash
+echo "SINGLE_USER_MODE=true" >> .env
+docker compose restart
+```
+
+#### Strict multi-user mode (recommended for production)
+
+For shared deployments, set `SINGLE_USER_MODE=false`. Every request must include `X-Chat-Id` — requests without it are rejected with an error:
+
+```bash
+echo "SINGLE_USER_MODE=false" >> .env
+docker compose restart
+```
+
+MCP clients (Open WebUI, LiteLLM, n8n) typically pass chat/session IDs automatically via `X-Chat-Id` or `X-OpenWebUI-Chat-Id` headers.
+
 ## Endpoint
 
 ```

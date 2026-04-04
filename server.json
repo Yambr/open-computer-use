@@ -85,6 +85,11 @@
           "description": "Allow sandbox containers to access the network",
           "isRequired": false,
           "default": "true"
+        },
+        {
+          "name": "SINGLE_USER_MODE",
+          "description": "Set to 'true' for single-user setup (no X-Chat-Id needed), 'false' to require X-Chat-Id (multi-user). Unset = lenient (works without chat ID but shows a warning)",
+          "isRequired": false
         }
       ]
     }
