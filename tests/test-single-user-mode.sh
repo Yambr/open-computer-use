@@ -27,7 +27,10 @@ NC='\033[0m'
 cleanup() {
     echo ""
     echo "Cleaning up test containers..."
-    docker rm -f $(docker ps -aq --filter "label=test=single-user-mode") 2>/dev/null || true
+    containers=$(docker ps -aq --filter "label=test=single-user-mode")
+    if [ -n "$containers" ]; then
+        docker rm -f $containers 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT
 

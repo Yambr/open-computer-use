@@ -30,8 +30,8 @@
         },
         {
           "name": "X-Chat-Id",
-          "description": "Session identifier — each unique ID gets its own isolated sandbox container",
-          "isRequired": true
+          "description": "Session identifier — each unique ID gets its own isolated sandbox container. Required when SINGLE_USER_MODE=false, optional otherwise.",
+          "isRequired": false
         },
         {
           "name": "X-User-Email",

@@ -153,9 +153,7 @@ class TestDefaultChatWarning(unittest.TestCase):
 class TestBashToolSingleUserMode(unittest.IsolatedAsyncioTestCase):
     """Integration: bash_tool appends warning in lenient mode."""
 
-    @patch("mcp_tools._ensure_gitlab_token", new_callable=AsyncMock)
-    @patch("mcp_tools._get_or_create_container", return_value=_mock_container())
-    async def test_bash_tool_lenient_mode_appends_warning(self, mock_container, mock_token):
+    async def test_bash_tool_lenient_mode_appends_warning(self):
         """bash_tool with default chat_id in lenient mode → result + warning."""
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SINGLE_USER_MODE", None)
@@ -166,16 +164,16 @@ class TestBashToolSingleUserMode(unittest.IsolatedAsyncioTestCase):
             ctx = MagicMock()
             ctx.report_progress = AsyncMock()
 
-            with patch("mcp_tools.execute_bash_streaming",
-                       return_value={"output": "hello\n", "exit_code": 0, "success": True}):
+            with patch.object(mcp_tools, "_ensure_gitlab_token", new_callable=AsyncMock), \
+                 patch.object(mcp_tools, "_get_or_create_container", side_effect=lambda *a, **k: _mock_container()), \
+                 patch.object(mcp_tools, "execute_bash_streaming",
+                              return_value={"output": "hello\n", "exit_code": 0, "success": True}):
                 result = await mcp_tools.bash_tool("echo hello", "test", ctx)
 
             self.assertIn("hello", result)
             self.assertIn("SINGLE_USER_MODE", result)
 
-    @patch("mcp_tools._ensure_gitlab_token", new_callable=AsyncMock)
-    @patch("mcp_tools._get_or_create_container", return_value=_mock_container())
-    async def test_bash_tool_single_user_no_warning(self, mock_container, mock_token):
+    async def test_bash_tool_single_user_no_warning(self):
         """bash_tool with SINGLE_USER_MODE=true → result without warning."""
         with patch.dict(os.environ, {"SINGLE_USER_MODE": "true"}, clear=False):
             import importlib
@@ -185,16 +183,16 @@ class TestBashToolSingleUserMode(unittest.IsolatedAsyncioTestCase):
             ctx = MagicMock()
             ctx.report_progress = AsyncMock()
 
-            with patch("mcp_tools.execute_bash_streaming",
-                       return_value={"output": "hello\n", "exit_code": 0, "success": True}):
+            with patch.object(mcp_tools, "_ensure_gitlab_token", new_callable=AsyncMock), \
+                 patch.object(mcp_tools, "_get_or_create_container", side_effect=lambda *a, **k: _mock_container()), \
+                 patch.object(mcp_tools, "execute_bash_streaming",
+                              return_value={"output": "hello\n", "exit_code": 0, "success": True}):
                 result = await mcp_tools.bash_tool("echo hello", "test", ctx)
 
             self.assertIn("hello", result)
             self.assertNotIn("SINGLE_USER_MODE", result)
 
-    @patch("mcp_tools._ensure_gitlab_token", new_callable=AsyncMock)
-    @patch("mcp_tools._get_or_create_container", return_value=_mock_container())
-    async def test_bash_tool_multi_user_no_chat_id_returns_error(self, mock_container, mock_token):
+    async def test_bash_tool_multi_user_no_chat_id_returns_error(self):
         """bash_tool with SINGLE_USER_MODE=false + no chat_id → error."""
         with patch.dict(os.environ, {"SINGLE_USER_MODE": "false"}, clear=False):
             import importlib
