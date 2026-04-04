@@ -134,6 +134,7 @@ def _get_default_chat_warning() -> str:
     if SINGLE_USER_MODE in ("true", "false"):
         return ""
     if current_chat_id.get() == "default":
+        print("[WARN] No X-Chat-Id header and SINGLE_USER_MODE not set — using shared 'default' container")
         return DEFAULT_CHAT_ID_WARNING
     return ""
 
