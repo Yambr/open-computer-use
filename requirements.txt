@@ -15,7 +15,7 @@ pikepdf==9.11.0
 pdfkit==1.0.0
 pdfminer.six==20251230
 pdf2image==1.17.0
-reportlab==4.4.4
+reportlab==4.4.10
 
 # Image processing
 pillow==12.1.1
