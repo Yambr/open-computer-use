@@ -80,6 +80,16 @@ curl -s http://localhost:3000 | head -1
 - Verify `BASE_DATA_DIR` and `USER_DATA_BASE_PATH` match in docker-compose.yml
 - Check: `curl http://localhost:8081/api/outputs/{chat_id}`
 
+### File links show localhost instead of your server IP
+
+If the AI returns file download links with `localhost`, change the URL in the filter valve:
+
+**Admin Panel → Functions → Computer Use Filter → ⚙️ Valves → `FILE_SERVER_URL`**
+
+Set it to your server's IP or domain (e.g. `http://192.168.1.100:8081` or `https://myserver.example.com`). Works immediately, no restart needed.
+
+For iframe previews, also set `COMPUTER_USE_SERVER_URL` build arg in `docker-compose.webui.yml` (line 16) and rebuild.
+
 ### Connection refused from Open WebUI
 - Open WebUI and Computer Use Server are in separate Docker networks
 - `docker-compose.webui.yml` uses `host.docker.internal` — this works on Docker Desktop (Mac/Windows)
