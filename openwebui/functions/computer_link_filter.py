@@ -3,7 +3,7 @@
 """
 title: Computer Use Filter
 author: OpenWebUI Implementation
-version: 3.0.2
+version: 3.0.4
 required_open_webui_version: 0.5.17
 description: Injects Computer Use system prompt with dynamic file URLs
 
@@ -23,7 +23,13 @@ FUNCTIONALITY:
 - inlet(): Detects when tool_id "ai_computer_use" is active and injects system prompt
   - Provides AI with file_base_url ({FILE_SERVER_URL}/files/{chat_id}/) so AI generates correct URLs directly
   - Provides archive_url for downloading all files as archive
-- outlet(): Adds archive download button if file links are present
+- outlet(): Adds preview + archive links and optional preview artifact if file links are present
+
+CHANGELOG (v3.0.4):
+- Added: Optional HTML iframe artifact injection for preview (works without frontend auto-open patches)
+
+CHANGELOG (v3.0.3):
+- Added: Optional preview link button in outlet for unpatched OpenWebUI frontends
 
 CHANGELOG (v3.0.0):
 - Major: AI now generates correct file URLs directly (no post-processing needed)
@@ -57,6 +63,18 @@ class Filter:
         ARCHIVE_BUTTON_TEXT: str = Field(
             default="📦 Download all files as archive",
             description="Text for the archive download button"
+        )
+        ENABLE_PREVIEW_BUTTON: bool = Field(
+            default=True,
+            description="Add 'Open preview' button to messages with files"
+        )
+        PREVIEW_BUTTON_TEXT: str = Field(
+            default="🖥️ Open preview",
+            description="Text for the preview button"
+        )
+        ENABLE_PREVIEW_ARTIFACT: bool = Field(
+            default=True,
+            description="Append an HTML iframe artifact for preview when file links are present"
         )
         INJECT_SYSTEM_PROMPT: bool = Field(
             default=True,
@@ -601,9 +619,13 @@ Do not attempt to edit, create, or delete files in these directories. If You nee
     ) -> dict:
         """
         Process messages after model generation.
-        Adds archive download button if file links are present.
+        Adds preview/archive links and optional preview artifact if file links are present.
         """
-        if not self.valves.ENABLE_ARCHIVE_BUTTON:
+        if (
+            not self.valves.ENABLE_ARCHIVE_BUTTON
+            and not self.valves.ENABLE_PREVIEW_BUTTON
+            and not self.valves.ENABLE_PREVIEW_ARTIFACT
+        ):
             return body
 
         chat_id = __metadata__.get("chat_id") if __metadata__ else None
@@ -621,10 +643,29 @@ Do not attempt to edit, create, or delete files in these directories. If You nee
             if content and isinstance(content, str):
                 # Check if content has file server links
                 if re.search(file_url_pattern, content):
+                    preview_url = f"{self.valves.FILE_SERVER_URL}/preview/{chat_id}"
                     archive_url = f"{self.valves.FILE_SERVER_URL}/files/{chat_id}/archive"
-                    # Add archive button if not already present
-                    if archive_url not in content:
-                        archive_button = f"\n\n---\n[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})"
-                        message["content"] = content + archive_button
+                    links_to_add = []
+
+                    if self.valves.ENABLE_PREVIEW_BUTTON and preview_url not in content:
+                        links_to_add.append(f"[{self.valves.PREVIEW_BUTTON_TEXT}]({preview_url})")
+
+                    if self.valves.ENABLE_ARCHIVE_BUTTON and archive_url not in content:
+                        links_to_add.append(f"[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})")
+
+                    artifact_to_add = ""
+                    if self.valves.ENABLE_PREVIEW_ARTIFACT:
+                        iframe_snippet = f'<iframe src="{preview_url}" style="width:100%;height:100%;border:none" allow="clipboard-write; keyboard-map"></iframe>'
+                        # Avoid duplicating the same artifact iframe across retries/edits
+                        if iframe_snippet not in content:
+                            artifact_to_add = "\n\n```html\n" + iframe_snippet + "\n```"
+
+                    if links_to_add:
+                        content = content + "\n\n---\n" + "\n".join(links_to_add)
+
+                    if artifact_to_add:
+                        content = content + artifact_to_add
+
+                    message["content"] = content
 
         return body
