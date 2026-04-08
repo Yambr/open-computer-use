@@ -151,6 +151,7 @@ from docker_manager import (
     DOCKER_SOCKET, DOCKER_IMAGE, CONTAINER_MEM_LIMIT, CONTAINER_CPU_LIMIT,
     COMMAND_TIMEOUT, ENABLE_NETWORK, USER_DATA_BASE_PATH, FILE_SERVER_URL,
     MCP_TOKENS_URL, MCP_TOKENS_API_KEY,
+    ANTHROPIC_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL,
     SUB_AGENT_DEFAULT_MODEL, SUB_AGENT_MAX_TURNS, SUB_AGENT_TIMEOUT,
 )
 
@@ -801,13 +802,23 @@ async def sub_agent(
         model = SUB_AGENT_DEFAULT_MODEL
     if max_turns <= 0:
         max_turns = SUB_AGENT_MAX_TURNS
-    MODEL_MAP = {"sonnet": "claude-sonnet-4-6", "opus": "claude-opus-4-6"}
-    model_display = model
-    if model not in MODEL_MAP:
-        model = MODEL_MAP["sonnet"]
-        model_display = "sonnet"
+    default_model_id = ANTHROPIC_MODEL or "claude-sonnet-4-6"
+    model_map = {
+        "sonnet": ANTHROPIC_DEFAULT_SONNET_MODEL or default_model_id,
+        "opus": ANTHROPIC_DEFAULT_OPUS_MODEL or default_model_id,
+        "haiku": ANTHROPIC_DEFAULT_HAIKU_MODEL or default_model_id,
+    }
+
+    requested_model = model.strip()
+    model_display = requested_model or "sonnet"
+    model_alias = requested_model.lower()
+
+    # Accept aliases (sonnet/opus/haiku) and also direct model IDs.
+    if model_alias in model_map:
+        model = model_map[model_alias]
+        model_display = model_alias
     else:
-        model = MODEL_MAP[model]
+        model = requested_model or model_map["sonnet"]
 
     try:
         await _ensure_gitlab_token()
