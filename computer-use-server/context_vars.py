@@ -11,7 +11,8 @@ current_user_name: ContextVar[Optional[str]] = ContextVar("current_user_name", d
 current_gitlab_token: ContextVar[Optional[str]] = ContextVar("current_gitlab_token", default=None)
 current_gitlab_host: ContextVar[str] = ContextVar("current_gitlab_host", default="gitlab.com")
 current_anthropic_auth_token: ContextVar[Optional[str]] = ContextVar("current_anthropic_auth_token", default=None)
-current_anthropic_base_url: ContextVar[str] = ContextVar("current_anthropic_base_url", default="https://api.anthropic.com/")
+# Keep empty by default so docker_manager can fall back to ANTHROPIC_BASE_URL env.
+current_anthropic_base_url: ContextVar[str] = ContextVar("current_anthropic_base_url", default="")
 current_mcp_tokens_url: ContextVar[str] = ContextVar("current_mcp_tokens_url", default="")
 current_mcp_tokens_api_key: ContextVar[str] = ContextVar("current_mcp_tokens_api_key", default="")
 current_mcp_servers: ContextVar[str] = ContextVar("current_mcp_servers", default="")
