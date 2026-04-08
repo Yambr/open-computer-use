@@ -14,8 +14,6 @@ services:
       platforms:
         - linux/amd64
     image: ${DOCKER_IMAGE:-open-computer-use:latest}
-    networks:
-      - traefik
     command: >
       bash -c "echo 'Workspace image OK:' && python3 --version && node --version && echo 'Ready.' && exit 0"
     restart: "no"
@@ -30,16 +28,6 @@ services:
     depends_on:
       workspace:
         condition: service_completed_successfully
-    networks:
-      - traefik
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=traefik
-      - traefik.http.routers.ocu.rule=Host(`ocu.hartig.es`)
-      - traefik.http.routers.ocu.entrypoints=https
-      - traefik.http.routers.ocu.tls=true
-      - traefik.http.services.ocu.loadbalancer.server.port=8081
-      - traefik.constraint=proxy-public
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/computer-use-data:/tmp/computer-use-data:rw
@@ -82,8 +70,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/computer-use-data:/tmp/computer-use-data:rw
-    networks:
-      - traefik
     environment:
       - CONTAINER_MAX_AGE_HOURS=${CONTAINER_MAX_AGE_HOURS:-24}
       - DATA_MAX_AGE_DAYS=${DATA_MAX_AGE_DAYS:-7}
@@ -102,7 +88,3 @@ services:
 volumes:
   computer-use-data:
   skills-cache:
-
-networks:
-  traefik:
-    external: true
