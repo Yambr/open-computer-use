@@ -14,6 +14,35 @@ The filter is the single source of truth for the client-side URL shape; the serv
 - Optionally override any Valve from the function's settings panel. Defaults are chosen so a fresh deployment works end-to-end as soon as the Computer Use Server is reachable at `http://localhost:8081`.
 - Upstream reference: [Open WebUI Functions documentation](https://docs.openwebui.com/features/plugin/functions/).
 
+## Preview panel isn't showing — two ways to fix it
+
+![File preview panel when working](screenshots/02-file-preview.png)
+
+When the AI generates a file, the preview panel shown above should open on the right. If nothing opens, here's why — and two ways to fix it.
+
+### How the preview gets rendered
+
+The filter's `outlet()` appends a fenced ```html block containing an `<iframe src="{FILE_SERVER_URL}/preview/{chat_id}">` to every assistant message that references a sandbox file. Open WebUI's **artifacts** feature is what turns that block into the side panel. *Stock* Open WebUI renders the artifact only when you click it — it does not auto-open. Our `docker-compose.webui.yml` build ships a patch (`fix_artifacts_auto_show`) that makes it auto-open; stock builds don't have that patch.
+
+So if you run your own Open WebUI image, you have two options.
+
+### Path A — Add a "preview" button (zero-setup, works on stock Open WebUI)
+
+In Open WebUI → Admin Panel → Functions → `computer_link_filter` → Valves, set `ENABLE_PREVIEW_BUTTON=True`. Every message with a generated file now gets a `🖥️ Open preview` markdown link that opens the preview SPA in a new tab. One click, no patches, no rebuild.
+
+You can leave `ENABLE_PREVIEW_ARTIFACT=True` (the default) as well — both are idempotent and safe to combine. See [Valves reference](#valves-reference).
+
+### Path B — Apply our patches to Open WebUI (auto-opening side panel)
+
+If you want the artifact to pop open automatically like in the screenshot above, use our patched Open WebUI build:
+
+- **Easiest:** use `docker-compose.webui.yml` from the repo root. It builds Open WebUI with `fix_artifacts_auto_show` and `fix_preview_url_detection` pre-applied.
+- **Custom image:** if you maintain your own Open WebUI image, copy the two patch scripts (`openwebui/patches/fix_artifacts_auto_show.py` and `openwebui/patches/fix_preview_url_detection.py`) and run them against `/app/build/_app/immutable/chunks/*.js` at build time — see [`openwebui/Dockerfile`](../openwebui/Dockerfile) lines 10–18 for the exact invocation. Both patches are idempotent and tested against Open WebUI v0.8.11–0.8.12.
+
+### Also check: `FILE_SERVER_URL` must be reachable from the user's browser
+
+Even with Path A or Path B, the iframe/button still needs a hostname the browser can resolve. Open WebUI-in-Docker can reach the server via `host.docker.internal`, but the browser needs a routable hostname (e.g. `http://your-host.lan:8081` or a reverse-proxied URL). Set this in the filter's `FILE_SERVER_URL` Valve. Connection-refused symptoms after that? See [Troubleshooting → connection refused](#preview-shows-connection-refused-or-a-blank-frame).
+
 ## Valves reference
 
 | Name | Type | Default | Purpose |
