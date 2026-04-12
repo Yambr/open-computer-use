@@ -152,6 +152,9 @@ from docker_manager import (
     COMMAND_TIMEOUT, ENABLE_NETWORK, USER_DATA_BASE_PATH, FILE_SERVER_URL,
     MCP_TOKENS_URL, MCP_TOKENS_API_KEY,
     SUB_AGENT_DEFAULT_MODEL, SUB_AGENT_MAX_TURNS, SUB_AGENT_TIMEOUT,
+    ANTHROPIC_DEFAULT_SONNET_MODEL,
+    ANTHROPIC_DEFAULT_OPUS_MODEL,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL,
 )
 
 
@@ -805,13 +808,24 @@ async def sub_agent(
         model = SUB_AGENT_DEFAULT_MODEL
     if max_turns <= 0:
         max_turns = SUB_AGENT_MAX_TURNS
-    MODEL_MAP = {"sonnet": "claude-sonnet-4-6", "opus": "claude-opus-4-6"}
-    model_display = model
-    if model not in MODEL_MAP:
-        model = MODEL_MAP["sonnet"]
-        model_display = "sonnet"
+    DEFAULT_FALLBACK_MODEL = "claude-sonnet-4-6"
+    ALIAS_MAP = {
+        "sonnet": ANTHROPIC_DEFAULT_SONNET_MODEL or "claude-sonnet-4-6",
+        "opus": ANTHROPIC_DEFAULT_OPUS_MODEL or "claude-opus-4-6",
+        "haiku": ANTHROPIC_DEFAULT_HAIKU_MODEL or "claude-haiku-4-5",
+    }
+    requested = (model or "").strip()
+    key = requested.lower()
+    if key in ALIAS_MAP:
+        model_id = ALIAS_MAP[key]
+        model_display = key
+    elif requested:
+        model_id = requested
+        model_display = requested
     else:
-        model = MODEL_MAP[model]
+        model_id = ANTHROPIC_DEFAULT_SONNET_MODEL or DEFAULT_FALLBACK_MODEL
+        model_display = "sonnet"
+    model = model_id
 
     try:
         await _ensure_gitlab_token()
