@@ -6,13 +6,25 @@ Run: python -m pytest tests/test_filter.py -v
 """
 
 import sys
+import time
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "openwebui" / "functions"))
 
 import computer_link_filter  # noqa: E402
+
+
+def _urlopen_mock(text: str = "PROMPT") -> MagicMock:
+    """Create a mock satisfying: with urlopen(req, timeout=N) as resp: resp.read()."""
+    cm = MagicMock()
+    cm.__enter__ = MagicMock(return_value=cm)
+    cm.__exit__ = MagicMock(return_value=False)
+    cm.read.return_value = text.encode("utf-8")
+    return cm
 
 
 def _make_filter(file_server_url: str = "http://localhost:8081") -> "computer_link_filter.Filter":
@@ -37,6 +49,16 @@ def _system_content(body: dict) -> str:
 
 class TrailingSlashNormalisation(unittest.TestCase):
     """FILE_SERVER_URL may arrive with a trailing slash; URLs must never end up with `//files/`."""
+
+    def setUp(self):
+        # After filter rewrite (Task 3), inlet() fetches the prompt over HTTP —
+        # mock the response so it contains the expected URL verbatim.
+        self._urlopen_patcher = patch(
+            "urllib.request.urlopen",
+            return_value=_urlopen_mock("System prompt with http://localhost:8081/files/abc baked"),
+        )
+        self._urlopen_patcher.start()
+        self.addCleanup(self._urlopen_patcher.stop)
 
     def test_inlet_does_not_emit_double_slash(self):
         f = _make_filter("http://localhost:8081/")
@@ -71,6 +93,14 @@ class EmptyChatIdHandling(unittest.TestCase):
 class BaselineBehaviour(unittest.TestCase):
     """Regression guards: normal happy path must keep working."""
 
+    def setUp(self):
+        self._urlopen_patcher = patch(
+            "urllib.request.urlopen",
+            return_value=_urlopen_mock("System prompt with http://localhost:8081/files/abc baked"),
+        )
+        self._urlopen_patcher.start()
+        self.addCleanup(self._urlopen_patcher.stop)
+
     def test_inlet_injects_when_tool_active_and_chat_id_present(self):
         f = _make_filter()
         body = f.inlet(_active_body(), __metadata__={"chat_id": "abc"})
@@ -95,6 +125,72 @@ class BaselineBehaviour(unittest.TestCase):
             out2["messages"][0]["content"],
             "Archive button must be idempotent (not duplicated on repeat outlet calls)",
         )
+
+
+class SystemPromptFetchCache(unittest.TestCase):
+    """New in v3.1.0: HTTP-fetch + LRU cache + stale-cache fallback."""
+
+    def test_fresh_fetch_populates_cache(self):
+        f = _make_filter()
+        with patch("urllib.request.urlopen", return_value=_urlopen_mock("PROMPT_V1")):
+            result = f._fetch_system_prompt("chat-a", "")
+        self.assertEqual(result, "PROMPT_V1")
+        self.assertIn("chat-a", f._prompt_cache)
+        self.assertEqual(f._prompt_cache["chat-a"][1], "PROMPT_V1")
+
+    def test_cache_hit_within_ttl_skips_http(self):
+        f = _make_filter()
+        f._prompt_cache["chat-a"] = (time.time(), "CACHED")
+        with patch("urllib.request.urlopen", side_effect=AssertionError("urlopen must not be called")) as m:
+            result = f._fetch_system_prompt("chat-a", "")
+        self.assertEqual(result, "CACHED")
+        m.assert_not_called()
+
+    def test_ttl_expiry_triggers_refetch(self):
+        f = _make_filter()
+        f._prompt_cache["chat-a"] = (time.time() - 301, "OLD")
+        with patch("urllib.request.urlopen", return_value=_urlopen_mock("FRESH")):
+            result = f._fetch_system_prompt("chat-a", "")
+        self.assertEqual(result, "FRESH")
+        self.assertGreater(f._prompt_cache["chat-a"][0], time.time() - 5)
+
+    def test_lru_eviction_at_max_size(self):
+        f = _make_filter()
+        with patch("urllib.request.urlopen", side_effect=lambda *a, **kw: _urlopen_mock("P")):
+            for i in range(1, 102):  # 101 distinct chat ids
+                f._fetch_system_prompt(f"chat-{i}", "")
+        self.assertEqual(len(f._prompt_cache), 100)
+        self.assertNotIn("chat-1", f._prompt_cache)
+        self.assertIn("chat-101", f._prompt_cache)
+
+    def test_stale_cache_fallback_on_server_down(self):
+        f = _make_filter()
+        f._prompt_cache["chat-a"] = (time.time() - 9999, "STALE")
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("conn refused")):
+            result = f._fetch_system_prompt("chat-a", "")
+        self.assertEqual(result, "STALE")
+
+    def test_cold_cache_returns_none_when_server_down(self):
+        f = _make_filter()
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("conn refused")):
+            result = f._fetch_system_prompt("chat-x", "")
+        self.assertTrue(
+            result is None or result == "",
+            f"Expected None/empty on cold-cache failure, got {result!r}",
+        )
+
+    def test_user_email_propagated_to_query_string(self):
+        f = _make_filter()
+        captured = {}
+
+        def _capture(req, timeout=0):
+            captured["url"] = req.full_url
+            return _urlopen_mock("P")
+
+        with patch("urllib.request.urlopen", side_effect=_capture):
+            f._fetch_system_prompt("chat-a", "user@example.com")
+        self.assertIn("chat_id=chat-a", captured["url"])
+        self.assertIn("user_email=user%40example.com", captured["url"])
 
 
 if __name__ == "__main__":
