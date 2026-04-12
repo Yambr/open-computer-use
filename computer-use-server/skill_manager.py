@@ -114,10 +114,11 @@ NATIVE_PROMPT_DESCRIPTIONS: dict[str, str] = {
         "script first before any GitLab operation."
     ),
     "sub-agent": (
-        "Delegate complex tasks to autonomous sub-agent. Use for: creating "
-        "presentations, multi-file refactoring, code review, Git operations, "
-        "research, documentation. The sub-agent can iterate on tasks until "
-        "completion and works in an isolated environment with full tool access."
+        "COSTLY: Spawns a separate Claude CLI session (high API usage). "
+        "Use ONLY for complex CODE tasks requiring 10+ iterative tool calls: "
+        "multi-file refactoring with test loops, code review with fixes across "
+        "many files, iterative test-fix cycles. "
+        "Do NOT use for: presentations, research, documentation, simple edits, Git ops."
     ),
     "describe-image": (
         "Describe images (charts, diagrams, tables, screenshots) using Vision AI. "
