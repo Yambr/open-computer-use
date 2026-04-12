@@ -3,9 +3,9 @@
 """
 title: Computer Use Filter
 author: Open Computer Use Contributors
-version: 3.1.0
+version: 3.2.0
 required_open_webui_version: 0.5.17
-description: HTTP-fetches Computer Use system prompt from orchestrator /system-prompt endpoint, with LRU cache and stale-cache fallback.
+description: HTTP-fetches Computer Use system prompt from orchestrator, with LRU cache and stale-cache fallback. outlet() appends a preview iframe artifact (default) or a markdown preview button (opt-in) to assistant messages containing Computer Use file links.
 
 This filter works in conjunction with Computer Use Tools (computer_use_tools.py).
 
@@ -15,7 +15,26 @@ FUNCTIONALITY:
   substitutes {file_base_url}, {archive_url}, {chat_id} and assembles <available_skills>)
   and injects it into the system message. Cache: 5-minute TTL, max 100 entries,
   O(1) LRU eviction. On fetch failure: serve stale cache if present; else skip injection.
-- outlet(): Appends an archive-download button to assistant messages containing file links.
+- outlet(): Appends a preview iframe artifact (ENABLE_PREVIEW_ARTIFACT=True by default)
+  and/or a markdown preview button (ENABLE_PREVIEW_BUTTON=False by default) and/or an
+  archive-download button (ENABLE_ARCHIVE_BUTTON=True by default) to assistant messages
+  containing file URLs for the current chat_id. All three are idempotent (substring
+  guarded) and scoped to the current chat_id.
+
+CHANGELOG (v3.2.0):
+- Added ENABLE_PREVIEW_ARTIFACT Valve (default True) — outlet() now emits an inline
+  <iframe src="{base}/preview/{chat_id}"> wrapped in a fenced ```html block when the
+  assistant message contains a file URL for the current chat_id. Intended UX for
+  deployments that render HTML artifacts.
+- Added ENABLE_PREVIEW_BUTTON Valve (default False) — opt-in markdown link fallback
+  for stock Open WebUI installations that do not render artifact blocks.
+- Added PREVIEW_BUTTON_TEXT Valve (default "🖥️ Open preview") — button label for
+  the opt-in preview link.
+- outlet() correctness invariants preserved: role=="assistant" guard,
+  isinstance(content, str) guard, chat_id-scoped file_url_pattern,
+  FILE_SERVER_URL.rstrip("/") guard against //preview/, substring-based idempotency.
+- Archive button behaviour unchanged; preview and archive links share the
+  single-blank-line separator style.
 
 CHANGELOG (v3.1.0):
 - Removed hardcoded ~460-line system prompt f-string; server is now the single source of truth.
@@ -26,6 +45,35 @@ CHANGELOG (v3.1.0):
 
 CHANGELOG (v3.0.2):
 - Previous version with hardcoded prompt; see git history for details.
+
+    VALVES:
+        FILE_SERVER_URL (str, default "http://localhost:8081"):
+            Orchestrator base URL. The filter derives /system-prompt,
+            /files/{chat_id}/…, /files/{chat_id}/archive, and /preview/{chat_id}
+            from this. Trailing slash is tolerated (stripped internally).
+        SYSTEM_PROMPT_URL (str, default ""):
+            Override URL for the /system-prompt endpoint. Empty means derive from
+            FILE_SERVER_URL. Non-http(s) schemes are rejected.
+        INJECT_SYSTEM_PROMPT (bool, default True):
+            If False, inlet() skips system-prompt injection entirely (useful when
+            another filter owns the prompt).
+        ENABLE_ARCHIVE_BUTTON (bool, default True):
+            If True, outlet() appends `[{ARCHIVE_BUTTON_TEXT}]({base}/files/{chat_id}/archive)`
+            to assistant messages containing file URLs for the current chat_id. Idempotent.
+        ARCHIVE_BUTTON_TEXT (str, default "📦 Download all files as archive"):
+            Label for the archive-download markdown link.
+        ENABLE_PREVIEW_ARTIFACT (bool, default True):
+            If True, outlet() appends a fenced ```html block containing an
+            `<iframe src="{base}/preview/{chat_id}" style="width:100%;height:100%;border:none"
+            allow="clipboard-write; keyboard-map"></iframe>` snippet to assistant messages
+            containing file URLs for the current chat_id. Intended default UX for
+            deployments that render fenced html blocks as artifacts.
+        ENABLE_PREVIEW_BUTTON (bool, default False):
+            If True, outlet() appends `[{PREVIEW_BUTTON_TEXT}]({base}/preview/{chat_id})`
+            to the same qualifying messages. Opt-in escape hatch for stock Open WebUI
+            where artifact rendering is unavailable.
+        PREVIEW_BUTTON_TEXT (str, default "🖥️ Open preview"):
+            Label for the opt-in preview-button markdown link.
 """
 
 import re
@@ -84,6 +132,18 @@ class Filter:
         ARCHIVE_BUTTON_TEXT: str = Field(
             default="📦 Download all files as archive",
             description="Text for the archive-download button",
+        )
+        ENABLE_PREVIEW_ARTIFACT: bool = Field(
+            default=True,
+            description="Append an inline <iframe> artifact rendering /preview/{chat_id} to assistant messages with file links",
+        )
+        ENABLE_PREVIEW_BUTTON: bool = Field(
+            default=False,
+            description="Append a markdown [preview](…) link to assistant messages with file links (opt-in fallback when artifact rendering is unavailable)",
+        )
+        PREVIEW_BUTTON_TEXT: str = Field(
+            default="🖥️ Open preview",
+            description="Text for the preview-button markdown link",
         )
         INJECT_SYSTEM_PROMPT: bool = Field(
             default=True,
@@ -245,30 +305,59 @@ class Filter:
         __user__: Optional[dict] = None,
         __metadata__: Optional[dict] = None,
     ) -> dict:
-        """Append an archive-download button to assistant messages with file links."""
+        """Append preview iframe artifact, preview button, and/or archive button to assistant messages with file links.
+
+        - ENABLE_PREVIEW_ARTIFACT (default True): inline ```html <iframe src="…/preview/{chat_id}"> artifact.
+        - ENABLE_PREVIEW_BUTTON (default False): markdown link to the preview page — opt-in for stock Open WebUI.
+        - ENABLE_ARCHIVE_BUTTON (default True): markdown link to the archive endpoint.
+
+        Invariants (preserved from v3.1.0):
+        1. Only role=="assistant" messages are touched.
+        2. Non-string content is skipped.
+        3. file_url_pattern is scoped to the current chat_id (no cross-chat decoration).
+        4. FILE_SERVER_URL is rstripped before URL construction (no //preview/ or //files/).
+        5. Substring-based idempotency — repeated outlet() calls do not duplicate.
+        """
+        if not (self.valves.ENABLE_ARCHIVE_BUTTON
+                or self.valves.ENABLE_PREVIEW_BUTTON
+                or self.valves.ENABLE_PREVIEW_ARTIFACT):
+            return body
+
         chat_id = __metadata__.get("chat_id") if __metadata__ else None
         if not chat_id:
             return body
 
-        if not self.valves.ENABLE_ARCHIVE_BUTTON:
-            return body
-
-        # Match orchestrator file links
         base = self.valves.FILE_SERVER_URL.rstrip("/")
         file_url_pattern = re.escape(base) + r"/files/" + re.escape(chat_id) + r"/[^\s\)]+"
+        preview_url = f"{base}/preview/{chat_id}"
         archive_url = f"{base}/files/{chat_id}/archive"
 
         for message in body.get("messages", []):
-            # Docstring contract: archive button is appended to *assistant* messages only.
-            # Rewriting user/system/tool content would corrupt upstream input.
             if message.get("role") != "assistant":
                 continue
             content = message.get("content")
             if not content or not isinstance(content, str):
                 continue
-            if re.search(file_url_pattern, content) and archive_url not in content:
-                message["content"] = (
-                    content + f"\n\n[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})"
+            if not re.search(file_url_pattern, content):
+                continue
+
+            links: list[str] = []
+            if self.valves.ENABLE_PREVIEW_BUTTON and preview_url not in content:
+                links.append(f"[{self.valves.PREVIEW_BUTTON_TEXT}]({preview_url})")
+            if self.valves.ENABLE_ARCHIVE_BUTTON and archive_url not in content:
+                links.append(f"[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})")
+            if links:
+                content += "\n\n" + "\n".join(links)
+
+            if self.valves.ENABLE_PREVIEW_ARTIFACT:
+                iframe = (
+                    f'<iframe src="{preview_url}" '
+                    f'style="width:100%;height:100%;border:none" '
+                    f'allow="clipboard-write; keyboard-map"></iframe>'
                 )
+                if iframe not in content:
+                    content += "\n\n```html\n" + iframe + "\n```"
+
+            message["content"] = content
 
         return body
