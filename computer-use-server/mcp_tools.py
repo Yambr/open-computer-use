@@ -768,16 +768,20 @@ async def sub_agent(
     resume_session_id: str = ""
 ) -> str:
     """
-    Delegate complex, multi-step tasks to an autonomous sub-agent.
+    COSTLY: Spawns a separate Claude CLI session with its own API budget.
+    Use ONLY as a last resort for complex CODE tasks requiring 10+ iterative tool calls.
 
-    Use this tool when a task requires:
-    - Creating complex presentations or documents
-    - Multiple coordinated file operations (multi-file refactoring)
-    - Iterative work cycles (run tests, fix, repeat)
-    - Research and information gathering
-    - Complex analysis with automatic fixes
+    Justified uses:
+    - Multi-file refactoring (5+ files) with test verification loops
+    - Complex code review with automatic fixes across many files
+    - Iterative test-fix cycles (run tests, analyze, fix, re-run until pass)
 
-    Do NOT use for simple tasks you can do directly in 1-2 tool calls.
+    Do NOT use for (handle these yourself):
+    - Tasks completable in under 8 tool calls
+    - Creating presentations, documents, spreadsheets
+    - Web research or information gathering
+    - Simple code review, documentation, or analysis
+    - Git operations or simple file edits
 
     Args:
         task: Detailed description of the task for the sub-agent to accomplish

@@ -53,7 +53,7 @@ MCP_TOKENS_API_KEY = os.getenv("MCP_TOKENS_API_KEY", "")
 
 # Sub-agent configuration
 SUB_AGENT_DEFAULT_MODEL = os.getenv("SUB_AGENT_DEFAULT_MODEL", "sonnet")
-SUB_AGENT_MAX_TURNS = int(os.getenv("SUB_AGENT_MAX_TURNS", "50"))
+SUB_AGENT_MAX_TURNS = int(os.getenv("SUB_AGENT_MAX_TURNS", "25"))
 SUB_AGENT_TIMEOUT = int(os.getenv("SUB_AGENT_TIMEOUT", "3600"))
 
 # Anthropic API (shared LiteLLM proxy key — fallback when no header provided)

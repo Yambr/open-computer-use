@@ -1,27 +1,32 @@
 ---
 name: sub-agent
-description: "Delegate complex tasks to autonomous sub-agent. Use for: creating presentations, multi-file refactoring, code review, Git operations, research, documentation. Works like a powerful assistant within isolated environment."
+description: "COSTLY: Spawns separate Claude CLI session. Use ONLY for complex CODE tasks requiring 10+ iterative tool calls (multi-file refactoring with tests, code review with fixes, test-fix cycles). Do NOT use for presentations, research, documentation, or tasks under 8 tool calls."
 ---
 
 # Sub-Agent Skill
 
 Delegate complex, multi-step tasks to an autonomous sub-agent that can iterate until completion.
 
-## When to Use
+## When to Use (ONLY complex CODE tasks requiring 10+ iterative tool calls)
 
-- Creating presentations (10+ slides)
-- Multi-file refactoring
-- Iterative test-fix cycles
-- Research and reports
-- Code review with fixes
-- Complex Git operations
+WARNING: Each sub_agent call spawns a SEPARATE Claude CLI session consuming significant API resources. Use as a LAST RESORT.
+
+- Multi-file refactoring (5+ files) with test verification loops
+- Complex code review with automatic fixes across many files
+- Iterative test-fix cycles (run tests → analyze → fix → re-run until pass)
+
+Only delegate non-code tasks (presentations, research) if the user EXPLICITLY asks.
 
 ## When NOT to Use
 
-Do **NOT** delegate if you can do it directly in 1-2 tool calls:
-- Simple file reads/writes
-- Single bash command
-- Quick edits to one file
+Do **NOT** delegate if ANY of these apply:
+- Task can be done in 1-8 tool calls (even if it seems tedious)
+- Creating presentations, documents, spreadsheets (do it yourself)
+- Web research or information gathering (use search tools directly)
+- Simple code review or analysis (read files and respond)
+- Documentation or report writing (create files directly)
+- Git operations (commits, merges, rebases)
+- Single-file or few-file edits
 
 ## MANDATORY: Task Structure
 

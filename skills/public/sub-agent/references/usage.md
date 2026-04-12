@@ -279,10 +279,10 @@ task="Add docstrings to functions"
 
 | max_turns | Use Case |
 |-----------|----------|
-| 10-20 | Simple tasks (single file) |
-| 30-40 | Medium (few files) |
-| 50 | (default) Presentations 10-15 slides |
-| 60-80 | Large presentations 20+ slides, multi-file refactoring |
+| 10-20 | Simple code tasks (single file fix) |
+| 25 | (default) Standard code tasks |
+| 30-40 | Medium refactoring (few files + tests) |
+| 50-80 | Large multi-file refactoring with test loops |
 | 100+ | Full codebase refactoring |
 
 ---
