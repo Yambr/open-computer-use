@@ -305,30 +305,59 @@ class Filter:
         __user__: Optional[dict] = None,
         __metadata__: Optional[dict] = None,
     ) -> dict:
-        """Append an archive-download button to assistant messages with file links."""
+        """Append preview iframe artifact, preview button, and/or archive button to assistant messages with file links.
+
+        - ENABLE_PREVIEW_ARTIFACT (default True): inline ```html <iframe src="…/preview/{chat_id}"> artifact.
+        - ENABLE_PREVIEW_BUTTON (default False): markdown link to the preview page — opt-in for stock Open WebUI.
+        - ENABLE_ARCHIVE_BUTTON (default True): markdown link to the archive endpoint.
+
+        Invariants (preserved from v3.1.0):
+        1. Only role=="assistant" messages are touched.
+        2. Non-string content is skipped.
+        3. file_url_pattern is scoped to the current chat_id (no cross-chat decoration).
+        4. FILE_SERVER_URL is rstripped before URL construction (no //preview/ or //files/).
+        5. Substring-based idempotency — repeated outlet() calls do not duplicate.
+        """
+        if not (self.valves.ENABLE_ARCHIVE_BUTTON
+                or self.valves.ENABLE_PREVIEW_BUTTON
+                or self.valves.ENABLE_PREVIEW_ARTIFACT):
+            return body
+
         chat_id = __metadata__.get("chat_id") if __metadata__ else None
         if not chat_id:
             return body
 
-        if not self.valves.ENABLE_ARCHIVE_BUTTON:
-            return body
-
-        # Match orchestrator file links
         base = self.valves.FILE_SERVER_URL.rstrip("/")
         file_url_pattern = re.escape(base) + r"/files/" + re.escape(chat_id) + r"/[^\s\)]+"
+        preview_url = f"{base}/preview/{chat_id}"
         archive_url = f"{base}/files/{chat_id}/archive"
 
         for message in body.get("messages", []):
-            # Docstring contract: archive button is appended to *assistant* messages only.
-            # Rewriting user/system/tool content would corrupt upstream input.
             if message.get("role") != "assistant":
                 continue
             content = message.get("content")
             if not content or not isinstance(content, str):
                 continue
-            if re.search(file_url_pattern, content) and archive_url not in content:
-                message["content"] = (
-                    content + f"\n\n[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})"
+            if not re.search(file_url_pattern, content):
+                continue
+
+            links: list[str] = []
+            if self.valves.ENABLE_PREVIEW_BUTTON and preview_url not in content:
+                links.append(f"[{self.valves.PREVIEW_BUTTON_TEXT}]({preview_url})")
+            if self.valves.ENABLE_ARCHIVE_BUTTON and archive_url not in content:
+                links.append(f"[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})")
+            if links:
+                content += "\n\n" + "\n".join(links)
+
+            if self.valves.ENABLE_PREVIEW_ARTIFACT:
+                iframe = (
+                    f'<iframe src="{preview_url}" '
+                    f'style="width:100%;height:100%;border:none" '
+                    f'allow="clipboard-write; keyboard-map"></iframe>'
                 )
+                if iframe not in content:
+                    content += "\n\n```html\n" + iframe + "\n```"
+
+            message["content"] = content
 
         return body
