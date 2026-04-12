@@ -82,3 +82,10 @@ skills_archive.zip
 FIXES_*.md
 demo-recordings/
 POST.md
+
+# GSD planning artefacts — private mirror only (see GitLab remote `private`).
+# The public GitHub repo must not carry planning/roadmap/phase context:
+# it includes decision logs, port analyses, and internal-fork references that
+# are operational noise for external contributors. History was rewritten to
+# remove .planning/ — do not commit it back here.
+.planning/
