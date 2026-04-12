@@ -114,6 +114,26 @@ class BaselineBehaviour(unittest.TestCase):
         )
         self.assertEqual("", _system_content(body))
 
+    def test_inlet_handles_non_string_system_content(self):
+        """Open WebUI multimodal flows can deliver system `content` as a list of
+        parts instead of a string. inlet() must not crash on re.search and must
+        still inject the Computer Use prompt. Regression for CodeRabbit finding
+        on 2026-04-12 (filter.py:220)."""
+        f = _make_filter()
+        structured_content = [{"type": "text", "text": "hello"}]
+        body = {
+            "tool_ids": ["ai_computer_use"],
+            "messages": [
+                {"role": "system", "content": structured_content},
+                {"role": "user", "content": "hi"},
+            ],
+        }
+        result = f.inlet(body, __metadata__={"chat_id": "abc"})
+        # Did not raise; injection still happened somewhere in the system slot
+        system_content = result["messages"][0]["content"]
+        self.assertIsInstance(system_content, str)
+        self.assertIn("http://localhost:8081/files/abc", system_content)
+
     def test_outlet_appends_archive_button_once(self):
         f = _make_filter()
         link = "http://localhost:8081/files/abc/report.pdf"

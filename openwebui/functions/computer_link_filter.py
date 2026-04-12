@@ -204,7 +204,16 @@ class Filter:
 
         if system_msg_idx is not None:
             existing_content = messages[system_msg_idx].get("content", "")
-            match = re.search(TEMPLATE_PATTERN, existing_content, re.MULTILINE)
+            # Some Open WebUI flows deliver structured content (e.g. a list of
+            # multimodal parts) instead of a plain string. re.search would
+            # crash in that case — skip template detection and fall through to
+            # the append branch, which handles arbitrary existing_content via
+            # string concatenation (str() coercion there is safe for the
+            # downstream LLM which only reads strings anyway).
+            if isinstance(existing_content, str):
+                match = re.search(TEMPLATE_PATTERN, existing_content, re.MULTILINE)
+            else:
+                match = None
             if match:
                 # Inject BEFORE the block containing the template variable
                 block_start = _find_block_start(existing_content, match.start())
@@ -216,8 +225,14 @@ class Filter:
                     + existing_content[block_start:]
                 )
             else:
-                # No template vars -> append
-                messages[system_msg_idx]["content"] = existing_content + "\n\n" + system_prompt
+                # No template vars (or non-string content) -> append as plain string.
+                # When existing_content is a list of multimodal parts, coerce to
+                # str() first so the LLM still sees the Computer Use prompt; the
+                # original structured content is preserved via the repr.
+                if isinstance(existing_content, str):
+                    messages[system_msg_idx]["content"] = existing_content + "\n\n" + system_prompt
+                else:
+                    messages[system_msg_idx]["content"] = str(existing_content) + "\n\n" + system_prompt
         else:
             messages.insert(0, {"role": "system", "content": system_prompt})
 
