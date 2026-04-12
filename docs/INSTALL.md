@@ -39,6 +39,8 @@ Edit `.env` before starting. Key variables:
 
 See `.env.example` for the full list with defaults.
 
+Routing Claude Code through a custom gateway (LiteLLM / Azure / Bedrock)? See [claude-code-gateway.md](claude-code-gateway.md) for the full recipe.
+
 ## Model Settings
 
 After login, go to your model settings and set:
