@@ -92,23 +92,27 @@ class Filter:
 
     def __init__(self):
         self.valves = self.Valves()
-        # Per-chat LRU cache: chat_id -> (monotonic_fetched_at, prompt_text)
-        self._prompt_cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
+        # Per-(chat, user) LRU cache: (chat_id, user_email) -> (monotonic_fetched_at, prompt_text)
+        # Keyed by user identity too because the server bakes a user-specific <available_skills>
+        # block when user_email is supplied — sharing across users would leak skills and
+        # break correctness when two users hit the same chat_id.
+        self._prompt_cache: OrderedDict[tuple[str, str], tuple[float, str]] = OrderedDict()
 
     def _fetch_system_prompt(self, chat_id: str, user_email: str = "") -> Optional[str]:
         """
-        Fetch system prompt from the orchestrator with per-chat caching.
+        Fetch system prompt from the orchestrator with per-(chat, user) caching.
 
         Returns the prompt string on success, or on stale-cache fallback if the fetch
         failed but a previous entry exists. Returns None when the cache is cold AND
         the server is unreachable — caller must skip injection in that case.
         """
         now = time.time()
-        cached = self._prompt_cache.get(chat_id)
+        cache_key = (chat_id, user_email)
+        cached = self._prompt_cache.get(cache_key)
 
         # Cache hit within TTL
         if cached and (now - cached[0]) < _PROMPT_TTL_SECONDS:
-            self._prompt_cache.move_to_end(chat_id)
+            self._prompt_cache.move_to_end(cache_key)
             return cached[1]
 
         # Build URL (resolved at request time so Valves updates are honoured)
@@ -129,8 +133,8 @@ class Filter:
                 prompt = resp.read().decode("utf-8")
 
             # Cache the ready-to-use prompt (server baked everything)
-            self._prompt_cache[chat_id] = (now, prompt)
-            self._prompt_cache.move_to_end(chat_id)
+            self._prompt_cache[cache_key] = (now, prompt)
+            self._prompt_cache.move_to_end(cache_key)
 
             # Evict oldest entry when over capacity (O(1) with OrderedDict)
             while len(self._prompt_cache) > _PROMPT_CACHE_MAX_SIZE:
@@ -224,6 +228,10 @@ class Filter:
         archive_url = f"{base}/files/{chat_id}/archive"
 
         for message in body.get("messages", []):
+            # Docstring contract: archive button is appended to *assistant* messages only.
+            # Rewriting user/system/tool content would corrupt upstream input.
+            if message.get("role") != "assistant":
+                continue
             content = message.get("content")
             if not content or not isinstance(content, str):
                 continue

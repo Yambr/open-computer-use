@@ -126,6 +126,24 @@ class BaselineBehaviour(unittest.TestCase):
             "Archive button must be idempotent (not duplicated on repeat outlet calls)",
         )
 
+    def test_outlet_does_not_modify_non_assistant_messages(self):
+        """User/system/tool messages must be left untouched even if they contain a file URL."""
+        f = _make_filter()
+        link = "http://localhost:8081/files/abc/report.pdf"
+        original_user = f"check {link}"
+        original_system = f"context with {link}"
+        body = {
+            "messages": [
+                {"role": "user", "content": original_user},
+                {"role": "system", "content": original_system},
+                {"role": "tool", "content": f"tool output {link}"},
+            ]
+        }
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertEqual(out["messages"][0]["content"], original_user)
+        self.assertEqual(out["messages"][1]["content"], original_system)
+        self.assertNotIn("archive", out["messages"][2]["content"].lower())
+
 
 class SystemPromptFetchCache(unittest.TestCase):
     """New in v3.1.0: HTTP-fetch + LRU cache + stale-cache fallback."""
@@ -135,12 +153,12 @@ class SystemPromptFetchCache(unittest.TestCase):
         with patch("urllib.request.urlopen", return_value=_urlopen_mock("PROMPT_V1")):
             result = f._fetch_system_prompt("chat-a", "")
         self.assertEqual(result, "PROMPT_V1")
-        self.assertIn("chat-a", f._prompt_cache)
-        self.assertEqual(f._prompt_cache["chat-a"][1], "PROMPT_V1")
+        self.assertIn(("chat-a", ""), f._prompt_cache)
+        self.assertEqual(f._prompt_cache[("chat-a", "")][1], "PROMPT_V1")
 
     def test_cache_hit_within_ttl_skips_http(self):
         f = _make_filter()
-        f._prompt_cache["chat-a"] = (time.time(), "CACHED")
+        f._prompt_cache[("chat-a", "")] = (time.time(), "CACHED")
         with patch("urllib.request.urlopen", side_effect=AssertionError("urlopen must not be called")) as m:
             result = f._fetch_system_prompt("chat-a", "")
         self.assertEqual(result, "CACHED")
@@ -148,11 +166,11 @@ class SystemPromptFetchCache(unittest.TestCase):
 
     def test_ttl_expiry_triggers_refetch(self):
         f = _make_filter()
-        f._prompt_cache["chat-a"] = (time.time() - 301, "OLD")
+        f._prompt_cache[("chat-a", "")] = (time.time() - 301, "OLD")
         with patch("urllib.request.urlopen", return_value=_urlopen_mock("FRESH")):
             result = f._fetch_system_prompt("chat-a", "")
         self.assertEqual(result, "FRESH")
-        self.assertGreater(f._prompt_cache["chat-a"][0], time.time() - 5)
+        self.assertGreater(f._prompt_cache[("chat-a", "")][0], time.time() - 5)
 
     def test_lru_eviction_at_max_size(self):
         f = _make_filter()
@@ -160,12 +178,12 @@ class SystemPromptFetchCache(unittest.TestCase):
             for i in range(1, 102):  # 101 distinct chat ids
                 f._fetch_system_prompt(f"chat-{i}", "")
         self.assertEqual(len(f._prompt_cache), 100)
-        self.assertNotIn("chat-1", f._prompt_cache)
-        self.assertIn("chat-101", f._prompt_cache)
+        self.assertNotIn(("chat-1", ""), f._prompt_cache)
+        self.assertIn(("chat-101", ""), f._prompt_cache)
 
     def test_stale_cache_fallback_on_server_down(self):
         f = _make_filter()
-        f._prompt_cache["chat-a"] = (time.time() - 9999, "STALE")
+        f._prompt_cache[("chat-a", "")] = (time.time() - 9999, "STALE")
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("conn refused")):
             result = f._fetch_system_prompt("chat-a", "")
         self.assertEqual(result, "STALE")
@@ -174,10 +192,7 @@ class SystemPromptFetchCache(unittest.TestCase):
         f = _make_filter()
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("conn refused")):
             result = f._fetch_system_prompt("chat-x", "")
-        self.assertTrue(
-            result is None or result == "",
-            f"Expected None/empty on cold-cache failure, got {result!r}",
-        )
+        self.assertIsNone(result, f"Expected None on cold-cache failure, got {result!r}")
 
     def test_user_email_propagated_to_query_string(self):
         f = _make_filter()
@@ -191,6 +206,24 @@ class SystemPromptFetchCache(unittest.TestCase):
             f._fetch_system_prompt("chat-a", "user@example.com")
         self.assertIn("chat_id=chat-a", captured["url"])
         self.assertIn("user_email=user%40example.com", captured["url"])
+
+    def test_cache_isolates_different_users_on_same_chat(self):
+        """Two users sharing a chat_id must NOT see each other's baked <available_skills>."""
+        f = _make_filter()
+        prompts = iter(["PROMPT_FOR_ALICE", "PROMPT_FOR_BOB"])
+
+        def _serve_next(req, timeout=0):
+            return _urlopen_mock(next(prompts))
+
+        with patch("urllib.request.urlopen", side_effect=_serve_next):
+            a = f._fetch_system_prompt("chat-shared", "alice@example.com")
+            b = f._fetch_system_prompt("chat-shared", "bob@example.com")
+        self.assertEqual(a, "PROMPT_FOR_ALICE")
+        self.assertEqual(b, "PROMPT_FOR_BOB")
+        self.assertIn(("chat-shared", "alice@example.com"), f._prompt_cache)
+        self.assertIn(("chat-shared", "bob@example.com"), f._prompt_cache)
+        # No cross-contamination: Alice's cached entry still holds Alice's prompt
+        self.assertEqual(f._prompt_cache[("chat-shared", "alice@example.com")][1], "PROMPT_FOR_ALICE")
 
 
 if __name__ == "__main__":
