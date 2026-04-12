@@ -78,6 +78,66 @@ else
     pass "No branding asset directories"
 fi
 
+# Git-history guards: only run when ROOT is a git work tree (skip silently on
+# sparse checkouts / tarballs). Both checks scope to the PR range
+# (origin/main..HEAD) so they don't flag already-merged history on main.
+echo ""
+echo "[+3] No cyrillic characters in PR commit messages"
+if git -C "$ROOT" rev-parse --git-dir > /dev/null 2>&1; then
+    if git -C "$ROOT" rev-parse --verify --quiet origin/main > /dev/null 2>&1; then
+        CYR_HITS=$(git -C "$ROOT" log origin/main..HEAD --pretty=format:'%H%n%B%n===END===' 2>/dev/null | \
+            awk -v RS='===END===\n' '
+                /[А-Яа-яЁё]/ {
+                    split($0, lines, "\n");
+                    sha = lines[1];
+                    subj = "";
+                    for (i = 2; i <= length(lines); i++) {
+                        if (lines[i] != "") { subj = lines[i]; break }
+                    }
+                    if (sha != "") { print substr(sha, 1, 12) "  " subj }
+                }
+            ' || true)
+        if [ -z "$CYR_HITS" ]; then
+            pass "No cyrillic in PR commit messages"
+        else
+            fail "Cyrillic found in commit messages: $CYR_HITS"
+        fi
+    else
+        pass "Skipped (no origin/main ref — detached checkout)"
+    fi
+else
+    pass "Skipped (not a git work tree)"
+fi
+
+echo ""
+echo "[+4] No private-fork details in PR commit messages"
+if git -C "$ROOT" rev-parse --git-dir > /dev/null 2>&1; then
+    if git -C "$ROOT" rev-parse --verify --quiet origin/main > /dev/null 2>&1; then
+        PRIVATE_RE='files-claude|files_claude|ngyambroskin|openwebui-computer-use-community-1'
+        PRIV_HITS=$(git -C "$ROOT" log origin/main..HEAD --pretty=format:'%H%n%B%n===END===' 2>/dev/null | \
+            awk -v re="$PRIVATE_RE" -v RS='===END===\n' '
+                $0 ~ re {
+                    split($0, lines, "\n");
+                    sha = lines[1];
+                    subj = "";
+                    for (i = 2; i <= length(lines); i++) {
+                        if (lines[i] != "") { subj = lines[i]; break }
+                    }
+                    if (sha != "") { print substr(sha, 1, 12) "  " subj }
+                }
+            ' || true)
+        if [ -z "$PRIV_HITS" ]; then
+            pass "No private-fork details in PR commit messages"
+        else
+            fail "Private-fork reference in commit messages: $PRIV_HITS"
+        fi
+    else
+        pass "Skipped (no origin/main ref — detached checkout)"
+    fi
+else
+    pass "Skipped (not a git work tree)"
+fi
+
 # Summary
 echo ""
 echo "==============================="

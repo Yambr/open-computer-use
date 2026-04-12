@@ -8,3 +8,6 @@ sk-A82_\|sk--Mo5\|mcp-internal-\|dockerai-mcp-|Hardcoded API keys
 gitlab\.alfaleasing\.\|nexus\.yc\.alfaleasing|Internal container registry
 cdp\.alfaleasing\.\|alfaleasing-rca|Internal CA certificates
 svc-alfaai\|dockerai\.inner|Internal service accounts
+files-claude\|files_claude|Internal fork slug (private repo reference)
+openwebui-computer-use-community-1|Author's private workstation project directory
+/Users/ngyambroskin/\|/home/ngyambroskin/|Author's private workstation home path
