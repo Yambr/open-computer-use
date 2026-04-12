@@ -144,6 +144,23 @@ class BaselineBehaviour(unittest.TestCase):
         self.assertEqual(out["messages"][1]["content"], original_system)
         self.assertNotIn("archive", out["messages"][2]["content"].lower())
 
+    def test_outlet_ignores_file_urls_for_other_chat_ids(self):
+        """Archive button must NOT be appended when the only file URL belongs to a
+        different chat_id (e.g. a multi-user workspace or a quoted prior transcript).
+        Regression guard for W-01: outlet previously matched any chat_id via `[^/]+`.
+        """
+        f = _make_filter()
+        other_link = "http://localhost:8081/files/other-chat/report.pdf"
+        original_content = f"see artefact from the other chat: {other_link}"
+        body = {"messages": [{"role": "assistant", "content": original_content}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertEqual(
+            out["messages"][0]["content"],
+            original_content,
+            "Message referencing a file URL for a different chat_id must be left untouched",
+        )
+        self.assertNotIn("archive", out["messages"][0]["content"].lower())
+
 
 class SystemPromptFetchCache(unittest.TestCase):
     """New in v3.1.0: HTTP-fetch + LRU cache + stale-cache fallback."""

@@ -224,7 +224,7 @@ class Filter:
 
         # Match orchestrator file links
         base = self.valves.FILE_SERVER_URL.rstrip("/")
-        file_url_pattern = re.escape(base) + r"/files/[^/]+/[^\s\)]+"
+        file_url_pattern = re.escape(base) + r"/files/" + re.escape(chat_id) + r"/[^\s\)]+"
         archive_url = f"{base}/files/{chat_id}/archive"
 
         for message in body.get("messages", []):
