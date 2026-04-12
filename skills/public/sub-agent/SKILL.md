@@ -19,7 +19,12 @@ Only delegate non-code tasks (presentations, research) if the user EXPLICITLY as
 
 ## When NOT to Use
 
-Do **NOT** delegate if ANY of these apply:
+**Precedence:** if the user explicitly asks to delegate any of the items below
+(e.g. "please use sub_agent for this presentation"), the user's request wins
+and you may delegate. Otherwise treat the list as hard rules.
+
+Do **NOT** delegate if ANY of these apply (and the user has not explicitly
+overridden the rule for this specific task):
 - Task can be done in fewer than 10 tool calls (even if it seems tedious)
 - Creating presentations, documents, spreadsheets (do it yourself)
 - Web research or information gathering (use search tools directly)
@@ -67,7 +72,7 @@ Too vague — no test command, no scope, no stop condition. The sub-agent will
 thrash over the whole codebase and likely exhaust `max_turns`.
 
 ### GOOD
-```
+```python
 sub_agent(
     task="""
 ## ROLE

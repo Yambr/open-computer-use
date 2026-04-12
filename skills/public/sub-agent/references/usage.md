@@ -83,39 +83,6 @@ See `references/security-review.md` for detailed security review guidelines.
 
 ---
 
-### Git Operations
-
-```
-sub_agent(
-    task="""
-## ROLE
-You are a Git specialist managing repository operations.
-
-## DIRECTIVE
-[Git operation: analyze history, rebase, resolve conflicts]
-
-## CONSTRAINTS
-- Create backup branch before destructive operations
-- Do NOT force push to shared branches
-- Preserve commit authorship
-
-## PROCESS
-1. Analyze current state with git status/log
-2. Create backup if needed
-3. Perform operation
-4. Verify result
-
-## OUTPUT
-- Show git log of result
-- Create summary of operations
-""",
-    description="[Brief description]",
-    max_turns=20
-)
-```
-
----
-
 ### Test-Fix Cycle
 
 ```
@@ -213,11 +180,14 @@ task="Add docstrings to functions"
 
 ## Max Turns Guide
 
+Single-file or few-file work belongs in the main session — do not delegate
+those. The table starts at the smallest size that is still in-scope for
+`sub_agent` (multi-file refactors + test loops).
+
 | max_turns | Use Case |
 |-----------|----------|
-| 10-20 | Simple code tasks (single file fix) |
-| 25 | (default) Standard code tasks |
-| 30-40 | Medium refactoring (few files + tests) |
+| 25 | (default) Short multi-file refactor with test verification |
+| 30-40 | Medium multi-file refactoring (5-10 files + tests) |
 | 50-80 | Large multi-file refactoring with test loops, iterative test-fix cycles |
 | 100+ | Full codebase refactoring |
 
