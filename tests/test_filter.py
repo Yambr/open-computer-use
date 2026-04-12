@@ -47,6 +47,11 @@ def _system_content(body: dict) -> str:
     return ""
 
 
+def _assistant_body_with_file(chat_id: str = "abc") -> dict:
+    link = f"http://localhost:8081/files/{chat_id}/report.pdf"
+    return {"messages": [{"role": "assistant", "content": f"see {link}"}]}
+
+
 class TrailingSlashNormalisation(unittest.TestCase):
     """FILE_SERVER_URL may arrive with a trailing slash; URLs must never end up with `//files/`."""
 
@@ -297,13 +302,9 @@ class SystemPromptFetchCache(unittest.TestCase):
 class PreviewArtifact(unittest.TestCase):
     """Covers PREVIEW-01 (default iframe artifact), PREVIEW-03 (invariants for iframe), PREVIEW-04 (iframe idempotency)."""
 
-    def _assistant_body_with_file(self, chat_id: str = "abc") -> dict:
-        link = f"http://localhost:8081/files/{chat_id}/report.pdf"
-        return {"messages": [{"role": "assistant", "content": f"see {link}"}]}
-
     def test_outlet_appends_iframe_artifact_by_default(self):
         f = _make_filter()
-        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
         self.assertIn('<iframe src="http://localhost:8081/preview/abc"', content)
         self.assertIn("```html", content)
@@ -311,7 +312,7 @@ class PreviewArtifact(unittest.TestCase):
 
     def test_outlet_iframe_artifact_is_idempotent(self):
         f = _make_filter()
-        body = self._assistant_body_with_file()
+        body = _assistant_body_with_file()
         out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
         out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
         self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
@@ -320,7 +321,7 @@ class PreviewArtifact(unittest.TestCase):
     def test_outlet_iframe_artifact_disabled_when_valve_false(self):
         f = _make_filter()
         f.valves.ENABLE_PREVIEW_ARTIFACT = False
-        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
         self.assertNotIn("<iframe", content)
         self.assertNotIn("```html", content)
@@ -350,7 +351,7 @@ class PreviewArtifact(unittest.TestCase):
 
     def test_outlet_iframe_url_has_no_double_slash_when_trailing_slash(self):
         f = _make_filter("http://localhost:8081/")
-        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
         self.assertNotIn("//preview/", content)
         self.assertIn('<iframe src="http://localhost:8081/preview/abc"', content)
@@ -359,19 +360,15 @@ class PreviewArtifact(unittest.TestCase):
 class PreviewButton(unittest.TestCase):
     """Covers PREVIEW-02 (opt-in markdown button), PREVIEW-04 (button idempotency)."""
 
-    def _assistant_body_with_file(self, chat_id: str = "abc") -> dict:
-        link = f"http://localhost:8081/files/{chat_id}/report.pdf"
-        return {"messages": [{"role": "assistant", "content": f"see {link}"}]}
-
     def test_outlet_preview_button_off_by_default(self):
         f = _make_filter()
-        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         self.assertNotIn("[🖥️ Open preview]", body["messages"][0]["content"])
 
     def test_outlet_preview_button_appended_when_enabled(self):
         f = _make_filter()
         f.valves.ENABLE_PREVIEW_BUTTON = True
-        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         self.assertIn(
             "[🖥️ Open preview](http://localhost:8081/preview/abc)",
             body["messages"][0]["content"],
@@ -380,7 +377,7 @@ class PreviewButton(unittest.TestCase):
     def test_outlet_preview_button_is_idempotent(self):
         f = _make_filter()
         f.valves.ENABLE_PREVIEW_BUTTON = True
-        body = self._assistant_body_with_file()
+        body = _assistant_body_with_file()
         out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
         out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
         self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
