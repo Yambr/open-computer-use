@@ -235,5 +235,68 @@ class TestContextVarAnthropicBaseUrlDefault(unittest.TestCase):
         self.assertIsNone(value)
 
 
+class TestBuildMcpConfigBaseUrlFallback(unittest.TestCase):
+    """Regression guard: build_mcp_config must accept None/empty base_url.
+
+    Before the fix, callers in sub_agent (mcp_tools.py) and _create_container
+    (docker_manager.py) passed current_anthropic_base_url.get() directly —
+    which became None after the GATEWAY-01 ContextVar default change.
+    That hit base_url.rstrip("/") and raised AttributeError, silently
+    disabling MCP config write on the "MCP servers configured but no
+    base-url header" path.
+    """
+
+    def _reload_docker_manager(self):
+        import docker_manager
+        importlib.reload(docker_manager)
+        return docker_manager
+
+    def test_none_base_url_falls_back_to_module_constant(self):
+        """None base_url: config builds successfully, uses module default."""
+        dm = self._reload_docker_manager()
+        cfg = dm.build_mcp_config("metabase", None, user_email="alice@example.com")
+        self.assertIsNotNone(cfg)
+        self.assertIn("metabase", cfg["mcpServers"])
+        url = cfg["mcpServers"]["metabase"]["url"]
+        self.assertTrue(url.endswith("/mcp/metabase"))
+        # Module default is https://api.anthropic.com (set by our getenv-or-literal pattern)
+        self.assertTrue(url.startswith("http"))
+
+    def test_empty_string_base_url_falls_back_to_module_constant(self):
+        """Empty-string base_url: same fallback path as None — covers the
+        compose ${VAR:-} scenario that leaves the env set but empty."""
+        dm = self._reload_docker_manager()
+        cfg = dm.build_mcp_config("metabase", "", user_email="alice@example.com")
+        self.assertIsNotNone(cfg)
+        self.assertTrue(cfg["mcpServers"]["metabase"]["url"].endswith("/mcp/metabase"))
+
+    def test_explicit_base_url_overrides_module_constant(self):
+        """When caller provides a non-empty base_url, it wins (with trailing / stripped)."""
+        dm = self._reload_docker_manager()
+        cfg = dm.build_mcp_config(
+            "metabase",
+            "https://litellm.internal/",
+            user_email="alice@example.com",
+        )
+        self.assertIsNotNone(cfg)
+        self.assertEqual(
+            cfg["mcpServers"]["metabase"]["url"],
+            "https://litellm.internal/mcp/metabase",
+        )
+
+
+class TestAnthropicBaseUrlEmptyStringHandling(unittest.TestCase):
+    """Empty env vars from compose ${VAR:-} must not override the module default."""
+
+    def test_empty_env_treats_as_unset_for_anthropic_base_url(self):
+        """docker-compose ${ANTHROPIC_BASE_URL:-} sets the var to "", which
+        os.getenv returns as "" (not the default). The module falls back to
+        the public Anthropic URL via `os.getenv(...) or "https://..."`."""
+        with patch.dict(os.environ, {"ANTHROPIC_BASE_URL": ""}, clear=False):
+            import docker_manager
+            importlib.reload(docker_manager)
+            self.assertEqual(docker_manager.ANTHROPIC_BASE_URL, "https://api.anthropic.com")
+
+
 if __name__ == "__main__":
     unittest.main()

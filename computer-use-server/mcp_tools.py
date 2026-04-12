@@ -916,7 +916,7 @@ Use `cat <skill-location>` to read skill instructions.
                 f"cd {shlex.quote(working_directory)} && "
                 f"{headers_env}"
                 f"claude -p {escaped_task} "
-                f"--model {model} "
+                f"--model {shlex.quote(model)} "
                 f"--append-system-prompt {escaped_system} "
                 f"{base_flags}"
             )

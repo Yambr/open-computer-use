@@ -57,8 +57,10 @@ SUB_AGENT_MAX_TURNS = int(os.getenv("SUB_AGENT_MAX_TURNS", "25"))
 SUB_AGENT_TIMEOUT = int(os.getenv("SUB_AGENT_TIMEOUT", "3600"))
 
 # Anthropic API (shared LiteLLM proxy key — fallback when no header provided)
+# NB: os.getenv falls back to the default only when the var is UNSET. In docker
+# compose with `${VAR:-}` the var is always set to "", so treat empty == unset.
 ANTHROPIC_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
-ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
 
 # Claude Code model ID overrides (pass through only when set on host — GATEWAY-02)
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "")
@@ -165,13 +167,17 @@ _docker_client: Optional[docker.DockerClient] = None
 
 
 
-def build_mcp_config(server_names_csv: str, base_url: str, user_email: str = "") -> dict | None:
+def build_mcp_config(server_names_csv: str, base_url: Optional[str], user_email: str = "") -> dict | None:
     """Build Claude Code ~/.mcp.json config from comma-separated server names.
 
     URLs are templated as {base_url}/mcp/{server_name} (LiteLLM MCP proxy pattern).
     Authorization uses ANTHROPIC_AUTH_TOKEN env var (resolved inside container at write time).
 
     Returns dict ready for json.dumps, or None if no servers specified.
+
+    ``base_url`` may be None or empty; both fall back to the module-level
+    ANTHROPIC_BASE_URL constant so callers can pass the ContextVar value
+    directly without a manual fallback.
     """
     # Blocklist: prevent recursive sub_agent loops
     BLOCKED_SERVERS = {"docker_ai", "docker-ai"}
@@ -180,7 +186,7 @@ def build_mcp_config(server_names_csv: str, base_url: str, user_email: str = "")
     if not names:
         return None
 
-    base = base_url.rstrip("/")
+    base = (base_url or ANTHROPIC_BASE_URL or "https://api.anthropic.com").rstrip("/")
     servers = {}
     for name in names:
         servers[name] = {

