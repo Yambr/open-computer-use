@@ -2,43 +2,15 @@
 
 Detailed templates and reference for sub_agent tool. For basic usage, see SKILL.md.
 
+**Scope reminder:** `sub_agent` is for complex CODE tasks that require 10+ iterative
+tool calls (multi-file refactoring with test loops, code review with fixes across
+many files, iterative test-fix cycles). Do **not** delegate presentations, research,
+documentation writing, or anything completable in under 10 tool calls — handle those
+yourself. Only delegate non-code work if the user explicitly asks.
+
 ---
 
 ## Task Templates
-
-### Presentation
-
-```
-sub_agent(
-    task="""
-## ROLE
-You are a business presentation specialist creating [TYPE] slides.
-
-## DIRECTIVE
-Create a [NUMBER]-slide presentation about [TOPIC] for [AUDIENCE].
-
-## CONSTRAINTS
-- Do NOT use more than [N] bullets per slide
-- Do NOT use technical jargon if audience is non-technical
-- Cite all sources for data claims
-
-## PROCESS
-1. Review source materials in /mnt/user-data/uploads/
-2. Create slide outline with key messages
-3. Build presentation with charts and visuals
-4. Add speaker notes for each slide
-
-## OUTPUT
-- Save to /mnt/user-data/outputs/[filename].pptx
-- Include speaker notes
-- Create PDF version
-""",
-    description="[Brief description]",
-    max_turns=50
-)
-```
-
----
 
 ### Refactoring
 
@@ -69,41 +41,6 @@ You are a [LANGUAGE] refactoring specialist.
 """,
     description="[Brief description]",
     max_turns=30
-)
-```
-
----
-
-### Research
-
-```
-sub_agent(
-    task="""
-## ROLE
-You are a research analyst specializing in [DOMAIN].
-
-## DIRECTIVE
-Research [TOPIC] and create [DELIVERABLE].
-
-## CONSTRAINTS
-- Use only publicly available sources
-- Focus on [YEAR]+ data
-- Cite all sources with URLs
-
-## PROCESS
-1. Search for relevant information
-2. Compile and analyze findings
-3. Create structured report
-4. Add source citations
-
-## OUTPUT
-- Save to /mnt/user-data/outputs/[filename].md
-- Include sources section
-- Add executive summary
-""",
-    description="[Brief description]",
-    model="opus",
-    max_turns=40
 )
 ```
 
@@ -218,7 +155,6 @@ Run tests, analyze failures, fix issues until all pass.
 ### Vague Tasks
 ```
 # BAD
-task="Create a presentation"
 task="Fix the tests"
 task="Refactor the code"
 ```
@@ -270,7 +206,7 @@ task="Add docstrings to functions"
 
 | Model | Use When |
 |-------|----------|
-| `sonnet` | Default. Fast. Presentations, refactoring, file processing |
+| `sonnet` | Default. Fast. Refactoring, file processing, test-fix cycles |
 | `opus` | Complex reasoning: debugging, architecture, security analysis |
 
 ---
@@ -282,7 +218,7 @@ task="Add docstrings to functions"
 | 10-20 | Simple code tasks (single file fix) |
 | 25 | (default) Standard code tasks |
 | 30-40 | Medium refactoring (few files + tests) |
-| 50-80 | Large multi-file refactoring with test loops |
+| 50-80 | Large multi-file refactoring with test loops, iterative test-fix cycles |
 | 100+ | Full codebase refactoring |
 
 ---

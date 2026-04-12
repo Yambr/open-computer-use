@@ -1,6 +1,6 @@
 ---
 name: sub-agent
-description: "COSTLY: Spawns separate Claude CLI session. Use ONLY for complex CODE tasks requiring 10+ iterative tool calls (multi-file refactoring with tests, code review with fixes, test-fix cycles). Do NOT use for presentations, research, documentation, or tasks under 8 tool calls."
+description: "COSTLY: Spawns separate Claude CLI session. Use ONLY for complex CODE tasks requiring 10+ iterative tool calls (multi-file refactoring with tests, code review with fixes, test-fix cycles). Do NOT use for presentations, research, documentation, or any task completable in fewer than 10 tool calls."
 ---
 
 # Sub-Agent Skill
@@ -20,7 +20,7 @@ Only delegate non-code tasks (presentations, research) if the user EXPLICITLY as
 ## When NOT to Use
 
 Do **NOT** delegate if ANY of these apply:
-- Task can be done in 1-8 tool calls (even if it seems tedious)
+- Task can be done in fewer than 10 tool calls (even if it seems tedious)
 - Creating presentations, documents, spreadsheets (do it yourself)
 - Web research or information gathering (use search tools directly)
 - Simple code review or analysis (read files and respond)
@@ -58,37 +58,44 @@ Clear, specific instruction what to do.
 ### BAD
 ```
 sub_agent(
-    task="Create a presentation about AI trends",
-    description="User needs presentation"
+    task="Fix failing tests in the project",
+    description="Tests are red"
 )
 ```
+
+Too vague — no test command, no scope, no stop condition. The sub-agent will
+thrash over the whole codebase and likely exhaust `max_turns`.
 
 ### GOOD
 ```
 sub_agent(
     task="""
 ## ROLE
-You are a business presentation specialist.
+You are a Python debugging specialist fixing a broken test suite after a refactor.
 
 ## DIRECTIVE
-Create a 12-slide presentation on AI adoption trends for executives.
+Run `pytest tests/orchestrator/` and fix every failing test until the suite is green.
+The refactor renamed `SkillStore` → `SkillManager`; most failures are stale imports
+and fixture mocks that still reference the old name.
 
 ## CONSTRAINTS
-- Do NOT use technical jargon
-- Do NOT include more than 5 bullets per slide
-- Cite all sources
+- Do NOT modify the public test assertions (what they check, not how they set up).
+- Do NOT touch tests outside `tests/orchestrator/`.
+- Stop after 5 consecutive iterations with no new tests passing; report blockers.
 
 ## PROCESS
-1. Research current AI adoption statistics
-2. Create slide outline with key messages
-3. Build presentation with charts
-4. Add speaker notes
+1. Run the test command, capture the failing set.
+2. For each failure, identify root cause (import? mock? behaviour change?).
+3. Fix in production code when the refactor is incomplete; fix in fixtures when
+   the fixture is pinning the old name.
+4. Re-run the suite, repeat until all green or stop condition hit.
 
 ## OUTPUT
-- Save to /mnt/user-data/outputs/ai_trends.pptx
-- Create executive_summary.pdf
+- All `tests/orchestrator/` tests passing.
+- Summary of files changed with one-line rationale per file.
+- If any test remains red, explain why and what the blocker is.
 """,
-    description="AI presentation for board meeting",
+    description="Fix post-refactor test suite",
     max_turns=50
 )
 ```
@@ -137,8 +144,8 @@ The `session_id` is returned in sub_agent result JSON.
 ### How to resume via sub_agent tool:
 ```python
 sub_agent(
-    task="Continue the task. Previous progress: slide 8 of 15 completed.",
-    description="Resume interrupted presentation",
+    task="Continue the refactor. Previous progress: 12 of 18 modules migrated, test suite still red.",
+    description="Resume interrupted refactor",
     resume_session_id="abc123-session-id"
 )
 ```
@@ -147,8 +154,8 @@ sub_agent(
 
 **Read `references/usage.md`** if you need:
 
-- **Task template** for your specific task type (presentation, refactoring, code review, research, git, test-fix)
+- **Task template** for your specific task type (refactoring, code review, test-fix cycles)
 - **Anti-patterns** - common mistakes that cause sub-agent to fail
-- **Max turns guide** - how to choose the right value (10-20 for simple, 50+ for presentations)
+- **Max turns guide** - how to choose the right value (10-20 for simple, 50+ for large refactors)
 - **Model selection** - when to use `opus` instead of `sonnet`
 - **Environment details** - what paths and tools are available

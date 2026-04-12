@@ -777,7 +777,7 @@ async def sub_agent(
     - Iterative test-fix cycles (run tests, analyze, fix, re-run until pass)
 
     Do NOT use for (handle these yourself):
-    - Tasks completable in under 8 tool calls
+    - Tasks completable in fewer than 10 tool calls
     - Creating presentations, documents, spreadsheets
     - Web research or information gathering
     - Simple code review, documentation, or analysis
