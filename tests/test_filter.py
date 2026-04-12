@@ -294,5 +294,129 @@ class SystemPromptFetchCache(unittest.TestCase):
         self.assertEqual(f._prompt_cache[("chat-shared", "alice@example.com")][1], "PROMPT_FOR_ALICE")
 
 
+class PreviewArtifact(unittest.TestCase):
+    """Covers PREVIEW-01 (default iframe artifact), PREVIEW-03 (invariants for iframe), PREVIEW-04 (iframe idempotency)."""
+
+    def _assistant_body_with_file(self, chat_id: str = "abc") -> dict:
+        link = f"http://localhost:8081/files/{chat_id}/report.pdf"
+        return {"messages": [{"role": "assistant", "content": f"see {link}"}]}
+
+    def test_outlet_appends_iframe_artifact_by_default(self):
+        f = _make_filter()
+        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        content = body["messages"][0]["content"]
+        self.assertIn('<iframe src="http://localhost:8081/preview/abc"', content)
+        self.assertIn("```html", content)
+        self.assertIn('allow="clipboard-write; keyboard-map"', content)
+
+    def test_outlet_iframe_artifact_is_idempotent(self):
+        f = _make_filter()
+        body = self._assistant_body_with_file()
+        out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
+        out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
+        self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
+        self.assertEqual(out2["messages"][0]["content"].count("<iframe src="), 1)
+
+    def test_outlet_iframe_artifact_disabled_when_valve_false(self):
+        f = _make_filter()
+        f.valves.ENABLE_PREVIEW_ARTIFACT = False
+        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        content = body["messages"][0]["content"]
+        self.assertNotIn("<iframe", content)
+        self.assertNotIn("```html", content)
+
+    def test_outlet_iframe_artifact_respects_other_chat_ids(self):
+        f = _make_filter()
+        other_link = "http://localhost:8081/files/other-chat/report.pdf"
+        original = f"see artefact from another chat: {other_link}"
+        body = {"messages": [{"role": "assistant", "content": original}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertEqual(out["messages"][0]["content"], original)
+
+    def test_outlet_iframe_not_added_to_non_assistant_roles(self):
+        f = _make_filter()
+        link = "http://localhost:8081/files/abc/report.pdf"
+        body = {
+            "messages": [
+                {"role": "user", "content": f"u {link}"},
+                {"role": "system", "content": f"s {link}"},
+                {"role": "tool", "content": f"t {link}"},
+            ]
+        }
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        for msg in out["messages"]:
+            self.assertNotIn("<iframe", msg["content"])
+            self.assertNotIn("```html", msg["content"])
+
+    def test_outlet_iframe_url_has_no_double_slash_when_trailing_slash(self):
+        f = _make_filter("http://localhost:8081/")
+        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        content = body["messages"][0]["content"]
+        self.assertNotIn("//preview/", content)
+        self.assertIn('<iframe src="http://localhost:8081/preview/abc"', content)
+
+
+class PreviewButton(unittest.TestCase):
+    """Covers PREVIEW-02 (opt-in markdown button), PREVIEW-04 (button idempotency)."""
+
+    def _assistant_body_with_file(self, chat_id: str = "abc") -> dict:
+        link = f"http://localhost:8081/files/{chat_id}/report.pdf"
+        return {"messages": [{"role": "assistant", "content": f"see {link}"}]}
+
+    def test_outlet_preview_button_off_by_default(self):
+        f = _make_filter()
+        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        self.assertNotIn("[🖥️ Open preview]", body["messages"][0]["content"])
+
+    def test_outlet_preview_button_appended_when_enabled(self):
+        f = _make_filter()
+        f.valves.ENABLE_PREVIEW_BUTTON = True
+        body = f.outlet(self._assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        self.assertIn(
+            "[🖥️ Open preview](http://localhost:8081/preview/abc)",
+            body["messages"][0]["content"],
+        )
+
+    def test_outlet_preview_button_is_idempotent(self):
+        f = _make_filter()
+        f.valves.ENABLE_PREVIEW_BUTTON = True
+        body = self._assistant_body_with_file()
+        out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
+        out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
+        self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
+        self.assertEqual(
+            out2["messages"][0]["content"].count("[🖥️ Open preview]"),
+            1,
+        )
+
+    def test_outlet_preview_button_respects_other_chat_ids(self):
+        f = _make_filter()
+        f.valves.ENABLE_PREVIEW_BUTTON = True
+        other_link = "http://localhost:8081/files/other-chat/report.pdf"
+        original = f"see {other_link}"
+        body = {"messages": [{"role": "assistant", "content": original}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertEqual(out["messages"][0]["content"], original)
+
+
+class DocstringDriftGuard(unittest.TestCase):
+    """Covers DOCS-03 — every Field on Filter.Valves is listed in the module VALVES: docstring."""
+
+    def test_every_valve_is_documented_in_docstring(self):
+        doc = computer_link_filter.__doc__ or ""
+        self.assertIn("VALVES:", doc, "Module docstring must contain a VALVES: block")
+        # Extract everything under VALVES: to the next blank-line-separated section
+        # (or end of docstring). Simple split is sufficient — drift guard only.
+        after_marker = doc.split("VALVES:", 1)[1]
+        for field_name in computer_link_filter.Filter.Valves.model_fields:
+            self.assertIn(
+                field_name,
+                after_marker,
+                f"Valve {field_name!r} is defined on Filter.Valves but missing "
+                f"from the VALVES: docstring block — update the docstring "
+                f"in computer_link_filter.py to list it.",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
