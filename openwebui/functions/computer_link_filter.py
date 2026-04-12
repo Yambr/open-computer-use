@@ -95,14 +95,20 @@ class Filter:
             return body
 
 
+        # Get chat_id for file URLs — skip injection entirely when absent,
+        # otherwise the prompt would ship with empty /files/ placeholders and the
+        # model would generate broken download links.
+        chat_id = __metadata__.get("chat_id") if __metadata__ else None
+        if not chat_id:
+            return body
+
         # Get files from metadata
         metadata_files = __metadata__.get("files", []) if __metadata__ else []
         messages = body.get("messages", [])
 
-        # Get chat_id for file URLs
-        chat_id = __metadata__.get("chat_id") if __metadata__ else None
-        file_base_url = f"{self.valves.FILE_SERVER_URL}/files/{chat_id}" if chat_id else ""
-        archive_url = f"{file_base_url}/archive" if chat_id else ""
+        server_url = self.valves.FILE_SERVER_URL.rstrip("/")
+        file_base_url = f"{server_url}/files/{chat_id}"
+        archive_url = f"{file_base_url}/archive"
 
         system_prompt = f"""
 <computer_use>
@@ -610,8 +616,8 @@ Do not attempt to edit, create, or delete files in these directories. If You nee
         if not chat_id:
             return body
 
-        # Pattern to find file server links
-        file_url_pattern = re.escape(self.valves.FILE_SERVER_URL) + r'/files/[^/]+/[^\s\)]+'
+        server_url = self.valves.FILE_SERVER_URL.rstrip("/")
+        file_url_pattern = re.escape(server_url) + r'/files/[^/]+/[^\s\)]+'
 
         messages = body.get("messages", [])
 
@@ -621,7 +627,7 @@ Do not attempt to edit, create, or delete files in these directories. If You nee
             if content and isinstance(content, str):
                 # Check if content has file server links
                 if re.search(file_url_pattern, content):
-                    archive_url = f"{self.valves.FILE_SERVER_URL}/files/{chat_id}/archive"
+                    archive_url = f"{server_url}/files/{chat_id}/archive"
                     # Add archive button if not already present
                     if archive_url not in content:
                         archive_button = f"\n\n---\n[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})"
