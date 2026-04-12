@@ -119,6 +119,18 @@ class Filter:
         base_url = self.valves.SYSTEM_PROMPT_URL or (
             self.valves.FILE_SERVER_URL.rstrip("/") + "/system-prompt"
         )
+
+        # Only http(s) is a valid orchestrator transport. Reject file://, ftp://,
+        # data://, etc. — otherwise a misconfigured Valve could read arbitrary
+        # local files through urlopen (ruff S310).
+        parsed = urllib.parse.urlparse(base_url)
+        if parsed.scheme not in ("http", "https"):
+            print(
+                f"[ComputerUseFilter] Unsupported system prompt URL scheme: "
+                f"{parsed.scheme!r} (expected http/https)"
+            )
+            return cached[1] if cached else None
+
         params = {}
         if chat_id:
             params["chat_id"] = chat_id
@@ -129,7 +141,7 @@ class Filter:
         try:
             req = urllib.request.Request(url, method="GET")
             req.add_header("Accept", "text/plain")
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 — scheme validated above
                 prompt = resp.read().decode("utf-8")
 
             # Cache the ready-to-use prompt (server baked everything)
@@ -142,7 +154,11 @@ class Filter:
 
             return prompt
 
-        except Exception as e:
+        except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as e:
+            # Narrow to real transport/decoding failures. Broader Exception
+            # would swallow configuration bugs (e.g. attribute errors on the
+            # Valves model) behind the stale-cache fallback and make them
+            # invisible (ruff BLE001).
             print(f"[ComputerUseFilter] Failed to fetch system prompt: {e}")
             # Stale-cache fallback (any age) when available
             if cached:

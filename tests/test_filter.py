@@ -224,6 +224,37 @@ class SystemPromptFetchCache(unittest.TestCase):
         self.assertIn("chat_id=chat-a", captured["url"])
         self.assertIn("user_email=user%40example.com", captured["url"])
 
+    def test_rejects_non_http_scheme_without_urlopen(self):
+        """Valves misconfiguration (file://, ftp://, etc.) must not reach urlopen.
+        Regression guard for ruff S310: SYSTEM_PROMPT_URL=file:///etc/passwd used
+        to read the file as the injected system prompt.
+        """
+        f = _make_filter()
+        f.valves.SYSTEM_PROMPT_URL = "file:///etc/passwd"
+        with patch("urllib.request.urlopen", side_effect=AssertionError("must not be called")) as m:
+            result = f._fetch_system_prompt("chat-a", "")
+        self.assertIsNone(result)
+        m.assert_not_called()
+
+    def test_rejects_non_http_scheme_serves_stale_cache_when_available(self):
+        """If the scheme is invalid but a cached value exists, serve it (same
+        policy as transport failure)."""
+        f = _make_filter()
+        f.valves.SYSTEM_PROMPT_URL = "ftp://example.com/prompt"
+        f._prompt_cache[("chat-a", "")] = (time.time() - 9999, "STALE")
+        with patch("urllib.request.urlopen", side_effect=AssertionError("must not be called")):
+            result = f._fetch_system_prompt("chat-a", "")
+        self.assertEqual(result, "STALE")
+
+    def test_narrow_exception_propagates_programming_errors(self):
+        """A broad `except Exception` used to swallow programming bugs (e.g.
+        AttributeError from internal misuse) as silent stale-cache fallbacks.
+        The narrowed handler must re-raise non-transport failures."""
+        f = _make_filter()
+        with patch("urllib.request.urlopen", side_effect=AttributeError("boom")):
+            with self.assertRaises(AttributeError):
+                f._fetch_system_prompt("chat-a", "")
+
     def test_cache_isolates_different_users_on_same_chat(self):
         """Two users sharing a chat_id must NOT see each other's baked <available_skills>."""
         f = _make_filter()
