@@ -19,7 +19,7 @@
     "marked": "^16.4.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.296",
-    "playwright": "1.57.0",
+    "playwright": "1.59.1",
     "pptxgenjs": "^4.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
