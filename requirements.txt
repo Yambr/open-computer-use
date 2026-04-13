@@ -90,7 +90,7 @@ colorama==0.4.6
 coloredlogs==15.0.1
 humanfriendly==10.0
 tabulate==0.9.0
-psutil==7.1.0
+psutil==7.2.2
 
 # Dev tools
 Flask==3.1.3
