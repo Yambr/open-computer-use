@@ -145,11 +145,13 @@ echo "$RESULT" | grep -q "owner=assistant" && pass "files owned by assistant" ||
 # exits 0, and (b) the expected status banner is printed.
 echo ""
 echo "[11/11] Entrypoint execution"
-ENTRYPOINT_OUT=$(docker run --rm --platform linux/amd64 --user=assistant "$IMAGE" true 2>&1)
-ENTRYPOINT_EXIT=$?
-if [ "$ENTRYPOINT_EXIT" -eq 0 ]; then
+# Wrap the command substitution in `if` so `set -e` does not abort the
+# whole test script on a non-zero docker exit — we need to reach fail()
+# with the captured output for structured reporting.
+if ENTRYPOINT_OUT=$(docker run --rm --platform linux/amd64 --user=assistant "$IMAGE" true 2>&1); then
     pass "entrypoint exits 0 with default command"
 else
+    ENTRYPOINT_EXIT=$?
     fail "entrypoint exited $ENTRYPOINT_EXIT (output: $ENTRYPOINT_OUT)"
 fi
 # The banner text changes based on token presence; at least one of these
