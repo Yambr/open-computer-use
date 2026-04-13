@@ -38,9 +38,15 @@ run_in_container() {
 echo "=== Testing Docker image: $IMAGE ==="
 echo ""
 
+# Note on `|| VAR=""` after every `VAR=$(run_in_container ...)`:
+# Without it, `set -euo pipefail` aborts the whole script the moment docker
+# returns non-zero — before fail() can record the failure or print summary.
+# Forcing the assignment to succeed (with empty content on docker error) lets
+# the existing grep-based pass/fail accounting handle the failure naturally.
+
 # 1. Node.js and Python versions
 echo "[1/11] Runtime versions"
-VERSIONS=$(run_in_container 'node --version && python3 --version')
+VERSIONS=$(run_in_container 'node --version && python3 --version') || VERSIONS=""
 echo "$VERSIONS" | grep -q "v22" && pass "Node.js v22" || fail "Node.js version"
 echo "$VERSIONS" | grep -q "Python 3" && pass "Python 3" || fail "Python version"
 
@@ -48,7 +54,7 @@ echo "$VERSIONS" | grep -q "Python 3" && pass "Python 3" || fail "Python version
 echo ""
 echo "[2/11] CommonJS require()"
 for pkg in react pptxgenjs pdf-lib docx sharp react-dom/server react-icons/fa; do
-    RESULT=$(run_in_container "node -e \"try { require('$pkg'); console.log('OK') } catch(e) { console.log('FAIL: ' + e.code) }\"")
+    RESULT=$(run_in_container "node -e \"try { require('$pkg'); console.log('OK') } catch(e) { console.log('FAIL: ' + e.code) }\"") || RESULT=""
     echo "$RESULT" | grep -q "OK" && pass "require('$pkg')" || fail "require('$pkg'): $RESULT"
 done
 
@@ -56,7 +62,7 @@ done
 echo ""
 echo "[3/11] ES Modules import"
 for pkg in react pptxgenjs pdf-lib; do
-    RESULT=$(run_in_container "node --input-type=module -e \"import '$pkg'; console.log('OK')\"")
+    RESULT=$(run_in_container "node --input-type=module -e \"import '$pkg'; console.log('OK')\"") || RESULT=""
     echo "$RESULT" | grep -q "OK" && pass "import '$pkg'" || fail "import '$pkg'"
 done
 
@@ -76,7 +82,7 @@ fi
 echo ""
 echo "[5/11] CLI tools"
 for tool in mmdc tsc tsx claude; do
-    RESULT=$(run_in_container "which $tool >/dev/null 2>&1 && echo OK || echo MISSING")
+    RESULT=$(run_in_container "which $tool >/dev/null 2>&1 && echo OK || echo MISSING") || RESULT=""
     echo "$RESULT" | grep -q "OK" && pass "$tool in PATH" || fail "$tool not found in PATH"
 done
 
@@ -84,16 +90,16 @@ done
 echo ""
 echo "[6/11] Python packages"
 for pkg in docx pptx openpyxl; do
-    RESULT=$(run_in_container "python3 -c \"import $pkg; print('OK')\"")
+    RESULT=$(run_in_container "python3 -c \"import $pkg; print('OK')\"") || RESULT=""
     echo "$RESULT" | grep -q "OK" && pass "python import $pkg" || fail "python import $pkg"
 done
-RESULT=$(run_in_container "python3 -c \"from playwright.sync_api import sync_playwright; print('OK')\"")
+RESULT=$(run_in_container "python3 -c \"from playwright.sync_api import sync_playwright; print('OK')\"") || RESULT=""
 echo "$RESULT" | grep -q "OK" && pass "python playwright" || fail "python playwright"
 
 # 7. User npm install (lodash)
 echo ""
 echo "[7/11] User npm install"
-RESULT=$(run_in_container 'cd /home/assistant && npm install lodash >/dev/null 2>&1 && if [ -d /home/assistant/node_modules/lodash ]; then echo "user=YES"; else echo "user=NO"; fi && SYS_COUNT=$(ls /home/node_modules/ 2>/dev/null | wc -l) && echo "system=$SYS_COUNT"')
+RESULT=$(run_in_container 'cd /home/assistant && npm install lodash >/dev/null 2>&1 && if [ -d /home/assistant/node_modules/lodash ]; then echo "user=YES"; else echo "user=NO"; fi && SYS_COUNT=$(ls /home/node_modules/ 2>/dev/null | wc -l) && echo "system=$SYS_COUNT"') || RESULT=""
 echo "$RESULT" | grep -q "user=YES" && pass "lodash in /home/assistant/node_modules" || fail "lodash not in user dir"
 SYS=$(echo "$RESULT" | awk -F= '/^system=/{print $2}')
 [ "${SYS:-0}" -gt 100 ] && pass "system packages intact ($SYS)" || fail "system packages count: $SYS (expected > 100)"
@@ -101,21 +107,29 @@ SYS=$(echo "$RESULT" | awk -F= '/^system=/{print $2}')
 # 8. npm prefix check
 echo ""
 echo "[8/11] npm configuration"
-RESULT=$(run_in_container 'npm config get prefix 2>/dev/null || echo "undefined"')
-# Acceptable: prefix deleted from user .npmrc (npm falls back to default
-# /usr/local), or explicitly pinned to the shared global path.
-# The original "undefined" branch is kept for legacy npm versions that
-# returned an empty string when prefix was unset.
-if echo "$RESULT" | grep -qE "(undefined|/usr/local|node_modules_global)"; then
-    pass "npm prefix configured correctly ($RESULT)"
+RESULT=$(run_in_container 'npm config get prefix 2>/dev/null || echo "undefined"') || RESULT=""
+# Trim trailing whitespace/newlines so the anchored regex below can match
+# against a clean single-line value.
+RESULT_TRIMMED=$(echo "$RESULT" | head -n1 | tr -d '[:space:]')
+# Acceptable, anchored values:
+#   - "undefined"                           — legacy npm with prefix unset
+#   - "/usr/local"                          — Dockerfile runs `npm config
+#                                             delete prefix` as last step, so
+#                                             npm falls back to its default
+#   - "/usr/local/lib/node_modules_global"  — explicit pin (older image layout)
+# The anchored regex rejects silently permissive substring matches like
+# "/usr/local/something/weird" or "node_modules_global" appearing in
+# arbitrary paths.
+if echo "$RESULT_TRIMMED" | grep -qE "^(undefined|/usr/local|/usr/local/lib/node_modules_global)$"; then
+    pass "npm prefix configured correctly ($RESULT_TRIMMED)"
 else
-    fail "npm prefix: $RESULT"
+    fail "npm prefix: $RESULT_TRIMMED"
 fi
 
 # 9. Volume size
 echo ""
 echo "[9/11] Volume size"
-SIZE_KB=$(run_in_container "du -sk /home/assistant/ | cut -f1")
+SIZE_KB=$(run_in_container "du -sk /home/assistant/ | cut -f1") || SIZE_KB=""
 if [ "${SIZE_KB:-999999}" -lt 1024 ]; then
     pass "/home/assistant < 1MB (${SIZE_KB}KB)"
 else
@@ -131,7 +145,7 @@ RESULT=$(run_in_container '
 [ -f /home/assistant/package.json ] && echo "packagejson=OK" || echo "packagejson=FAIL"
 OWNER=$(stat -c %U /home/assistant/.entrypoint.sh)
 echo "owner=$OWNER"
-')
+') || RESULT=""
 echo "$RESULT" | grep -q "entrypoint=OK" && pass ".entrypoint.sh executable" || fail ".entrypoint.sh not executable"
 echo "$RESULT" | grep -q "gitconfig=OK" && pass ".gitconfig exists" || fail ".gitconfig missing"
 echo "$RESULT" | grep -q "packagejson=OK" && pass "package.json guard exists" || fail "package.json guard missing"
