@@ -41,7 +41,27 @@ If you want the artifact to pop open automatically like in the screenshot above,
 
 ### Also check: `FILE_SERVER_URL` must be reachable from the user's browser
 
-Even with Path A or Path B, the iframe/button still needs a hostname the browser can resolve. Open WebUI-in-Docker can reach the server via `host.docker.internal`, but the browser needs a routable hostname (e.g. `http://your-host.lan:8081` or a reverse-proxied URL). Set this in the filter's `FILE_SERVER_URL` Valve. Connection-refused symptoms after that? See [Troubleshooting → connection refused](#preview-shows-connection-refused-or-a-blank-frame).
+Even with Path A or Path B, the iframe/button still needs a hostname the browser can resolve. Open WebUI-in-Docker can reach the server via `host.docker.internal`, but the browser needs a routable hostname (e.g. `http://your-host.lan:8081` or a reverse-proxied URL). Set this in the filter's `FILE_SERVER_URL` Valve. Connection-refused symptoms after that? See [Troubleshooting → connection refused](#preview-shows-connection-refused-or-a-blank-frame). And make sure the *server-side* `FILE_SERVER_URL` matches — the next subsection explains why.
+
+### Two `FILE_SERVER_URL` settings — they must match
+
+There are two settings named `FILE_SERVER_URL` in this project. Both must be set to the same value. If they disagree, `outlet()` finds no URL matching its pattern, skips decoration silently — no error, no log line — and the preview panel never appears even though everything else "looks fine".
+
+| Setting | Set at | Default | What it does |
+|---|---|---|---|
+| **`computer-use-server` container env var** | `docker-compose.yml` (now exposed as `${FILE_SERVER_URL}`, see [source](../computer-use-server/docker_manager.py#L44)) | `http://computer-use-server:8081` | The URL *text* that the server embeds into every file link it emits — in assistant messages and in the sub-agent system prompt. |
+| **Filter Valve `FILE_SERVER_URL`** | Open WebUI → Admin Panel → Functions → `computer_link_filter` → Valves. Auto-set by `openwebui/init.sh` when you use the patched compose. | `http://localhost:8081` | The base URL from which `outlet()` builds the regex (`re.escape(base) + "/files/" + chat_id + ...`). A match triggers the preview iframe, archive button, and optional preview button; a miss means nothing is appended. |
+
+**How it fails silently.** Suppose the container still uses the built-in default and you only change the filter Valve to `http://myhost:8081`:
+
+1. Server emits `http://computer-use-server:8081/files/<chat_id>/file.txt` into the message.
+2. Filter builds pattern `http://myhost:8081/files/<chat_id>/...`.
+3. Pattern does not match → `outlet()` returns the body unchanged.
+4. User sees the bare link (which their browser cannot reach) and no preview panel. No error.
+
+**How to set it.** Uncomment `FILE_SERVER_URL=` in `.env` and set it to the externally reachable URL. Restart the `computer-use-server` container. Then set the filter Valve to the **same** value in Open WebUI. That's it.
+
+**`docker compose -p myproject` / renamed `container_name`.** When you override the project name or container name, the default `http://computer-use-server:8081` stops resolving even inside the Docker network — the internal hostname is now `myproject-computer-use-server` or whatever you renamed it to. In this case setting `FILE_SERVER_URL` to the externally reachable URL is not optional: it's the only way the link the server emits will work. This is the scenario reproduced in [docs/KNOWN-BUGS.md #6](KNOWN-BUGS.md#6-preview-breaks-after-docker-compose--p-project-or-custom-container_name).
 
 ## Valves reference
 
