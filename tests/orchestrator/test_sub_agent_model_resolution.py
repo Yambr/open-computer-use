@@ -42,13 +42,18 @@ from context_vars import (
 )
 
 
-# Env vars that drive alias resolution; cleared between tests to avoid leakage
+# Env vars that drive alias resolution and fallback defaults; cleared between
+# tests to avoid host-env leakage. SUB_AGENT_DEFAULT_MODEL is included because
+# mcp_tools.sub_agent reads it at line 807 before alias resolution runs, so a
+# developer running `SUB_AGENT_DEFAULT_MODEL=opus pytest ...` would otherwise
+# break test_empty_model_falls_back_to_sonnet and test_none_model_falls_back_to_sonnet.
 MODEL_ENV_VARS = (
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "ANTHROPIC_MODEL",
     "CLAUDE_CODE_SUBAGENT_MODEL",
+    "SUB_AGENT_DEFAULT_MODEL",
 )
 
 
