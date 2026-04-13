@@ -66,8 +66,14 @@ jobs:
       - name: Pick image tag for smoke tests
         id: img
         run: |
-          # docker/metadata-action emits newline-separated tags; grab the first one.
-          tag=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          # docker/metadata-action emits newline-separated tags; grab the first
+          # non-blank line. Fail loudly if nothing came through so downstream
+          # `docker run` doesn't hit an empty image name with a cryptic error.
+          tag=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | sed '/^[[:space:]]*$/d' | head -n1)
+          if [ -z "$tag" ]; then
+            echo "No image tag produced by docker/metadata-action" >&2
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Smoke test — image packages and CLI tools
@@ -77,6 +83,9 @@ jobs:
 
       - name: Smoke test — Chromium launches in container
         run: |
+          # Use page.set_content with a local HTML string instead of going
+          # over the network: this test should only validate that chromium
+          # binary + wire protocol work, not internet reachability.
           docker run --rm --platform linux/amd64 \
             --entrypoint=python3 "${{ steps.img.outputs.tag }}" \
             -c "
@@ -84,10 +93,10 @@ jobs:
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
               page = browser.new_page()
-              page.goto('https://example.com', timeout=30000)
+              page.set_content('<html><head><title>Example Domain</title></head><body></body></html>')
               title = page.title()
               browser.close()
-              assert 'Example Domain' in title, f'unexpected title: {title}'
+              assert title == 'Example Domain', f'unexpected title: {title}'
               print(f'OK: title={title}')
           "
 
