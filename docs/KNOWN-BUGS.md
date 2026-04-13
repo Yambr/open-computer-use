@@ -73,18 +73,18 @@ TypeError: 'NoneType' object is not callable
 
 ---
 
-## 6. Preview breaks after `docker compose -p <project>` or custom `container_name`
+## 6. Preview breaks after custom `container_name` or non-default compose layouts
 
 **Severity:** Medium (configuration-only, no data loss)
 
 **How it works:** The Computer Use Server embeds file links into every assistant message using its `FILE_SERVER_URL` env var (default `http://computer-use-server:8081`). The Open WebUI filter has an *identically named* `FILE_SERVER_URL` Valve that it uses to build a regex for detecting those same URLs and appending the preview iframe + archive button. For preview to render, the two values must match.
 
-**Issue:** When you run with `docker compose -p myproject up` or set a custom `container_name:` on the `computer-use-server` service, the default `http://computer-use-server:8081` host stops resolving — inside the Docker network the container is now `myproject-computer-use-server:8081` or similar. The server keeps emitting the old default into link text (its env var is unchanged), but:
+**Issue:** The stock `docker-compose.yml` pins `container_name: computer-use-server`, so `docker compose -p myproject up` on the unmodified file keeps the same internal hostname. But if you remove/change that `container_name:` pin (common when running multiple stacks side by side) or set up a different network topology, the internal hostname becomes the Compose-generated one (e.g. `myproject-computer-use-server-1`) and the default `http://computer-use-server:8081` no longer resolves. The server keeps emitting the old default into link text (its env var is unchanged), so:
 
 1. The browser can't open those links regardless of what the filter Valve says.
 2. The filter's regex pattern is built from its Valve, so if you set the Valve to the new external URL, it no longer matches the stale text the server emits — and `outlet()` silently skips decoration, meaning no preview at all. No error is logged.
 
-Same failure mode is possible in any deployment where the operator changes only one of the two settings.
+Same failure mode occurs in any deployment where the operator changes only one of the two `FILE_SERVER_URL` settings, or where the browser can't reach the internal Docker hostname baked into the default.
 
 **Workaround:** Set the `FILE_SERVER_URL` env var for the `computer-use-server` service to your externally reachable URL, and set the Open WebUI filter Valve to the same value. `.env.example` now documents this; uncomment the `FILE_SERVER_URL=` line and point it at a URL the user's browser can reach. See [docs/openwebui-filter.md §Two FILE_SERVER_URL settings](openwebui-filter.md#two-file_server_url-settings--they-must-match) for the full explanation.
 
