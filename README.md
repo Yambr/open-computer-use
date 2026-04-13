@@ -192,6 +192,8 @@ The Computer Use Server speaks standard **MCP over Streamable HTTP** — any MCP
 
 **Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use any stock [Open WebUI](https://github.com/open-webui/open-webui) version — just install the tool and filter. Patches are optional quality-of-life fixes applied at Docker build time.
 
+Running Claude Code through a corporate gateway (LiteLLM, Azure, Bedrock)? See [docs/claude-code-gateway.md](docs/claude-code-gateway.md) for the three-path operator recipe.
+
 The `openwebui/` directory contains:
 
 - **tools/** — MCP client tool (thin proxy to Computer Use Server). **Required** — this is the bridge between Open WebUI and the sandbox.
