@@ -29,7 +29,10 @@ run_in_container() {
     # --entrypoint=bash bypasses /home/assistant/.entrypoint.sh, which prints
     # GITLAB_TOKEN / ANTHROPIC_AUTH_TOKEN status banners and corrupts captured
     # stdout when those env vars are unset (CI default).
-    docker run --rm --platform linux/amd64 --entrypoint=bash "$IMAGE" -c "$1" 2>/dev/null
+    # --user=assistant matches production (docker-compose runs as assistant)
+    # so user-scoped npm config (prefix delete, etc.) is the configuration
+    # actually under test.
+    docker run --rm --platform linux/amd64 --entrypoint=bash --user=assistant "$IMAGE" -c "$1" 2>/dev/null
 }
 
 echo "=== Testing Docker image: $IMAGE ==="
@@ -92,16 +95,19 @@ echo ""
 echo "[7/10] User npm install"
 RESULT=$(run_in_container 'cd /home/assistant && npm install lodash >/dev/null 2>&1 && if [ -d /home/assistant/node_modules/lodash ]; then echo "user=YES"; else echo "user=NO"; fi && SYS_COUNT=$(ls /home/node_modules/ 2>/dev/null | wc -l) && echo "system=$SYS_COUNT"')
 echo "$RESULT" | grep -q "user=YES" && pass "lodash in /home/assistant/node_modules" || fail "lodash not in user dir"
-SYS=$(echo "$RESULT" | grep -oP 'system=\K\d+' || echo "0")
+SYS=$(echo "$RESULT" | awk -F= '/^system=/{print $2}')
 [ "${SYS:-0}" -gt 100 ] && pass "system packages intact ($SYS)" || fail "system packages count: $SYS (expected > 100)"
 
 # 8. npm prefix check
 echo ""
 echo "[8/10] npm configuration"
 RESULT=$(run_in_container 'npm config get prefix 2>/dev/null || echo "undefined"')
-# prefix should be undefined (deleted) or /usr/local/lib/node_modules_global
-if echo "$RESULT" | grep -qE "(undefined|node_modules_global)"; then
-    pass "npm prefix configured correctly"
+# Acceptable: prefix deleted from user .npmrc (npm falls back to default
+# /usr/local), or explicitly pinned to the shared global path.
+# The original "undefined" branch is kept for legacy npm versions that
+# returned an empty string when prefix was unset.
+if echo "$RESULT" | grep -qE "(undefined|/usr/local|node_modules_global)"; then
+    pass "npm prefix configured correctly ($RESULT)"
 else
     fail "npm prefix: $RESULT"
 fi
