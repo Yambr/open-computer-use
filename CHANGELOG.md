@@ -1,20 +1,47 @@
 # Changelog
 
-## v0.8.12.7 (2026-04-12)
+## v0.8.12.7 (2026-04-13)
 
 ### Features
 - **System prompt extraction**: the ~460-line hardcoded Computer Use system prompt has been moved from `computer_link_filter` into the orchestrator's `GET /system-prompt` endpoint (ported from the internal fork's v3.7/v3.8 architecture). The server now performs full substitution: `{file_base_url}`, `{archive_url}`, `{chat_id}` placeholders from an optional `chat_id` query param, and the `<available_skills>` XML block from an optional `user_email` query param. Per-user skill lookup falls back gracefully to `DEFAULT_PUBLIC_SKILLS` when no external skill provider is configured (community default).
 - **Filter rewrite (v3.0.2 → v3.1.0)**: `openwebui/functions/computer_link_filter.py` is now a thin HTTP client — it fetches the fully-baked prompt from the server and injects it as-is. No more client-side URL substitution. File size dropped from 636 lines to under 250.
 - **LRU cache with stale-cache fallback**: the filter keeps an `OrderedDict` LRU keyed by `chat_id`, 5-minute TTL, max 100 entries, O(1) eviction. On fetch failure (server down, timeout, non-200), it serves the stale entry for the same chat if present; otherwise it skips injection (same safe no-op path as the missing-`chat_id` case). No broken URLs ever reach the model.
 - **New Valve `SYSTEM_PROMPT_URL`**: optional override for the endpoint URL (empty = derive from `FILE_SERVER_URL`).
+- **Filter v3.1.0 → v3.2.0 — preview panel**: new Valves expose `/preview/{chat_id}` so the archive button can open the preview iframe on stock Open WebUI installs without the project's artifact patch.
+- **Claude Code gateway compatibility** (fixes #40, PR #46): the orchestrator now passes `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, and related gateway env vars through to the sandbox container; `sub_agent` model resolution widened to accept direct model IDs in addition to aliases. Docker Compose gets a gateway-overrides block and `.env.example` documents the full set.
+
+### Fixes
+- **Filter — cross-user prompt cache leak**: cache key now scoped so one user's baked prompt can't be served to another user; archive-button detection restricted to assistant messages and the current `chat_id` only.
+- **Filter — URL scheme validation**: `/system-prompt` fetch now validates the URL scheme (http/https only) and narrows the exception surface so a misconfigured Valve can't SSRF or hang.
+- **Filter — non-string system content**: `inlet()` no longer crashes when Open WebUI hands it a non-string system message.
+- **sub-agent — delegation scope**: restricted to code-only tasks; stops wasting API calls on non-code delegations.
 
 ### Tests
 - 5 new pinning tests in `tests/orchestrator/test_system_prompt_endpoint.py` cover the `/system-prompt` contract: `chat_id` substitution, `user_email` default-skills fallback, legacy `file_base_url` / `archive_url` params, no-param degraded path, `text/plain` content-type.
 - 7 new cache tests in `tests/test_filter.py::SystemPromptFetchCache`: fresh fetch populates cache, cache hit within TTL skips HTTP, TTL expiry triggers refetch, LRU eviction at 100 entries, stale-cache fallback on server down, cold-cache skip when server down, `user_email` propagation to query string.
 - The 7 pre-existing filter tests continue to pass. Two of them (which reach the injection path) now use a `setUp` fixture that mocks `urllib.request.urlopen`.
+- `/system-prompt` endpoint test made hermetic (no reliance on ambient env).
+- New `docker_manager` env-injection matrix tests and `sub_agent` model-resolution tests covering the Claude Code gateway path.
+
+### CI
+- **Sandbox smoke tests in build pipeline** (PR #48): the build workflow now boots the sandbox image and verifies Chromium launches end-to-end before accepting the image.
 
 ### Documentation
 - `.env.example` now documents `MCP_TOKENS_URL` (optional external skill-provider URL; empty default → graceful fallback to `DEFAULT_PUBLIC_SKILLS`).
+- New `docs/claude-code-gateway.md` guide cross-linked from README and INSTALL covering gateway configuration.
+- FILE_SERVER_URL: two-setting behaviour documented (PR #58) so operators understand the server-side vs. filter-side URLs.
+- sub-agent docs: explicit-override precedence clarified; cutoff wording unified; presentation examples pruned; non-code delegation policy aligned across the system prompt.
+
+### Dependencies
+- `playwright` repinned to `1.57.0` (briefly bumped to `1.59.1` then reverted in PR #47 to stay aligned with the base image).
+- `psutil` 7.1.0 → 7.2.2.
+- `beautifulsoup4` 4.14.2 → 4.14.3.
+- `reportlab` 4.4.4 → 4.4.10.
+
+### Privacy / packaging
+- `.planning/` gitignored on the public GitHub remote; pre-push hook enforces the rule.
+- Internal-fork references scrubbed; `tests/test-no-corporate.sh` extended to catch regressions.
+- MCP Registry: added project logo, fixed `server.json` schema, simplified manifest for publication as `io.github.yambr/open-computer-use`.
 
 ### Code removed
 - Filter's hardcoded ~460-line prompt f-string.
