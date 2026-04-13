@@ -26,7 +26,10 @@ fail() {
 }
 
 run_in_container() {
-    docker run --rm --platform linux/amd64 "$IMAGE" bash -c "$1" 2>/dev/null
+    # --entrypoint=bash bypasses /home/assistant/.entrypoint.sh, which prints
+    # GITLAB_TOKEN / ANTHROPIC_AUTH_TOKEN status banners and corrupts captured
+    # stdout when those env vars are unset (CI default).
+    docker run --rm --platform linux/amd64 --entrypoint=bash "$IMAGE" -c "$1" 2>/dev/null
 }
 
 echo "=== Testing Docker image: $IMAGE ==="

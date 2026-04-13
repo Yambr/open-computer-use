@@ -77,8 +77,9 @@ jobs:
 
       - name: Smoke test — Chromium launches in container
         run: |
-          docker run --rm --platform linux/amd64 "${{ steps.img.outputs.tag }}" \
-            python3 -c "
+          docker run --rm --platform linux/amd64 \
+            --entrypoint=python3 "${{ steps.img.outputs.tag }}" \
+            -c "
           from playwright.sync_api import sync_playwright
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
