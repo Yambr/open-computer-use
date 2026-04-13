@@ -40,10 +40,10 @@ The Dockerfile uses a multi-stage build approach for optimal layer caching:
 
 **Key Packages** (107 total):
 - Document: python-docx 1.2.0, python-pptx 1.0.2, openpyxl 3.1.5
-- PDF: pypdf 5.9.0, pdfplumber 0.11.7, reportlab 4.4.4
+- PDF: pypdf 5.9.0, pdfplumber 0.11.7, reportlab 4.4.10
 - Image: Pillow 11.3.0, opencv-python 4.11.0
 - Data: pandas 2.3.3, numpy 2.3.3
-- Web: playwright 1.55.0, requests 2.32.5
+- Web: playwright 1.57.0, requests 2.32.5
 
 ### Node.js Environment
 
