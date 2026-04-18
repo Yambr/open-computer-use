@@ -357,39 +357,56 @@ class SystemPromptFetchCache(unittest.TestCase):
         )
 
 
-class PreviewArtifact(unittest.TestCase):
-    """Covers PREVIEW-01 (default iframe artifact), PREVIEW-03 (invariants for iframe), PREVIEW-04 (iframe idempotency)."""
+class PreviewButton(unittest.TestCase):
+    """Covers PREVIEW-02 (markdown button is the only preview decoration),
+    PREVIEW-04 (button idempotency), and the v4.1.0 invariant that outlet()
+    never emits a fenced ```html block or <iframe> — that was removed because
+    it suppressed the fix_preview_url_detection frontend patch.
+    """
 
     def _filter(self, public_url: str = "http://localhost:8081") -> "computer_link_filter.Filter":
         f = _make_filter()
         _prime_cache(f, "abc", public_url=public_url)
         return f
 
-    def test_outlet_appends_iframe_artifact_by_default(self):
+    def test_outlet_appends_preview_button_by_default(self):
         f = self._filter()
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
-        self.assertIn('<iframe src="http://localhost:8081/preview/abc"', content)
-        self.assertIn("```html", content)
-        self.assertIn('allow="clipboard-write; keyboard-map"', content)
+        self.assertIn(
+            "[🖥️ Open preview](http://localhost:8081/preview/abc)", content
+        )
 
-    def test_outlet_iframe_artifact_is_idempotent(self):
+    def test_outlet_never_emits_fenced_html_or_iframe(self):
+        """v4.1.0 invariant: outlet() must not add a fenced html block or raw
+        iframe. The frontend patch turns the /preview/ URL into an inline
+        artifact on its own; emitting a block here would (a) render as a code
+        fence in chat on stock Open WebUI and (b) suppress the patch on
+        patched builds (its guard `!htmlGroups.some(o=>o.html)` fails)."""
         f = self._filter()
-        body = _assistant_body_with_file()
-        out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
-        out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
-        self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
-        self.assertEqual(out2["messages"][0]["content"].count("<iframe src="), 1)
-
-    def test_outlet_iframe_artifact_disabled_when_valve_false(self):
-        f = self._filter()
-        f.valves.PREVIEW_MODE = "button"  # artifact disabled (only button)
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
         self.assertNotIn("<iframe", content)
         self.assertNotIn("```html", content)
 
-    def test_outlet_iframe_artifact_respects_other_chat_ids(self):
+    def test_outlet_preview_button_is_idempotent(self):
+        f = self._filter()
+        body = _assistant_body_with_file()
+        out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
+        out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
+        self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
+        self.assertEqual(
+            out2["messages"][0]["content"].count("[🖥️ Open preview]"),
+            1,
+        )
+
+    def test_outlet_preview_mode_off_skips_button(self):
+        f = self._filter()
+        f.valves.PREVIEW_MODE = "off"
+        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        self.assertNotIn("[🖥️ Open preview]", body["messages"][0]["content"])
+
+    def test_outlet_preview_button_respects_other_chat_ids(self):
         f = self._filter()
         other_link = "http://localhost:8081/files/other-chat/report.pdf"
         original = f"see artefact from another chat: {other_link}"
@@ -397,7 +414,7 @@ class PreviewArtifact(unittest.TestCase):
         out = f.outlet(body, __metadata__={"chat_id": "abc"})
         self.assertEqual(out["messages"][0]["content"], original)
 
-    def test_outlet_iframe_not_added_to_non_assistant_roles(self):
+    def test_outlet_not_added_to_non_assistant_roles(self):
         f = self._filter()
         link = "http://localhost:8081/files/abc/report.pdf"
         body = {
@@ -409,59 +426,33 @@ class PreviewArtifact(unittest.TestCase):
         }
         out = f.outlet(body, __metadata__={"chat_id": "abc"})
         for msg in out["messages"]:
-            self.assertNotIn("<iframe", msg["content"])
-            self.assertNotIn("```html", msg["content"])
+            self.assertNotIn("[🖥️ Open preview]", msg["content"])
+            self.assertNotIn("archive", msg["content"].lower())
 
-    def test_outlet_iframe_url_has_no_double_slash_when_trailing_slash(self):
+    def test_outlet_preview_url_has_no_double_slash_when_trailing_slash(self):
         f = self._filter(public_url="http://localhost:8081/")
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
         self.assertNotIn("//preview/", content)
-        self.assertIn('<iframe src="http://localhost:8081/preview/abc"', content)
-
-
-class PreviewButton(unittest.TestCase):
-    """Covers PREVIEW-02 (opt-in markdown button), PREVIEW-04 (button idempotency)."""
-
-    def _filter(self) -> "computer_link_filter.Filter":
-        f = _make_filter()
-        _prime_cache(f, "abc")
-        return f
-
-    def test_outlet_preview_button_off_by_default(self):
-        f = self._filter()
-        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
-        self.assertNotIn("[🖥️ Open preview]", body["messages"][0]["content"])
-
-    def test_outlet_preview_button_appended_when_enabled(self):
-        f = self._filter()
-        f.valves.PREVIEW_MODE = "both"
-        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         self.assertIn(
-            "[🖥️ Open preview](http://localhost:8081/preview/abc)",
-            body["messages"][0]["content"],
+            "[🖥️ Open preview](http://localhost:8081/preview/abc)", content
         )
 
-    def test_outlet_preview_button_is_idempotent(self):
-        f = self._filter()
-        f.valves.PREVIEW_MODE = "both"
-        body = _assistant_body_with_file()
-        out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
-        out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
-        self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
-        self.assertEqual(
-            out2["messages"][0]["content"].count("[🖥️ Open preview]"),
-            1,
-        )
+    def test_legacy_preview_mode_values_rejected_on_construction(self):
+        """v3.x / v4.0.0 values ("artifact", "both") must be rejected when Open WebUI
+        instantiates Valves from a saved-DB blob — the Literal type narrowing catches
+        operators who haven't re-seeded Valves after the upgrade. Loud error > silent
+        no-op.
 
-    def test_outlet_preview_button_respects_other_chat_ids(self):
-        f = self._filter()
-        f.valves.PREVIEW_MODE = "both"
-        other_link = "http://localhost:8081/files/other-chat/report.pdf"
-        original = f"see {other_link}"
-        body = {"messages": [{"role": "assistant", "content": original}]}
-        out = f.outlet(body, __metadata__={"chat_id": "abc"})
-        self.assertEqual(out["messages"][0]["content"], original)
+        Note: Pydantic validates on construction by default, not on attribute
+        assignment, so we test the construction path (which is how Open WebUI
+        reconstitutes Valves from its stored JSON).
+        """
+        from pydantic import ValidationError
+        ValvesModel = computer_link_filter.Filter.Valves
+        for legacy in ("artifact", "both"):
+            with self.assertRaises(ValidationError, msg=f"{legacy!r} must be rejected"):
+                ValvesModel(PREVIEW_MODE=legacy)  # type: ignore[arg-type]
 
 
 class BrowserToolTrigger(unittest.TestCase):
@@ -516,25 +507,28 @@ class BrowserToolTrigger(unittest.TestCase):
         _prime_cache(f, "abc")
         return f
 
-    def test_outlet_appends_iframe_on_browser_tool_without_file_url(self):
-        """outlet() must inject preview iframe when a browser tool ran but produced no file."""
+    def test_outlet_appends_preview_button_on_browser_tool_without_file_url(self):
+        """outlet() must inject preview button when a browser tool ran but produced no file."""
         f = self._primed_filter()
         content = "I navigated to the page. " + self._tool_call_details(name="playwright")
-        body = {"messages": [{"role": "assistant", "content": content}]}
-        out = f.outlet(body, __metadata__={"chat_id": "abc"})
-        self.assertIn('<iframe src="http://localhost:8081/preview/abc"', out["messages"][0]["content"])
-
-    def test_outlet_preview_button_triggered_by_browser_tool(self):
-        """When PREVIEW_MODE is "both", browser-tool trigger alone is enough to inject the button."""
-        f = self._primed_filter()
-        f.valves.PREVIEW_MODE = "both"
-        content = self._tool_call_details(name="chromium")
         body = {"messages": [{"role": "assistant", "content": content}]}
         out = f.outlet(body, __metadata__={"chat_id": "abc"})
         self.assertIn(
             "[🖥️ Open preview](http://localhost:8081/preview/abc)",
             out["messages"][0]["content"],
         )
+
+    def test_outlet_browser_tool_trigger_emits_no_fenced_html_or_iframe(self):
+        """v4.1.0 invariant on the browser-tool path: no fenced html / iframe is ever
+        emitted, only the markdown button. The frontend patch turns the URL into an
+        artifact."""
+        f = self._primed_filter()
+        content = self._tool_call_details(name="chromium")
+        body = {"messages": [{"role": "assistant", "content": content}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        decorated = out["messages"][0]["content"]
+        self.assertNotIn("<iframe", decorated)
+        self.assertNotIn("```html", decorated)
 
     def test_outlet_archive_button_NOT_triggered_by_browser_tool_alone(self):
         """Archive button is meaningless without files — must stay gated on file URLs even
@@ -552,17 +546,19 @@ class BrowserToolTrigger(unittest.TestCase):
         body = {"messages": [{"role": "assistant", "content": "Use playwright to click the button."}]}
         out = f.outlet(body, __metadata__={"chat_id": "abc"})
         self.assertNotIn("<iframe", out["messages"][0]["content"])
-        self.assertNotIn("preview", out["messages"][0]["content"].lower())
+        self.assertNotIn("[🖥️ Open preview]", out["messages"][0]["content"])
 
     def test_outlet_browser_tool_trigger_is_idempotent(self):
-        """Repeated outlet() calls on browser-tool-triggered content must not duplicate iframe."""
+        """Repeated outlet() calls on browser-tool-triggered content must not duplicate the button."""
         f = self._primed_filter()
         content = self._tool_call_details(name="playwright")
         body = {"messages": [{"role": "assistant", "content": content}]}
         out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
         out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
         self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
-        self.assertEqual(out2["messages"][0]["content"].count("<iframe src="), 1)
+        self.assertEqual(
+            out2["messages"][0]["content"].count("[🖥️ Open preview]"), 1
+        )
 
 
 class OutletWithoutCache(unittest.TestCase):

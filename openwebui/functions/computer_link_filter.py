@@ -3,9 +3,9 @@
 """
 title: Computer Use Filter
 author: Open Computer Use Contributors
-version: 4.0.0
+version: 4.1.0
 required_open_webui_version: 0.5.17
-description: HTTP-fetches Computer Use system prompt from orchestrator, with LRU cache and stale-cache fallback. outlet() decorates assistant messages with a preview iframe / preview button / archive button based on PREVIEW_MODE and ARCHIVE_BUTTON Valves.
+description: HTTP-fetches Computer Use system prompt from orchestrator, with LRU cache and stale-cache fallback. outlet() decorates assistant messages with a preview button and/or archive button based on PREVIEW_MODE and ARCHIVE_BUTTON Valves. The inline-iframe artifact is no longer emitted — the frontend fix_preview_url_detection patch promotes the preview URL into an artifact on its own.
 
 This filter works in conjunction with Computer Use Tools (computer_use_tools.py).
 
@@ -20,9 +20,18 @@ FUNCTIONALITY:
 - outlet(): Decorates assistant messages whose content contains either a file URL for
   the current chat_id OR a <details type="tool_calls"> block that references a browser
   tool (playwright, chromium, screenshot, start-browser). Decoration is driven by two
-  Valves: PREVIEW_MODE ("artifact" | "button" | "both" | "off", default "artifact") and
+  Valves: PREVIEW_MODE ("button" | "off", default "button") and
   ARCHIVE_BUTTON ("on" | "off", default "on"). All decorations are idempotent (substring
   guarded) and scoped to the current chat_id. Archive button also requires a file URL.
+
+CHANGELOG (v4.1.0) — BREAKING:
+- Removed PREVIEW_MODE="artifact" / "both". outlet() no longer emits a fenced
+  ```html <iframe src="..."> block. The frontend fix_preview_url_detection patch
+  already promotes any /preview/ URL in message text into an inline artifact, so
+  the extra html block was redundant and, worse, suppressed the patch (its guard
+  `!htmlGroups.some(o=>o.html)` fails when the block is present, leaving the
+  iframe rendered as a raw code fence in chat). Only "button" and "off" remain;
+  "button" is the new default. Matches Alfa prod behaviour (v3.8.0).
 
 CHANGELOG (v4.0.0) — BREAKING:
 - Removed FILE_SERVER_URL and SYSTEM_PROMPT_URL Valves. Replaced with a single
@@ -70,14 +79,14 @@ CHANGELOG (v3.0.2):
         INJECT_SYSTEM_PROMPT (bool, default True):
             If False, inlet() skips system-prompt injection entirely (useful when
             another filter owns the prompt).
-        PREVIEW_MODE (Literal["artifact","button","both","off"], default "artifact"):
+        PREVIEW_MODE (Literal["button","off"], default "button"):
             Where the preview link appears on assistant messages.
-            - "artifact": inline fenced ```html <iframe src="{public}/preview/{chat_id}">.
-              Default. Requires an Open WebUI build that renders HTML artifacts.
             - "button": markdown [{PREVIEW_BUTTON_TEXT}]({public}/preview/{chat_id}).
-              Escape hatch for stock Open WebUI where artifact rendering is off.
-            - "both": both of the above.
-            - "off":  neither.
+              The fix_preview_url_detection frontend patch detects this URL in
+              message text and auto-opens it as an inline artifact — no fenced
+              html block needed. Works on both patched and stock Open WebUI
+              (stock renders a clickable link; patched renders inline artifact).
+            - "off": no preview link.
         ARCHIVE_BUTTON (Literal["on","off"], default "on"):
             Append a markdown [{ARCHIVE_BUTTON_TEXT}]({public}/files/{chat_id}/archive)
             link to assistant messages that contain files for the current chat_id.
@@ -183,9 +192,9 @@ class Filter:
             default=True,
             description="Inject Computer Use system prompt when tools are active. Turn off only if another filter owns the prompt.",
         )
-        PREVIEW_MODE: Literal["artifact", "button", "both", "off"] = Field(
-            default="artifact",
-            description="Where the preview link appears on assistant messages. artifact=inline iframe (default, requires artifact-rendering Open WebUI), button=markdown link (works on stock Open WebUI), both=both, off=neither.",
+        PREVIEW_MODE: Literal["button", "off"] = Field(
+            default="button",
+            description="Where the preview link appears on assistant messages. button=markdown link (the fix_preview_url_detection frontend patch turns it into an inline artifact on patched builds; stock Open WebUI shows it as a clickable link). off=no preview link.",
         )
         ARCHIVE_BUTTON: Literal["on", "off"] = Field(
             default="on",
@@ -193,7 +202,7 @@ class Filter:
         )
         PREVIEW_BUTTON_TEXT: str = Field(
             default="🖥️ Open preview",
-            description="Text for the preview-button markdown link (when PREVIEW_MODE is button or both).",
+            description="Text for the preview-button markdown link (used when PREVIEW_MODE is 'button').",
         )
         ARCHIVE_BUTTON_TEXT: str = Field(
             default="📦 Download all files as archive",
@@ -376,12 +385,12 @@ class Filter:
         __user__: Optional[dict] = None,
         __metadata__: Optional[dict] = None,
     ) -> dict:
-        """Append preview iframe artifact, preview button, and/or archive button to assistant messages with file links.
+        """Append preview button and/or archive button to assistant messages with file links.
 
-        - PREVIEW_MODE="artifact" (default): inline ```html <iframe src="…/preview/{chat_id}"> artifact.
-        - PREVIEW_MODE="button":   markdown link to the preview page — escape hatch for stock Open WebUI.
-        - PREVIEW_MODE="both":     both of the above.
-        - PREVIEW_MODE="off":      neither.
+        - PREVIEW_MODE="button" (default): markdown link to the preview page. The
+          frontend fix_preview_url_detection patch rewrites this URL into an inline
+          artifact; stock Open WebUI leaves it as a plain clickable link.
+        - PREVIEW_MODE="off":      no preview link.
         - ARCHIVE_BUTTON="on" (default): markdown link to the archive endpoint (only when files exist).
 
         The public URL used in browser-facing links comes from the cached
@@ -397,12 +406,10 @@ class Filter:
         4. public_url is rstripped before URL construction (no //preview/ or //files/).
         5. Substring-based idempotency — repeated outlet() calls do not duplicate.
         """
-        mode = self.valves.PREVIEW_MODE
-        wants_artifact = mode in ("artifact", "both")
-        wants_button = mode in ("button", "both")
+        wants_button = self.valves.PREVIEW_MODE == "button"
         wants_archive = self.valves.ARCHIVE_BUTTON == "on"
 
-        if not (wants_artifact or wants_button or wants_archive):
+        if not (wants_button or wants_archive):
             return body
 
         chat_id = __metadata__.get("chat_id") if __metadata__ else None
@@ -452,15 +459,6 @@ class Filter:
                 links.append(f"[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})")
             if links:
                 content += "\n\n" + "\n".join(links)
-
-            if wants_artifact:
-                iframe = (
-                    f'<iframe src="{preview_url}" '
-                    f'style="width:100%;height:100%;border:none" '
-                    f'allow="clipboard-write; keyboard-map"></iframe>'
-                )
-                if iframe not in content:
-                    content += "\n\n```html\n" + iframe + "\n```"
 
             message["content"] = content
 

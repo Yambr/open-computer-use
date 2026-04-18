@@ -2,6 +2,10 @@
 
 ## v0.8.12.8 (unreleased)
 
+### Breaking Changes — filter v4.1.0, preview-mode surface narrowed
+- **`PREVIEW_MODE="artifact"` and `PREVIEW_MODE="both"` removed** (closes #43). `outlet()` no longer emits a fenced ```html `<iframe>` block — it only appends a markdown preview link. The extra html block was redundant *and* actively harmful: the `fix_preview_url_detection` frontend patch is guarded by `!htmlGroups.some(o=>o.html)`, so pre-emitting an html block from the filter caused the patch to skip detection, leaving the iframe rendered as a raw code fence in chat (the #43 symptom that had been reappearing since v3.2.0). Only `"button"` and `"off"` remain; `"button"` is the new default. Matches Alfa prod v3.8.0 behaviour — the long-standing production reference was never using artifact mode to begin with.
+- **Migration**: saved `"artifact"` / `"both"` values now fail Pydantic validation on load. Re-seed Valves with `rm /app/backend/data/.computer-use-initialized` + container restart. `init.sh` will write the new `"button"` default.
+
 ### Breaking Changes — single public URL on the server
 - **Server env renamed**: `FILE_SERVER_URL` → `PUBLIC_BASE_URL`. It's now the *single source of truth* for the browser-facing URL — baked into `/system-prompt` text and returned to the Open WebUI filter via the new `X-Public-Base-URL` response header. Rename in your `.env`.
 - **Tool Valve renamed**: `FILE_SERVER_URL` → `ORCHESTRATOR_URL` (same semantics — internal URL for MCP forwarding).
@@ -25,7 +29,8 @@
 - **sub-agent `max_turns` default inconsistency**: the Open WebUI tool's `sub_agent(max_turns=...)` signature defaulted to 50, silently overriding the server's 25 default on every call. Unified to 25 alongside a sweep of stale doc references (docs/SKILLS.md, skills/public/sub-agent/references/usage.md).
 
 ### Tests
-- **Filter — `BrowserToolTrigger` class** (10 tests): exercises the new browser-tool trigger — every keyword, html-escaped `arguments="…"` (production delivery form), free-text scoping, non-tool_calls `<details>` blocks, empty content, iframe injection, preview button injection, archive button still gated on files, idempotency across repeated `outlet()` calls.
+- **Filter — `BrowserToolTrigger` class** (10 tests): exercises the new browser-tool trigger — every keyword, html-escaped `arguments="…"` (production delivery form), free-text scoping, non-tool_calls `<details>` blocks, empty content, preview-button injection, archive button still gated on files, invariant that no fenced-html or raw iframe is ever emitted, idempotency across repeated `outlet()` calls.
+- **Filter — legacy-value guard**: `test_legacy_preview_mode_values_rejected_on_construction` asserts that saved `"artifact"` / `"both"` Valve values from v3.x / v4.0.0 DBs fail Pydantic validation loudly instead of silently falling through.
 - **Server — `test_startup_warnings.py`** (3 tests): env unset → warn; custom URL → silent; explicit default literal → warn.
 
 ### Documentation

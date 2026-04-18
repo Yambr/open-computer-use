@@ -16,7 +16,7 @@ Without this filter, the model won't know about skills or how to generate file d
 | Valve | Default | Description |
 |-------|---------|-------------|
 | `ORCHESTRATOR_URL` | `http://computer-use-server:8081` | Internal URL of Computer Use server (server→server fetch of `/system-prompt`). Not browser-facing — the public URL is owned by the server. |
-| `PREVIEW_MODE` | `"artifact"` | Where the preview link appears: `artifact` \| `button` \| `both` \| `off` |
+| `PREVIEW_MODE` | `"button"` | Where the preview link appears: `button` (markdown link — the frontend patch promotes it to an inline artifact) \| `off` |
 | `ARCHIVE_BUTTON` | `"on"` | Add "Download archive" button to responses: `on` \| `off` |
 | `INJECT_SYSTEM_PROMPT` | `true` | Inject skills and file URL into system prompt |
 

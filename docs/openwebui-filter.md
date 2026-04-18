@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Computer Use Filter (`openwebui/functions/computer_link_filter.py`) is the only integration point between Open WebUI and the Computer Use Server. Its `inlet()` fetches the server-baked system prompt over HTTP and injects it into the conversation when the `ai_computer_use` tool is active. Its `outlet()` decorates assistant messages that contain sandbox file URLs with a preview iframe artifact, an opt-in preview link, and an archive-download link — giving stock Open WebUI deployments full access to the sandbox preview SPA without any frontend patches.
+The Computer Use Filter (`openwebui/functions/computer_link_filter.py`) is the only integration point between Open WebUI and the Computer Use Server. Its `inlet()` fetches the server-baked system prompt over HTTP and injects it into the conversation when the `ai_computer_use` tool is active. Its `outlet()` decorates assistant messages that contain sandbox file URLs with a markdown preview link and an archive-download link. On patched Open WebUI builds (see Path B below) the preview link is auto-promoted to an inline artifact by the `fix_preview_url_detection` frontend patch; on stock builds it stays a one-click link — either way, the user reaches the preview SPA without a rebuild.
 
 The filter is the single source of truth for the client-side URL shape; the server owns prompt content and preview rendering. Read the file itself for the authoritative Valve defaults and behaviour.
 
@@ -22,17 +22,19 @@ When the AI generates a file, the preview panel shown above should open on the r
 
 ### How the preview gets rendered
 
-The filter's `outlet()` appends a fenced ```html block containing an `<iframe src="{PUBLIC_BASE_URL}/preview/{chat_id}">` to every assistant message that references a sandbox file. The URL comes from the server's `PUBLIC_BASE_URL` env var — delivered to the filter via the `X-Public-Base-URL` response header on `/system-prompt` and cached alongside the prompt, so the filter never needs its own copy of the public URL. Open WebUI's **artifacts** feature is what turns that block into the side panel. *Stock* Open WebUI renders the artifact only when you click it — it does not auto-open. Our `docker-compose.webui.yml` build ships a patch (`fix_artifacts_auto_show`) that makes it auto-open; stock builds don't have that patch.
+The filter's `outlet()` appends a markdown link `[🖥️ Open preview]({PUBLIC_BASE_URL}/preview/{chat_id})` to every assistant message that references a sandbox file. The URL comes from the server's `PUBLIC_BASE_URL` env var — delivered to the filter via the `X-Public-Base-URL` response header on `/system-prompt` and cached alongside the prompt, so the filter never needs its own copy of the public URL.
 
-So if you run your own Open WebUI image, you have two options.
+On *stock* Open WebUI the link stays a link: user clicks it, preview opens in a new tab. On *patched* Open WebUI (our `docker-compose.webui.yml` build) the `fix_preview_url_detection` patch sees `/preview/{chat_id}` in the message text and pushes a synthetic `<iframe>` artifact into the chat's `htmlGroups`. A second patch, `fix_artifacts_auto_show`, then auto-opens the side panel. No click required.
 
-### Path A — Add a "preview" button (zero-setup, works on stock Open WebUI)
+> **v4.1.0 note:** earlier versions also embedded a raw fenced ```html `<iframe>` block straight into the message. That turned out to be a foot-gun — the frontend patch's guard (`!htmlGroups.some(o=>o.html)`) skipped detection when the block was present, and stock Open WebUI rendered it as a visible code fence. v4.1.0 relies solely on the markdown link plus the patch.
 
-In Open WebUI → Admin Panel → Functions → `computer_link_filter` → Valves, set `PREVIEW_MODE=button` (or `both` to keep the iframe too). Every message with a generated file now gets a `🖥️ Open preview` markdown link that opens the preview SPA in a new tab. One click, no patches, no rebuild. See [Valves reference](#valves-reference).
+### Path A — Stock Open WebUI (zero setup)
+
+Do nothing — the filter already emits the markdown link. The user clicks `🖥️ Open preview` and the preview SPA opens in a new tab. Set `PREVIEW_MODE=off` in Valves if you don't want the link at all. See [Valves reference](#valves-reference).
 
 ### Path B — Apply our patches to Open WebUI (auto-opening side panel)
 
-If you want the artifact to pop open automatically like in the screenshot above, use our patched Open WebUI build:
+If you want the preview to pop open automatically inside the artifact panel like in the screenshot above, use our patched Open WebUI build:
 
 - **Easiest:** use `docker-compose.webui.yml` from the repo root. It builds Open WebUI with `fix_artifacts_auto_show` and `fix_preview_url_detection` pre-applied.
 - **Custom image:** if you maintain your own Open WebUI image, copy the two patch scripts (`openwebui/patches/fix_artifacts_auto_show.py` and `openwebui/patches/fix_preview_url_detection.py`) and run them against `/app/build/_app/immutable/chunks/*.js` at build time — see [`openwebui/Dockerfile`](../openwebui/Dockerfile) lines 10–18 for the exact invocation. Both patches are idempotent and tested against Open WebUI v0.8.11–0.8.12.
@@ -62,23 +64,17 @@ For the full embedding checklist see [README.md → Required setup when embeddin
 |------|------|---------|---------|
 | `ORCHESTRATOR_URL` | str | `"http://computer-use-server:8081"` | **Internal** URL of the Computer Use server. Used for server→server fetch of `/system-prompt` from inside the open-webui container. Never appears in browser-facing URLs — the public URL comes from the server's `PUBLIC_BASE_URL` env var via the `X-Public-Base-URL` response header. Trailing slash tolerated. Non-http(s) schemes are rejected. |
 | `INJECT_SYSTEM_PROMPT` | bool | `True` | If `False`, `inlet()` skips system-prompt injection entirely — useful when another filter owns the prompt. |
-| `PREVIEW_MODE` | Literal `"artifact" \| "button" \| "both" \| "off"` | `"artifact"` | Where the preview link appears on assistant messages. `artifact` = inline iframe (requires artifact-rendering Open WebUI, see Path B). `button` = markdown link (works on stock Open WebUI, see Path A). `both` = both. `off` = neither. |
+| `PREVIEW_MODE` | Literal `"button" \| "off"` | `"button"` | Whether to emit the markdown preview link. `button` = emit `[🖥️ Open preview]({base}/preview/{chat_id})` (the `fix_preview_url_detection` frontend patch promotes it to an inline artifact on patched builds; stock Open WebUI leaves it as a plain clickable link). `off` = no preview link. |
 | `ARCHIVE_BUTTON` | Literal `"on" \| "off"` | `"on"` | Append `[{ARCHIVE_BUTTON_TEXT}]({base}/files/{chat_id}/archive)` to assistant messages that contain files for the current chat. |
-| `PREVIEW_BUTTON_TEXT` | str | `"🖥️ Open preview"` | Label for the preview-button markdown link (used when `PREVIEW_MODE` is `button` or `both`). |
+| `PREVIEW_BUTTON_TEXT` | str | `"🖥️ Open preview"` | Label for the preview-button markdown link (used when `PREVIEW_MODE` is `button`). |
 | `ARCHIVE_BUTTON_TEXT` | str | `"📦 Download all files as archive"` | Label for the archive-download link (used when `ARCHIVE_BUTTON` is `on`). |
 
 ## Preview UX: which `PREVIEW_MODE` fits you?
 
-- **`PREVIEW_MODE="artifact"`** (default). Every assistant message containing a sandbox file URL is decorated with a fenced ```html block wrapping an `<iframe>` whose `src` points at `/preview/{chat_id}`. Deployments that render fenced html as artifacts show the Computer Use preview SPA inline, no click required. Our `docker-compose.webui.yml` build ships the `fix_artifacts_auto_show` patch — pair with this mode.
-- **`PREVIEW_MODE="button"`**. The same trigger appends `[🖥️ Open preview](…)` instead — opens the preview SPA in a new tab, one click, but works on stock Open WebUI without artifact support.
-- **`PREVIEW_MODE="both"`**. Both decorations. Useful while comparing rendering behaviour across deployments or during migrations.
-- **`PREVIEW_MODE="off"`**. Neither. Combine with `ARCHIVE_BUTTON="off"` to make `outlet()` a no-op.
+- **`PREVIEW_MODE="button"`** (default). Every assistant message containing a sandbox file URL (or a `<details type="tool_calls">` block referencing a browser tool) is decorated with a markdown link `[🖥️ Open preview]({base}/preview/{chat_id})`. On stock Open WebUI the user clicks it to open the preview SPA in a new tab. On patched builds (`fix_preview_url_detection` + `fix_artifacts_auto_show`, shipped by `docker-compose.webui.yml`) the same URL is detected in text and auto-opened as an inline artifact — no click.
+- **`PREVIEW_MODE="off"`**. No preview link. Combine with `ARCHIVE_BUTTON="off"` to make `outlet()` a no-op.
 
-Rule of thumb:
-
-- UI renders html artifacts → keep the default (`PREVIEW_MODE="artifact"`).
-- Stock Open WebUI → `PREVIEW_MODE="button"`.
-- During evaluation → `PREVIEW_MODE="both"`.
+If you're upgrading from v4.0.0 / v3.x and saved `"artifact"` or `"both"` in your Valves, Pydantic validation will now reject the saved value — re-seed Valves after upgrade (`rm /app/backend/data/.computer-use-initialized` + restart).
 
 ## Archive button
 
@@ -96,11 +92,15 @@ Rule of thumb:
 - Confirm the Computer Use Server is running: `docker compose ps` should list the `computer-use-server` container as healthy.
 - Copy the `src=` value out of the iframe and `curl` it directly — the SPA HTML should come back with HTTP 200.
 
-### Button/iframe never appears
+### Preview link or archive button never appears
 
-- The assistant message must contain at least one URL matching `{PUBLIC_BASE_URL}/files/{chat_id}/…`. No file URL, no decoration.
+- The assistant message must contain at least one URL matching `{PUBLIC_BASE_URL}/files/{chat_id}/…` (or a `<details type="tool_calls">` block referencing a browser tool — covers pure-navigation sessions). No trigger, no decoration.
 - `chat_id` must reach `outlet()` via `__metadata__`. Restart Open WebUI after toggling Valves if the model didn't re-init.
-- `PREVIEW_MODE` must be `"artifact"`, `"button"`, or `"both"`, OR `ARCHIVE_BUTTON` must be `"on"`. When `PREVIEW_MODE="off"` AND `ARCHIVE_BUTTON="off"`, `outlet()` returns the body unchanged.
+- `PREVIEW_MODE` must be `"button"` OR `ARCHIVE_BUTTON` must be `"on"`. When both are `"off"`, `outlet()` returns the body unchanged.
+
+### Preview opens in a new tab instead of inside the artifact panel
+
+You are running stock Open WebUI — the markdown link stays a link. Either live with the click (fine on mobile/minimal deploys) or apply Path B (`fix_preview_url_detection` + `fix_artifacts_auto_show`) to get the inline artifact panel.
 
 ### "Non-http scheme" error in logs
 
@@ -108,6 +108,7 @@ Caused by setting `ORCHESTRATOR_URL` to a `file://`, `ftp://`, or similarly non-
 
 ## Version history
 
+- **v4.1.0** — Breaking: removed `PREVIEW_MODE="artifact"` and `PREVIEW_MODE="both"`. `outlet()` no longer emits a fenced ```html `<iframe>` block; only the markdown preview link remains. The extra html block was redundant *and* actively harmful — the `fix_preview_url_detection` frontend patch guards on `!htmlGroups.some(o=>o.html)`, so when outlet pre-emitted an html block the patch skipped detection and the iframe rendered as a raw code fence in chat (issue #43 symptom). `"button"` is the new default; matches Alfa prod v3.8.0 behaviour. Saved `"artifact"` / `"both"` values fail Pydantic validation — re-seed Valves after upgrade.
 - **v4.0.0** — Breaking: removed `FILE_SERVER_URL` and `SYSTEM_PROMPT_URL` Valves, replaced with a single `ORCHESTRATOR_URL` Valve (internal URL). The public URL is now owned by the server (`PUBLIC_BASE_URL` env) and delivered to the filter via the `X-Public-Base-URL` response header on `/system-prompt`. `_fetch_system_prompt()` now returns `(public_url, prompt)`; `outlet()` reads `public_url` from the cache instead of its own Valve. Tool's `FILE_SERVER_URL` Valve was renamed to `ORCHESTRATOR_URL` for consistency. `init.sh` re-seeds the new Valve names.
 - **v3.4.0** — Removed the three legacy v3.2.0 boolean Valves (`ENABLE_PREVIEW_ARTIFACT`, `ENABLE_PREVIEW_BUTTON`, `ENABLE_ARCHIVE_BUTTON`) and their migration bridge. `PREVIEW_MODE` and `ARCHIVE_BUTTON` are the only knobs. Users upgrading straight from v3.2.0 revert to defaults — upgrade via v3.3.0 first if you need to preserve saved preferences.
 - **v3.3.0** — Collapsed three boolean preview/archive Valves (`ENABLE_PREVIEW_ARTIFACT`, `ENABLE_PREVIEW_BUTTON`, `ENABLE_ARCHIVE_BUTTON`) into two Literal Valves (`PREVIEW_MODE`, `ARCHIVE_BUTTON`). Existing v3.2.0 deployments were migrated transparently by a Pydantic `@model_validator(mode="after")`. `outlet()` behaviour and all v3.1.0/v3.2.0 invariants preserved.
