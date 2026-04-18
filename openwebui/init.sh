@@ -95,6 +95,18 @@ curl -sf -X POST "$WEBUI_URL/api/v1/tools/id/ai_computer_use/valves/update" \
     -d "{\"FILE_SERVER_URL\": \"$MCP_SERVER_URL\", \"MCP_API_KEY\": \"$MCP_API_KEY\", \"DEBUG_LOGGING\": false}" >/dev/null
 echo "[init] Valves set: FILE_SERVER_URL=$MCP_SERVER_URL"
 
+# Make tool public-read so non-admin users can see & call it.
+# Open WebUI's UI "Public" toggle writes BOTH group:* and user:* wildcards — we mirror
+# that exactly. Without these grants, only the admin who created the tool sees it.
+curl -sf -X POST "$WEBUI_URL/api/v1/tools/id/ai_computer_use/access/update" \
+    -H "$AUTH" -H "Content-Type: application/json" \
+    -d '{"access_grants":[
+           {"principal_type":"group","principal_id":"*","permission":"read"},
+           {"principal_type":"user","principal_id":"*","permission":"read"}
+         ]}' >/dev/null 2>&1 \
+    && echo "[init] Tool marked public (all users + all groups, read)." \
+    || echo "[init] WARNING: Could not set tool public access."
+
 # Install function: computer_link_filter.py
 echo "[init] Installing Computer Use filter..."
 FUNC_PAYLOAD=$(python3 -c "
@@ -128,16 +140,58 @@ curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/valves/upda
     -d "{\"FILE_SERVER_URL\": \"$MCP_SERVER_EXTERNAL_URL\", \"ARCHIVE_BUTTON\": \"on\", \"INJECT_SYSTEM_PROMPT\": true}" >/dev/null 2>&1 || true
 echo "[init] Filter valves set: FILE_SERVER_URL=$MCP_SERVER_EXTERNAL_URL (external/browser URL)"
 
-# Enable filter globally
-curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/toggle" \
-    -H "$AUTH" >/dev/null 2>&1 || true
-echo "[init] Filter enabled globally."
+# Enable filter (is_active=True) and mark it global (is_global=True).
+# Open WebUI v0.8.12 has TWO separate endpoints: /toggle flips is_active,
+# /toggle/global flips is_global. Active-but-not-global is silently inert —
+# the filter loads but is never applied to chats. Query state first and only
+# flip when needed so the script stays idempotent on re-runs.
+FILTER_STATE=$(curl -sf "$WEBUI_URL/api/v1/functions/id/computer_use_filter" -H "$AUTH" 2>/dev/null || echo "{}")
+IS_ACTIVE=$(echo "$FILTER_STATE" | python3 -c "import sys,json;print(json.load(sys.stdin).get('is_active',False))" 2>/dev/null || echo "False")
+IS_GLOBAL=$(echo "$FILTER_STATE" | python3 -c "import sys,json;print(json.load(sys.stdin).get('is_global',False))" 2>/dev/null || echo "False")
 
-# Enable tool for all models globally (default tool)
-echo "[init] Enabling tool globally for all models..."
-curl -sf -X POST "$WEBUI_URL/api/v1/configs/models/default/update" \
-    -H "$AUTH" -H "Content-Type: application/json" \
-    -d '{"toolIds": ["ai_computer_use"], "filterIds": ["computer_use_filter"], "params": {"function_calling": "native", "stream_response": true}}' >/dev/null 2>&1 || true
+if [ "$IS_ACTIVE" != "True" ]; then
+    curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/toggle" \
+        -H "$AUTH" >/dev/null 2>&1 || true
+    echo "[init] Filter activated."
+else
+    echo "[init] Filter already active."
+fi
+
+if [ "$IS_GLOBAL" != "True" ]; then
+    curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/toggle/global" \
+        -H "$AUTH" >/dev/null 2>&1 || true
+    echo "[init] Filter marked global (applies to all chats)."
+else
+    echo "[init] Filter already global."
+fi
+
+# Set global DEFAULT_MODEL_PARAMS so every model uses Native Function Calling + streaming
+# without per-model Advanced Params clicks. The old /api/v1/configs/models/default/update
+# endpoint does not exist in Open WebUI v0.8.12 (returns 405) — use POST /api/v1/configs/models
+# which takes the full ModelsConfigForm and merges DEFAULT_MODEL_PARAMS. We preserve
+# existing fields so we don't clobber DEFAULT_MODELS / DEFAULT_MODEL_METADATA.
+echo "[init] Ensuring DEFAULT_MODEL_PARAMS has native function calling + streaming..."
+MODELS_CFG=$(curl -sf "$WEBUI_URL/api/v1/configs/models" -H "$AUTH" 2>/dev/null || echo "{}")
+MERGED_CFG=$(python3 -c "
+import json, sys
+cfg = json.loads('''$MODELS_CFG''' or '{}')
+params = cfg.get('DEFAULT_MODEL_PARAMS') or {}
+params.setdefault('function_calling', 'native')
+params.setdefault('stream_response', True)
+cfg['DEFAULT_MODEL_PARAMS'] = params
+cfg.setdefault('DEFAULT_MODELS', cfg.get('DEFAULT_MODELS') or '')
+cfg.setdefault('DEFAULT_PINNED_MODELS', cfg.get('DEFAULT_PINNED_MODELS') or '')
+cfg.setdefault('MODEL_ORDER_LIST', cfg.get('MODEL_ORDER_LIST') or [])
+cfg.setdefault('DEFAULT_MODEL_METADATA', cfg.get('DEFAULT_MODEL_METADATA') or {})
+print(json.dumps(cfg))
+" 2>/dev/null)
+if [ -n "$MERGED_CFG" ]; then
+    curl -sf -X POST "$WEBUI_URL/api/v1/configs/models" \
+        -H "$AUTH" -H "Content-Type: application/json" \
+        -d "$MERGED_CFG" >/dev/null 2>&1 \
+        && echo "[init] DEFAULT_MODEL_PARAMS set (function_calling=native, stream_response=true)." \
+        || echo "[init] WARNING: Could not update DEFAULT_MODEL_PARAMS (endpoint may differ on this Open WebUI version)."
+fi
 
 # Also try setting via workspace model (fallback for v0.8.11–0.8.12)
 # Get first available model and create a workspace model with native FC
