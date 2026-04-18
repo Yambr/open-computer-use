@@ -320,7 +320,7 @@ class PreviewArtifact(unittest.TestCase):
 
     def test_outlet_iframe_artifact_disabled_when_valve_false(self):
         f = _make_filter()
-        f.valves.ENABLE_PREVIEW_ARTIFACT = False
+        f.valves.PREVIEW_MODE = "button"  # artifact disabled (only button)
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
         self.assertNotIn("<iframe", content)
@@ -367,7 +367,7 @@ class PreviewButton(unittest.TestCase):
 
     def test_outlet_preview_button_appended_when_enabled(self):
         f = _make_filter()
-        f.valves.ENABLE_PREVIEW_BUTTON = True
+        f.valves.PREVIEW_MODE = "both"
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         self.assertIn(
             "[🖥️ Open preview](http://localhost:8081/preview/abc)",
@@ -376,7 +376,7 @@ class PreviewButton(unittest.TestCase):
 
     def test_outlet_preview_button_is_idempotent(self):
         f = _make_filter()
-        f.valves.ENABLE_PREVIEW_BUTTON = True
+        f.valves.PREVIEW_MODE = "both"
         body = _assistant_body_with_file()
         out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
         out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
@@ -388,7 +388,7 @@ class PreviewButton(unittest.TestCase):
 
     def test_outlet_preview_button_respects_other_chat_ids(self):
         f = _make_filter()
-        f.valves.ENABLE_PREVIEW_BUTTON = True
+        f.valves.PREVIEW_MODE = "both"
         other_link = "http://localhost:8081/files/other-chat/report.pdf"
         original = f"see {other_link}"
         body = {"messages": [{"role": "assistant", "content": original}]}
@@ -452,9 +452,9 @@ class BrowserToolTrigger(unittest.TestCase):
         self.assertIn('<iframe src="http://localhost:8081/preview/abc"', out["messages"][0]["content"])
 
     def test_outlet_preview_button_triggered_by_browser_tool(self):
-        """When ENABLE_PREVIEW_BUTTON is on, browser-tool trigger alone is enough."""
+        """When PREVIEW_MODE is "both", browser-tool trigger alone is enough to inject the button."""
         f = _make_filter()
-        f.valves.ENABLE_PREVIEW_BUTTON = True
+        f.valves.PREVIEW_MODE = "both"
         content = self._tool_call_details(name="chromium")
         body = {"messages": [{"role": "assistant", "content": content}]}
         out = f.outlet(body, __metadata__={"chat_id": "abc"})
@@ -490,6 +490,102 @@ class BrowserToolTrigger(unittest.TestCase):
         out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
         self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
         self.assertEqual(out2["messages"][0]["content"].count("<iframe src="), 1)
+
+
+class MigrationFromV320(unittest.TestCase):
+    """Covers the v3.2.0 → v3.3.0 Valves backward-compat migration.
+
+    The Filter.Valves._migrate_legacy @model_validator maps legacy boolean
+    Valves (ENABLE_PREVIEW_ARTIFACT, ENABLE_PREVIEW_BUTTON, ENABLE_ARCHIVE_BUTTON)
+    onto the new Literal Valves (PREVIEW_MODE, ARCHIVE_BUTTON) so existing
+    deployments keep their user-saved preferences on upgrade.
+
+    Critical invariant: the validator must NOT overwrite a new field the user
+    explicitly set post-upgrade. model_fields_set is the gate.
+    """
+
+    def _valves(self, **kwargs) -> "computer_link_filter.Filter.Valves":
+        """Instantiate Valves the same way Open WebUI does: Valves(**db_dict)."""
+        return computer_link_filter.Filter.Valves(**kwargs)
+
+    def test_fresh_deploy_uses_new_defaults(self):
+        """Empty DB dict → new default PREVIEW_MODE=artifact, ARCHIVE_BUTTON=on.
+        This is what a brand-new Open WebUI install sees on first load."""
+        v = self._valves()
+        self.assertEqual(v.PREVIEW_MODE, "artifact")
+        self.assertEqual(v.ARCHIVE_BUTTON, "on")
+        self.assertIsNone(v.ENABLE_PREVIEW_ARTIFACT)
+        self.assertIsNone(v.ENABLE_PREVIEW_BUTTON)
+        self.assertIsNone(v.ENABLE_ARCHIVE_BUTTON)
+
+    def test_legacy_artifact_true_button_false_migrates_to_artifact(self):
+        """v3.2.0 default state (artifact=True, button=False) → PREVIEW_MODE=artifact."""
+        v = self._valves(ENABLE_PREVIEW_ARTIFACT=True, ENABLE_PREVIEW_BUTTON=False)
+        self.assertEqual(v.PREVIEW_MODE, "artifact")
+
+    def test_legacy_artifact_false_button_true_migrates_to_button(self):
+        """User who flipped to button-only on v3.2.0 keeps button-only on v3.3.0."""
+        v = self._valves(ENABLE_PREVIEW_ARTIFACT=False, ENABLE_PREVIEW_BUTTON=True)
+        self.assertEqual(v.PREVIEW_MODE, "button")
+
+    def test_legacy_both_true_migrates_to_both(self):
+        """User who enabled both on v3.2.0 keeps both on v3.3.0."""
+        v = self._valves(ENABLE_PREVIEW_ARTIFACT=True, ENABLE_PREVIEW_BUTTON=True)
+        self.assertEqual(v.PREVIEW_MODE, "both")
+
+    def test_legacy_both_false_migrates_to_off(self):
+        """User who disabled all preview UI on v3.2.0 keeps it disabled on v3.3.0."""
+        v = self._valves(ENABLE_PREVIEW_ARTIFACT=False, ENABLE_PREVIEW_BUTTON=False)
+        self.assertEqual(v.PREVIEW_MODE, "off")
+
+    def test_legacy_archive_button_false_migrates_to_off(self):
+        v = self._valves(ENABLE_ARCHIVE_BUTTON=False)
+        self.assertEqual(v.ARCHIVE_BUTTON, "off")
+
+    def test_legacy_archive_button_true_maps_to_on(self):
+        v = self._valves(ENABLE_ARCHIVE_BUTTON=True)
+        self.assertEqual(v.ARCHIVE_BUTTON, "on")
+
+    def test_explicit_new_value_wins_over_stale_legacy(self):
+        """CRITICAL — a stale legacy value must NOT overwrite the user's new choice.
+
+        Scenario: user upgrades to v3.3.0, sets PREVIEW_MODE='off' in the UI,
+        saves. Open WebUI persists {'PREVIEW_MODE': 'off'} but the legacy field
+        may still exist in the DB row from before the save (Open WebUI does a
+        partial update via exclude_unset). On next load, Valves(**db_dict)
+        receives BOTH. The explicit PREVIEW_MODE wins.
+        """
+        v = self._valves(PREVIEW_MODE="off", ENABLE_PREVIEW_ARTIFACT=True)
+        self.assertEqual(v.PREVIEW_MODE, "off")
+
+    def test_explicit_new_archive_wins_over_stale_legacy(self):
+        v = self._valves(ARCHIVE_BUTTON="off", ENABLE_ARCHIVE_BUTTON=True)
+        self.assertEqual(v.ARCHIVE_BUTTON, "off")
+
+    def test_only_one_legacy_preview_field_set_still_migrates_correctly(self):
+        """If the DB has only artifact=True (button unsaved), treat button as None."""
+        v = self._valves(ENABLE_PREVIEW_ARTIFACT=True)
+        self.assertEqual(v.PREVIEW_MODE, "artifact")
+        v2 = self._valves(ENABLE_PREVIEW_BUTTON=True)
+        self.assertEqual(v2.PREVIEW_MODE, "button")
+
+    def test_outlet_honours_migrated_preview_mode(self):
+        """End-to-end: legacy user's saved preference drives outlet() output."""
+        f = _make_filter()
+        f.valves = self._valves(ENABLE_PREVIEW_ARTIFACT=False, ENABLE_PREVIEW_BUTTON=True)
+        f.valves.FILE_SERVER_URL = "http://localhost:8081"
+        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        content = body["messages"][0]["content"]
+        self.assertIn("[🖥️ Open preview](http://localhost:8081/preview/abc)", content)
+        self.assertNotIn("<iframe", content)
+
+    def test_outlet_honours_migrated_archive_button(self):
+        """Legacy ENABLE_ARCHIVE_BUTTON=False must suppress archive link in outlet."""
+        f = _make_filter()
+        f.valves = self._valves(ENABLE_ARCHIVE_BUTTON=False)
+        f.valves.FILE_SERVER_URL = "http://localhost:8081"
+        body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
+        self.assertNotIn("archive", body["messages"][0]["content"].lower())
 
 
 class DocstringDriftGuard(unittest.TestCase):

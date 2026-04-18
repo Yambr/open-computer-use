@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.8.12.8 (unreleased)
+
+### Features
+- **Filter v3.2.0 → v3.3.0 — simpler Valves**: the three boolean preview/archive Valves (`ENABLE_PREVIEW_ARTIFACT`, `ENABLE_PREVIEW_BUTTON`, `ENABLE_ARCHIVE_BUTTON`) collapse into two Literal Valves (`PREVIEW_MODE` ∈ `artifact | button | both | off`, `ARCHIVE_BUTTON` ∈ `on | off`). Existing deployments are migrated transparently by a Pydantic `@model_validator(mode="after")` — no manual action needed. The legacy fields remain visible in the Valves UI labeled DEPRECATED and will be removed in filter v4.0 / v0.9.0.
+- **Startup warning for default `FILE_SERVER_URL`** (closes #59): the orchestrator logs a one-time warning when the env var is still the hardcoded internal-DNS default (`http://computer-use-server:8081`), catching the #43-class "preview panel never appears" misconfiguration at boot rather than silently in production. Docs cross-link from the warning body.
+
+### Fixes
+- **Filter — browser-only sessions got no preview**: `outlet()` previously required a `/files/{chat_id}/…` URL in the assistant message to inject preview decorations, so pure browser sessions (playwright / chromium with no downloadable file) saw nothing. Detection now also fires on a `<details type="tool_calls">` block that references a browser tool. Scoped to the tag — free-text keyword mentions never false-trigger. Archive button stays gated on file URLs (unchanged).
+- **sub-agent `max_turns` default inconsistency**: the Open WebUI tool's `sub_agent(max_turns=...)` signature defaulted to 50, silently overriding the server's 25 default on every call. Unified to 25 alongside a sweep of stale doc references (docs/SKILLS.md, skills/public/sub-agent/references/usage.md).
+
+### Tests
+- **Filter — `BrowserToolTrigger` class** (10 tests): exercises the new browser-tool trigger — every keyword, html-escaped `arguments="…"` (production delivery form), free-text scoping, non-tool_calls `<details>` blocks, empty content, iframe injection, preview button injection, archive button still gated on files, idempotency across repeated `outlet()` calls.
+- **Filter — `MigrationFromV320` class** (12 tests): covers every legacy → new mapping (artifact/button combinations, archive), fresh deploys, and the critical "explicit new value wins over stale legacy" invariant that protects users who re-save their Valves after upgrade.
+- **Server — `test_startup_warnings.py`** (3 tests): env unset → warn; custom URL → silent; explicit default literal → warn.
+
+### Documentation
+- `docs/openwebui-filter.md`: v3.3.0 Valves reference, "Preview UX: which PREVIEW_MODE fits you?", "Upgrading from v3.2.0" migration section.
+- `openwebui/functions/README.md` Valve table refreshed.
+- `openwebui/init.sh` bootstrap payload updated to new schema field names so fresh deployments start with new names in the DB.
+
+### Dependencies
+- `claude-code` pinned to `2.1.114` in the sandbox `Dockerfile` for reproducible builds. `latest` still available as an override.
+
 ## v0.8.12.7 (2026-04-13)
 
 ### Features

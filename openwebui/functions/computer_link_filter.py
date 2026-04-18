@@ -3,9 +3,9 @@
 """
 title: Computer Use Filter
 author: Open Computer Use Contributors
-version: 3.2.0
+version: 3.3.0
 required_open_webui_version: 0.5.17
-description: HTTP-fetches Computer Use system prompt from orchestrator, with LRU cache and stale-cache fallback. outlet() appends a preview iframe artifact (default) or a markdown preview button (opt-in) to assistant messages containing Computer Use file links.
+description: HTTP-fetches Computer Use system prompt from orchestrator, with LRU cache and stale-cache fallback. outlet() decorates assistant messages with a preview iframe / preview button / archive button based on PREVIEW_MODE and ARCHIVE_BUTTON Valves.
 
 This filter works in conjunction with Computer Use Tools (computer_use_tools.py).
 
@@ -15,11 +15,24 @@ FUNCTIONALITY:
   substitutes {file_base_url}, {archive_url}, {chat_id} and assembles <available_skills>)
   and injects it into the system message. Cache: 5-minute TTL, max 100 entries,
   O(1) LRU eviction. On fetch failure: serve stale cache if present; else skip injection.
-- outlet(): Appends a preview iframe artifact (ENABLE_PREVIEW_ARTIFACT=True by default)
-  and/or a markdown preview button (ENABLE_PREVIEW_BUTTON=False by default) and/or an
-  archive-download button (ENABLE_ARCHIVE_BUTTON=True by default) to assistant messages
-  containing file URLs for the current chat_id. All three are idempotent (substring
-  guarded) and scoped to the current chat_id.
+- outlet(): Decorates assistant messages whose content contains either a file URL for
+  the current chat_id OR a <details type="tool_calls"> block that references a browser
+  tool (playwright, chromium, screenshot, start-browser). Decoration is driven by two
+  Valves: PREVIEW_MODE ("artifact" | "button" | "both" | "off", default "artifact") and
+  ARCHIVE_BUTTON ("on" | "off", default "on"). All decorations are idempotent (substring
+  guarded) and scoped to the current chat_id. Archive button also requires a file URL.
+
+CHANGELOG (v3.3.0):
+- Collapsed three boolean preview/archive Valves (ENABLE_PREVIEW_ARTIFACT,
+  ENABLE_PREVIEW_BUTTON, ENABLE_ARCHIVE_BUTTON) into two Literal Valves
+  (PREVIEW_MODE, ARCHIVE_BUTTON). Fewer, clearer knobs.
+- Backward compatible: legacy fields are still read from existing deployments and
+  migrated transparently by a @model_validator. Users who saved v3.2.0 settings
+  keep them on upgrade. Legacy fields remain visible in the Valves UI labeled
+  DEPRECATED until filter v4.0 / v0.9.0.
+- outlet() rewritten to read PREVIEW_MODE + ARCHIVE_BUTTON only. No behavioural
+  regression — the same four user-facing states (artifact / button / both / off)
+  remain reachable.
 
 CHANGELOG (v3.2.0):
 - Added ENABLE_PREVIEW_ARTIFACT Valve (default True) — outlet() now emits an inline
@@ -50,30 +63,44 @@ CHANGELOG (v3.0.2):
         FILE_SERVER_URL (str, default "http://localhost:8081"):
             Orchestrator base URL. The filter derives /system-prompt,
             /files/{chat_id}/…, /files/{chat_id}/archive, and /preview/{chat_id}
-            from this. Trailing slash is tolerated (stripped internally).
+            from this. Trailing slash is tolerated (stripped internally). Must
+            match the server-side FILE_SERVER_URL env var — see
+            docs/openwebui-filter.md#two-file_server_url-settings--they-must-match.
         SYSTEM_PROMPT_URL (str, default ""):
-            Override URL for the /system-prompt endpoint. Empty means derive from
-            FILE_SERVER_URL. Non-http(s) schemes are rejected.
+            Advanced: override URL for the /system-prompt endpoint. Empty means
+            derive from FILE_SERVER_URL. Non-http(s) schemes are rejected.
         INJECT_SYSTEM_PROMPT (bool, default True):
             If False, inlet() skips system-prompt injection entirely (useful when
             another filter owns the prompt).
-        ENABLE_ARCHIVE_BUTTON (bool, default True):
-            If True, outlet() appends `[{ARCHIVE_BUTTON_TEXT}]({base}/files/{chat_id}/archive)`
-            to assistant messages containing file URLs for the current chat_id. Idempotent.
-        ARCHIVE_BUTTON_TEXT (str, default "📦 Download all files as archive"):
-            Label for the archive-download markdown link.
-        ENABLE_PREVIEW_ARTIFACT (bool, default True):
-            If True, outlet() appends a fenced ```html block containing an
-            `<iframe src="{base}/preview/{chat_id}" style="width:100%;height:100%;border:none"
-            allow="clipboard-write; keyboard-map"></iframe>` snippet to assistant messages
-            containing file URLs for the current chat_id. Intended default UX for
-            deployments that render fenced html blocks as artifacts.
-        ENABLE_PREVIEW_BUTTON (bool, default False):
-            If True, outlet() appends `[{PREVIEW_BUTTON_TEXT}]({base}/preview/{chat_id})`
-            to the same qualifying messages. Opt-in escape hatch for stock Open WebUI
-            where artifact rendering is unavailable.
+        PREVIEW_MODE (Literal["artifact","button","both","off"], default "artifact"):
+            Where the preview link appears on assistant messages.
+            - "artifact": inline fenced ```html <iframe src="{base}/preview/{chat_id}">.
+              Default. Requires an Open WebUI build that renders HTML artifacts
+              (e.g. our docker-compose.webui.yml ships the fix_artifacts_auto_show
+              patch pre-applied).
+            - "button": markdown [{PREVIEW_BUTTON_TEXT}]({base}/preview/{chat_id}).
+              Escape hatch for stock Open WebUI where artifact rendering is off.
+            - "both": both of the above.
+            - "off":  neither.
+        ARCHIVE_BUTTON (Literal["on","off"], default "on"):
+            Append a markdown [{ARCHIVE_BUTTON_TEXT}]({base}/files/{chat_id}/archive)
+            link to assistant messages that contain files for the current chat_id.
         PREVIEW_BUTTON_TEXT (str, default "🖥️ Open preview"):
-            Label for the opt-in preview-button markdown link.
+            Label for the preview-button markdown link (only used when PREVIEW_MODE
+            is "button" or "both").
+        ARCHIVE_BUTTON_TEXT (str, default "📦 Download all files as archive"):
+            Label for the archive-download markdown link (only used when
+            ARCHIVE_BUTTON is "on").
+
+    DEPRECATED VALVES (v3.3.0 — read-only, migrated automatically):
+        ENABLE_PREVIEW_ARTIFACT (Optional[bool]):
+            Replaced by PREVIEW_MODE. Users on v3.2.0 who had this set keep their
+            preference after upgrade (mapped to PREVIEW_MODE). Will be removed in
+            filter v4.0 / v0.9.0.
+        ENABLE_PREVIEW_BUTTON (Optional[bool]):
+            Replaced by PREVIEW_MODE. See above.
+        ENABLE_ARCHIVE_BUTTON (Optional[bool]):
+            Replaced by ARCHIVE_BUTTON. See above.
 """
 
 import re
@@ -82,9 +109,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # All known Open WebUI template variables
@@ -166,36 +193,80 @@ class Filter:
     class Valves(BaseModel):
         FILE_SERVER_URL: str = Field(
             default="http://localhost:8081",
-            description="Orchestrator base URL (without trailing slash)",
+            description="Orchestrator base URL (without trailing slash). Must be reachable from your browser AND match the server-side FILE_SERVER_URL env var — see docs/openwebui-filter.md#two-file_server_url-settings--they-must-match.",
         )
         SYSTEM_PROMPT_URL: str = Field(
             default="",
-            description="Override URL for /system-prompt endpoint (empty = derive from FILE_SERVER_URL)",
-        )
-        ENABLE_ARCHIVE_BUTTON: bool = Field(
-            default=True,
-            description="Add 'Download all as archive' button to messages with files",
-        )
-        ARCHIVE_BUTTON_TEXT: str = Field(
-            default="📦 Download all files as archive",
-            description="Text for the archive-download button",
-        )
-        ENABLE_PREVIEW_ARTIFACT: bool = Field(
-            default=True,
-            description="Append an inline <iframe> artifact rendering /preview/{chat_id} to assistant messages with file links",
-        )
-        ENABLE_PREVIEW_BUTTON: bool = Field(
-            default=False,
-            description="Append a markdown [preview](…) link to assistant messages with file links (opt-in fallback when artifact rendering is unavailable)",
-        )
-        PREVIEW_BUTTON_TEXT: str = Field(
-            default="🖥️ Open preview",
-            description="Text for the preview-button markdown link",
+            description="Advanced: override URL for /system-prompt endpoint (empty = derive from FILE_SERVER_URL). Leave blank unless you run the system-prompt endpoint on a different host.",
         )
         INJECT_SYSTEM_PROMPT: bool = Field(
             default=True,
-            description="Inject Computer Use system prompt when tools are active",
+            description="Inject Computer Use system prompt when tools are active. Turn off only if another filter owns the prompt.",
         )
+        PREVIEW_MODE: Literal["artifact", "button", "both", "off"] = Field(
+            default="artifact",
+            description="Where the preview link appears on assistant messages. artifact=inline iframe (default, requires artifact-rendering Open WebUI), button=markdown link (works on stock Open WebUI), both=both, off=neither.",
+        )
+        ARCHIVE_BUTTON: Literal["on", "off"] = Field(
+            default="on",
+            description="Append a 'Download all files as archive' link to assistant messages that contain files.",
+        )
+        PREVIEW_BUTTON_TEXT: str = Field(
+            default="🖥️ Open preview",
+            description="Text for the preview-button markdown link (when PREVIEW_MODE is button or both).",
+        )
+        ARCHIVE_BUTTON_TEXT: str = Field(
+            default="📦 Download all files as archive",
+            description="Text for the archive-download button (when ARCHIVE_BUTTON is on).",
+        )
+
+        # Legacy v3.2.0 fields — kept for backward compatibility so existing
+        # deployments do not lose their settings on upgrade. The _migrate_legacy
+        # validator maps them onto the new fields. These will be removed in
+        # filter v4.0 / open-computer-use v0.9.0.
+        ENABLE_PREVIEW_ARTIFACT: Optional[bool] = Field(
+            default=None,
+            description="DEPRECATED (v3.3.0) — use PREVIEW_MODE. Value is migrated automatically on first load.",
+        )
+        ENABLE_PREVIEW_BUTTON: Optional[bool] = Field(
+            default=None,
+            description="DEPRECATED (v3.3.0) — use PREVIEW_MODE. Value is migrated automatically on first load.",
+        )
+        ENABLE_ARCHIVE_BUTTON: Optional[bool] = Field(
+            default=None,
+            description="DEPRECATED (v3.3.0) — use ARCHIVE_BUTTON. Value is migrated automatically on first load.",
+        )
+
+        @model_validator(mode="after")
+        def _migrate_legacy(self):
+            """Map v3.2.0 boolean Valves onto v3.3.0 Literal Valves.
+
+            Only fires when the user has NOT explicitly set the new field —
+            prevents a stale legacy value (e.g. a cleared but still-persisted
+            ENABLE_PREVIEW_ARTIFACT=True) from overwriting a deliberate
+            PREVIEW_MODE choice made after the upgrade.
+            """
+            touched = self.model_fields_set
+
+            if "PREVIEW_MODE" not in touched and (
+                self.ENABLE_PREVIEW_ARTIFACT is not None
+                or self.ENABLE_PREVIEW_BUTTON is not None
+            ):
+                a = self.ENABLE_PREVIEW_ARTIFACT
+                b = self.ENABLE_PREVIEW_BUTTON
+                if a and b:
+                    self.PREVIEW_MODE = "both"
+                elif a:
+                    self.PREVIEW_MODE = "artifact"
+                elif b:
+                    self.PREVIEW_MODE = "button"
+                else:
+                    self.PREVIEW_MODE = "off"
+
+            if "ARCHIVE_BUTTON" not in touched and self.ENABLE_ARCHIVE_BUTTON is not None:
+                self.ARCHIVE_BUTTON = "on" if self.ENABLE_ARCHIVE_BUTTON else "off"
+
+            return self
 
     def __init__(self):
         self.valves = self.Valves()
@@ -354,9 +425,11 @@ class Filter:
     ) -> dict:
         """Append preview iframe artifact, preview button, and/or archive button to assistant messages with file links.
 
-        - ENABLE_PREVIEW_ARTIFACT (default True): inline ```html <iframe src="…/preview/{chat_id}"> artifact.
-        - ENABLE_PREVIEW_BUTTON (default False): markdown link to the preview page — opt-in for stock Open WebUI.
-        - ENABLE_ARCHIVE_BUTTON (default True): markdown link to the archive endpoint.
+        - PREVIEW_MODE="artifact" (default): inline ```html <iframe src="…/preview/{chat_id}"> artifact.
+        - PREVIEW_MODE="button":   markdown link to the preview page — escape hatch for stock Open WebUI.
+        - PREVIEW_MODE="both":     both of the above.
+        - PREVIEW_MODE="off":      neither.
+        - ARCHIVE_BUTTON="on" (default): markdown link to the archive endpoint (only when files exist).
 
         Invariants (preserved from v3.1.0):
         1. Only role=="assistant" messages are touched.
@@ -365,9 +438,12 @@ class Filter:
         4. FILE_SERVER_URL is rstripped before URL construction (no //preview/ or //files/).
         5. Substring-based idempotency — repeated outlet() calls do not duplicate.
         """
-        if not (self.valves.ENABLE_ARCHIVE_BUTTON
-                or self.valves.ENABLE_PREVIEW_BUTTON
-                or self.valves.ENABLE_PREVIEW_ARTIFACT):
+        mode = self.valves.PREVIEW_MODE
+        wants_artifact = mode in ("artifact", "both")
+        wants_button = mode in ("button", "both")
+        wants_archive = self.valves.ARCHIVE_BUTTON == "on"
+
+        if not (wants_artifact or wants_button or wants_archive):
             return body
 
         chat_id = __metadata__.get("chat_id") if __metadata__ else None
@@ -397,17 +473,17 @@ class Filter:
                 continue
 
             links: list[str] = []
-            if self.valves.ENABLE_PREVIEW_BUTTON and preview_url not in content:
+            if wants_button and preview_url not in content:
                 links.append(f"[{self.valves.PREVIEW_BUTTON_TEXT}]({preview_url})")
             # Archive download only makes sense when files actually exist for
             # this chat — gate it on has_file_link, not on the browser-tool
             # trigger.
-            if self.valves.ENABLE_ARCHIVE_BUTTON and has_file_link and archive_url not in content:
+            if wants_archive and has_file_link and archive_url not in content:
                 links.append(f"[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})")
             if links:
                 content += "\n\n" + "\n".join(links)
 
-            if self.valves.ENABLE_PREVIEW_ARTIFACT:
+            if wants_artifact:
                 iframe = (
                     f'<iframe src="{preview_url}" '
                     f'style="width:100%;height:100%;border:none" '

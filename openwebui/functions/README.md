@@ -16,8 +16,11 @@ Without this filter, the model won't know about skills or how to generate file d
 | Valve | Default | Description |
 |-------|---------|-------------|
 | `FILE_SERVER_URL` | `http://localhost:8081` | File server URL (browser-accessible for download links) |
-| `ENABLE_ARCHIVE_BUTTON` | `true` | Add "Download archive" button to responses |
+| `PREVIEW_MODE` | `"artifact"` | Where the preview link appears: `artifact` \| `button` \| `both` \| `off` |
+| `ARCHIVE_BUTTON` | `"on"` | Add "Download archive" button to responses: `on` \| `off` |
 | `INJECT_SYSTEM_PROMPT` | `true` | Inject skills and file URL into system prompt |
+
+See [`docs/openwebui-filter.md`](../../docs/openwebui-filter.md#valves-reference) for the full Valves reference, including advanced fields and the v3.3.0 migration notes.
 
 ## Installation
 

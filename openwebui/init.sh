@@ -125,7 +125,7 @@ fi
 echo "[init] Configuring filter valves..."
 curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/valves/update" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d "{\"FILE_SERVER_URL\": \"$MCP_SERVER_EXTERNAL_URL\", \"ENABLE_ARCHIVE_BUTTON\": true, \"INJECT_SYSTEM_PROMPT\": true}" >/dev/null 2>&1 || true
+    -d "{\"FILE_SERVER_URL\": \"$MCP_SERVER_EXTERNAL_URL\", \"ARCHIVE_BUTTON\": \"on\", \"INJECT_SYSTEM_PROMPT\": true}" >/dev/null 2>&1 || true
 echo "[init] Filter valves set: FILE_SERVER_URL=$MCP_SERVER_EXTERNAL_URL (external/browser URL)"
 
 # Enable filter globally
