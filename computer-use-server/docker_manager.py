@@ -33,6 +33,7 @@ from context_vars import (
     current_anthropic_auth_token, current_anthropic_base_url,
     current_mcp_tokens_url, current_mcp_tokens_api_key, current_mcp_servers,
 )
+from system_prompt import render_system_prompt_sync
 
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "unix:///var/run/docker.sock")
 DOCKER_IMAGE = os.getenv("DOCKER_IMAGE", "open-computer-use:latest")
@@ -599,7 +600,41 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
     except Exception as e:
         print(f"[MCP] Warning: MCP setup on create failed: {e}")
 
+    # Tier 2 — write /home/assistant/README.md with the rendered system prompt
+    # so the model can always recover its environment via `view` regardless of
+    # what the client did (or didn't do) with prompts/get and InitializeResult.
+    #
+    # Safe to call asyncio.run here: _create_container runs inside
+    # asyncio.to_thread (see all call sites in mcp_tools.py) → worker thread
+    # with no running event loop → no nested-loop error.
+    try:
+        _, workdir = _get_container_user_and_workdir()
+        readme_text = render_system_prompt_sync(chat_id, current_user_email.get())
+        _write_file_to_container(container, workdir, "README.md", readme_text)
+        print(f"[MCP] Wrote {workdir}/README.md ({len(readme_text)} chars)")
+    except Exception as e:
+        print(f"[MCP] Warning: README.md write failed: {e}")
+
     return container
+
+
+def _write_file_to_container(container, dirpath: str, filename: str, text: str) -> None:
+    """
+    Write a UTF-8 text file into the container at `dirpath/filename` using
+    Docker's put_archive API. Cleaner than `exec cat > file` — no shell
+    escaping, no interference from shell initialisation.
+    """
+    import io, tarfile, time as _t
+    data = text.encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        info = tarfile.TarInfo(name=filename)
+        info.size = len(data)
+        info.mtime = int(_t.time())
+        info.mode = 0o644
+        tar.addfile(info, io.BytesIO(data))
+    buf.seek(0)
+    container.put_archive(dirpath, buf.getvalue())
 
 
 def _get_container_user_and_workdir() -> tuple:
