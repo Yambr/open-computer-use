@@ -191,6 +191,10 @@ async def lifespan(app):
     warn_if_mcp_api_key_missing()
     try:
         from mcp_tools import mcp as _mcp_server
+        # Import-for-side-effect: registers @mcp.prompt / @mcp.resource handlers
+        # on the FastMCP singleton. Must happen BEFORE streamable_http_app() so
+        # capabilities (prompts, resources) are advertised in InitializeResult.
+        import mcp_prompts  # noqa: F401
         if _mcp_server._session_manager is None:
             _mcp_server.streamable_http_app()  # triggers lazy init of session_manager
         async with _mcp_server.session_manager.run():
