@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse, Pla
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from system_prompt import SYSTEM_PROMPT_TEMPLATE, build_system_prompt
+from system_prompt import SYSTEM_PROMPT_TEMPLATE, build_system_prompt, render_system_prompt
 from docker_manager import (
     get_container_cdp_address,
     PUBLIC_BASE_URL,
@@ -1174,6 +1174,7 @@ setInterval(function() {{ fetch('/terminal/' + {json.dumps(chat_id)} + '/heartbe
 
 @app.get("/system-prompt", response_class=PlainTextResponse, tags=["System"])
 async def system_prompt(
+    request: Request,
     chat_id: Optional[str] = None,
     file_base_url: Optional[str] = None,
     archive_url: Optional[str] = None,
@@ -1182,47 +1183,53 @@ async def system_prompt(
     """
     Get Computer Use system prompt for AI integrations.
 
-    Returns the system prompt template that teaches AI how to use the
-    Computer Use virtual machine (tools, skills, file handling, etc.).
+    Tier 7 — backward-compat HTTP endpoint. Open WebUI filter still fetches
+    this URL and injects the response into the LLM's system message. Every
+    other consumer (Agents SDK, Inspector, Claude Desktop) should prefer the
+    native MCP tiers (prompts/get('system'), InitializeResult.instructions,
+    or just /home/assistant/README.md inside the sandbox).
 
-    When user_email is provided, returns a dynamic prompt with skills
-    based on the user's settings (fetched from mcp-settings-wrapper).
+    Priority for `chat_id` / `user_email`:
+        request header (X-Chat-Id / X-User-Email, plus X-OpenWebUI-* aliases
+        to match the rest of the server — see mcp_tools.set_context_from_headers)
+        > query param
+        > default.
 
-    Args:
-        chat_id: Recommended. Server constructs file URLs from this.
-        file_base_url: Deprecated (legacy). Use chat_id instead.
-        archive_url: Deprecated (legacy). Use chat_id instead.
-        user_email: Optional. If provided, fetches user-specific skill settings.
+    Deprecated query params `file_base_url` / `archive_url` are kept for
+    external integrations (n8n) that pass full URLs; the new path uses
+    chat_id to derive both from PUBLIC_BASE_URL.
     """
-    if user_email:
-        # Dynamic prompt based on user's enabled skills
-        skills = await skill_manager.get_user_skills(user_email)
+    def _header(*names: str) -> Optional[str]:
+        for n in names:
+            v = request.headers.get(n)
+            if v:
+                return v
+        return None
 
-        # Cache user-uploaded skill ZIPs
-        for s in skills:
-            if s.category == "user":
-                await skill_manager.ensure_skill_cached(s)
+    effective_chat_id = (
+        _header("x-chat-id", "x-openwebui-chat-id") or chat_id
+    )
+    effective_user_email = (
+        _header("x-user-email", "x-openwebui-user-email") or user_email
+    )
 
-        skills_xml = skill_manager.build_available_skills_xml(skills)
-        has_user_skills = any(s.category == "user" for s in skills)
-        result = build_system_prompt(skills_xml=skills_xml, has_user_skills=has_user_skills)
+    # New path: use the shared renderer (cache-backed, same source of truth
+    # as Tiers 2, 4, 5).
+    if effective_chat_id or not file_base_url:
+        result = await render_system_prompt(
+            effective_chat_id or "default",
+            effective_user_email,
+        )
     else:
-        # Fallback: static template with hardcoded 10 public skills
-        result = SYSTEM_PROMPT_TEMPLATE
-
-    if chat_id:
-        # New path: server constructs URLs from chat_id
-        base = f"{PUBLIC_BASE_URL}/files/{chat_id}"
-        result = result.replace("{file_base_url}", base)
-        result = result.replace("{archive_url}", f"{base}/archive")
-        result = result.replace("{chat_id}", chat_id)
-    elif file_base_url is not None:
-        # Legacy path: external integrations (n8n etc.) pass full URLs
-        result = result.replace("{file_base_url}", file_base_url)
+        # Legacy path: external integrations pass full URLs directly.
+        # Render without a chat_id-scoped base and then splice their values in.
+        result = await render_system_prompt("default", effective_user_email)
+        result = result.replace(f"{PUBLIC_BASE_URL}/files/default/archive",
+                                archive_url or f"{file_base_url.rstrip('/')}/archive")
+        result = result.replace(f"{PUBLIC_BASE_URL}/files/default",
+                                file_base_url)
         legacy_chat_id = file_base_url.rstrip("/").rsplit("/", 1)[-1]
-        result = result.replace("{chat_id}", legacy_chat_id)
-        if archive_url is not None:
-            result = result.replace("{archive_url}", archive_url)
+        result = result.replace("default", legacy_chat_id)
 
     # Public URL is owned by the server. Expose via response header so the
     # Open WebUI filter can decorate outlet() with browser-facing links without
