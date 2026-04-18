@@ -21,7 +21,7 @@
 
 ### Features
 - **Filter v3.2.0 → v3.4.0 — simpler Valves**: the three boolean preview/archive Valves (`ENABLE_PREVIEW_ARTIFACT`, `ENABLE_PREVIEW_BUTTON`, `ENABLE_ARCHIVE_BUTTON`) were first collapsed in v3.3.0 into two Literal Valves (`PREVIEW_MODE` ∈ `artifact | button | both | off`, `ARCHIVE_BUTTON` ∈ `on | off`), then removed entirely in v3.4.0 along with their `@model_validator` bridge. Users upgrading straight from v3.2.0 revert to defaults — upgrade via v3.3.0 first if you need to preserve saved preferences.
-- **Filter v4.0.0 — public URL owned by server**: the filter no longer carries a public-URL Valve. The server's new `/system-prompt` response header `X-Public-Base-URL` delivers it to the filter per request; `_fetch_system_prompt()` caches the (public_url, prompt) pair so `outlet()` can decorate with browser-facing iframe/archive links without its own Valve.
+- **Filter v4.0.0 — public URL owned by server**: the filter no longer carries a public-URL Valve. The server's new `/system-prompt` response header `X-Public-Base-URL` delivers it to the filter per request; `_fetch_system_prompt()` caches the (public_url, prompt) pair so `outlet()` can decorate with browser-facing preview/archive links without its own Valve.
 - **Startup warning for default `PUBLIC_BASE_URL`** (closes #59): the orchestrator logs a one-time warning when the env var is still the hardcoded internal-DNS default (`http://computer-use-server:8081`), catching the #43-class "preview panel never appears" misconfiguration at boot rather than silently in production.
 
 ### Fixes

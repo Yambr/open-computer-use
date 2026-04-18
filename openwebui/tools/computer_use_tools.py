@@ -37,8 +37,8 @@ SUB_AGENT_CLIENT_TIMEOUT = 3660 # 61 min > server's 3600s SUB_AGENT_TIMEOUT
 class _MCPClient:
     """MCP Streamable HTTP client for computer-use-orchestrator."""
 
-    def __init__(self, file_server_url: str, mcp_api_key: str = ""):
-        base = file_server_url.rstrip("/")
+    def __init__(self, orchestrator_url: str, mcp_api_key: str = ""):
+        base = orchestrator_url.rstrip("/")
         self.mcp_url = f"{base}/mcp"
         self.api_key = mcp_api_key
 
@@ -506,7 +506,7 @@ class Tools:
 # File sync helper (HTTP — no SSH needed)
 # ============================================================================
 
-def _sync_uploaded_files(file_server_url: str, chat_id: str, files: list, debug: bool = False) -> dict:
+def _sync_uploaded_files(orchestrator_url: str, chat_id: str, files: list, debug: bool = False) -> dict:
     """Sync uploaded files from OpenWebUI to computer-use-orchestrator via HTTP."""
     import requests
     import hashlib
@@ -515,7 +515,7 @@ def _sync_uploaded_files(file_server_url: str, chat_id: str, files: list, debug:
         return {"synced": 0, "skipped": 0, "errors": 0}
 
     try:
-        manifest_url = f"{file_server_url}/api/uploads/{chat_id}/manifest"
+        manifest_url = f"{orchestrator_url}/api/uploads/{chat_id}/manifest"
         response = requests.get(manifest_url, timeout=5)
         response.raise_for_status()
         remote_manifest = response.json()
@@ -559,7 +559,7 @@ def _sync_uploaded_files(file_server_url: str, chat_id: str, files: list, debug:
                 skipped += 1
                 continue
 
-            upload_url = f"{file_server_url}/api/uploads/{chat_id}/{filename}"
+            upload_url = f"{orchestrator_url}/api/uploads/{chat_id}/{filename}"
             with open(source_path, "rb") as f:
                 files_data = {"file": (filename, f, "application/octet-stream")}
                 resp = requests.post(upload_url, files=files_data, timeout=30)

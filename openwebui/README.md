@@ -7,7 +7,7 @@ Everything needed to connect [Open WebUI](https://github.com/open-webui/open-web
 | # | Component | Type | Required | What it does |
 |---|-----------|------|----------|-------------|
 | 1 | [**tools/computer_use_tools.py**](tools/) | Tool | Yes | MCP client proxy — forwards `bash`, `create_file`, `str_replace`, `view`, `sub_agent` calls to the Computer Use Server |
-| 2 | [**functions/computer_link_filter.py**](functions/) | Filter | Yes | Injects skills list + file server URL into system prompt; adds "Download archive" button to responses |
+| 2 | [**functions/computer_link_filter.py**](functions/) | Filter | Yes | Fetches the server-generated system prompt (skills list + file base URL embedded server-side) and the `X-Public-Base-URL` response header; decorates responses with preview/archive links |
 | 3 | [**patches/**](patches/) | Build-time | Recommended | Quality-of-life fixes: auto-open file preview, truncate large tool args, skip unnecessary RAG processing |
 
 **Tool + Filter = minimum working setup.** Patches improve UX but everything works without them.

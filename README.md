@@ -160,7 +160,7 @@ All settings via `.env`:
 | `COMMAND_TIMEOUT` | `120` | Bash tool timeout (seconds) |
 | `SUB_AGENT_TIMEOUT` | `3600` | Sub-agent timeout (seconds) |
 | `SINGLE_USER_MODE` | — | `true` = one container, no chat ID needed; `false` = require X-Chat-Id; unset = lenient |
-| `PUBLIC_BASE_URL` | `http://computer-use-server:8081` | Browser-reachable URL of the Computer Use server. Baked into `/system-prompt` and returned to the Open WebUI filter in the `X-Public-Base-URL` response header — **single source of truth** for the public URL. [Open WebUI filter URL requirements](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match). |
+| `PUBLIC_BASE_URL` | `http://computer-use-server:8081` | Browser-reachable URL of the Computer Use server. Baked into `/system-prompt` and returned to the Open WebUI filter in the `X-Public-Base-URL` response header — **single source of truth** for the public URL. [Open WebUI filter URL requirements](docs/openwebui-filter.md#two-url-roles--public-server-env-and-internal-filtertool-valve). |
 | `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `ORCHESTRATOR_URL`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, build-arg `COMPUTER_USE_SERVER_URL` | — | Settings on the **`open-webui` container** (not CU-server). Required when embedding — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack). |
 | `POSTGRES_PASSWORD` | `openwebui` | PostgreSQL password |
 | `VISION_API_KEY` | — | Vision API key (for describe-image) |
@@ -247,7 +247,7 @@ Pulling `ghcr.io/open-webui/open-webui:vX.Y.Z` gives you a stock image **without
 | `fix_artifacts_auto_show` | HTML/iframe renders as raw text in chat body instead of the artifacts panel |
 | `fix_preview_url_detection` | Preview iframe is never auto-inserted after file links |
 | `fix_tool_loop_errors` | Raw exceptions instead of banners; `MCP call failed: Session terminated` appears unwrapped |
-| `fix_large_tool_results` | `TOOL_RESULT_MAX_CHARS` / `DOCKER_AI_UPLOAD_URL` become no-ops; large outputs wreck the model context |
+| `fix_large_tool_results` | `TOOL_RESULT_MAX_CHARS` stops truncating and the large-result upload path (via `ORCHESTRATOR_URL`) becomes a no-op; large outputs wreck the model context |
 
 Only `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES` keeps working on an upstream image (it's a stock Open WebUI env) — which creates a false "everything is configured" feeling.
 
@@ -308,11 +308,11 @@ docker exec open-webui bash -c \
 
 ⚠️ **Do NOT point `ORCHESTRATOR_URL` at your public domain.** It technically works, but every MCP request then goes browser→CDN→Traefik→container. Any hiccup in that chain kills the stream mid-tool-call and the user sees `MCP call failed: Session terminated`. Stay inside the Docker network.
 
-⚠️ **Do NOT set the build-arg to the internal service name.** The regex will then look for `computer-use-server:8081/files/...` in assistant text, but the model writes whatever is in the server's `PUBLIC_BASE_URL` — your public domain. Mismatch → preview never renders, user sees raw `<iframe>` text in chat.
+⚠️ **Do NOT set the build-arg to the internal service name.** The regex will then look for `computer-use-server:8081/files/...` in assistant text, but the model writes whatever is in the server's `PUBLIC_BASE_URL` — your public domain. Mismatch → the patched frontend won't auto-promote the preview link into the artifact panel; the markdown link stays plain clickable text. (Filter v4.1.0 dropped the `artifact`/`both` `PREVIEW_MODE` values so the raw-`<iframe>`-in-chat symptom that #43 described is no longer possible.)
 
 The filter no longer has a public-URL Valve at all — it reads the public URL from the server's `X-Public-Base-URL` response header and caches it alongside the prompt. One public knob, one internal knob.
 
-See also [docs/openwebui-filter.md](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match).
+See also [docs/openwebui-filter.md](docs/openwebui-filter.md#two-url-roles--public-server-env-and-internal-filtertool-valve).
 
 #### Step 4 — Four env vars on the `open-webui` container
 
@@ -414,7 +414,7 @@ docker exec <postgres-container> psql -U openwebui -d openwebui -c \
 | Tool-loop errors show raw Python exception | 1 (`fix_tool_loop_errors` missing) |
 | Tool list is empty for non-admin users (admin sees it) | 5 (tool missing `access_grant`s — not public-read) |
 | Filter looks "Active" in UI but preview iframe / archive button never appear | 5 (filter `is_global=false` — only `is_active=true` was flipped) |
-| File links in chat go to 404 / white screen | `PUBLIC_BASE_URL` on the server doesn't match what the browser can reach — see [docs/openwebui-filter.md](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match) |
+| File links in chat go to 404 / white screen | `PUBLIC_BASE_URL` on the server doesn't match what the browser can reach — see [docs/openwebui-filter.md](docs/openwebui-filter.md#two-url-roles--public-server-env-and-internal-filtertool-valve) |
 | New behavior didn't appear even after rebuild | Browser cached old JS — hard reload |
 
 ## Security Notes
