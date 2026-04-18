@@ -33,12 +33,13 @@ Auto-configured by `docker-compose.webui.yml` via `init.sh`.
 ## How File Links Work
 
 ```
-inlet() → Injects file_base_url into system prompt
-       → AI generates: [file.docx](http://server:8081/files/{chat_id}/file.docx)
-outlet() → Appends archive download button
+inlet() → Injects the server-baked /system-prompt text (the server substitutes its
+          own PUBLIC_BASE_URL into the {file_base_url} placeholder before returning it).
+       → AI generates: [file.docx]({PUBLIC_BASE_URL}/files/{chat_id}/file.docx)
+outlet() → Appends preview-button + archive-download markdown links.
 ```
 
-The model receives the mapping: `/mnt/user-data/outputs/` → `{PUBLIC_BASE_URL}/files/{chat_id}/` (the server substitutes its own `PUBLIC_BASE_URL` env var into the prompt) and generates correct HTTP links directly.
+The model receives the mapping `/mnt/user-data/outputs/` → `{PUBLIC_BASE_URL}/files/{chat_id}/` and generates correct HTTP links directly. The filter never sees the public URL as a Valve — the server is the single source of truth and delivers it to `outlet()` via the `X-Public-Base-URL` response header on `/system-prompt` (cached alongside the prompt).
 
 ## Related
 

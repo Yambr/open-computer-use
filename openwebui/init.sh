@@ -8,8 +8,12 @@
 # subsequent container starts so user edits in the Open WebUI admin UI are
 # never clobbered on restart.
 #
-# Valves are env-seeded on FIRST boot only. To force a re-seed (e.g. after
-# changing PUBLIC_BASE_URL in .env), delete the marker file and restart:
+# Valves are env-seeded on FIRST boot only. The only env that propagates into
+# Valves is ORCHESTRATOR_URL (internal URL, consumed by both the tool and the
+# filter). PUBLIC_BASE_URL lives on the computer-use-server container and
+# requires a server restart, not a Valve re-seed. To force a Valve re-seed
+# (e.g. after changing ORCHESTRATOR_URL in .env), delete the marker file and
+# restart this container:
 #
 #   docker compose -f docker-compose.webui.yml exec open-webui \
 #       rm /app/backend/data/.computer-use-initialized
@@ -168,10 +172,14 @@ fi
 # returned to the filter via the X-Public-Base-URL response header — no Valve
 # for it here.
 echo "[init] Configuring filter valves..."
-curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/valves/update" \
+if curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/valves/update" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d "{\"ORCHESTRATOR_URL\": \"$ORCHESTRATOR_URL\", \"ARCHIVE_BUTTON\": \"on\", \"INJECT_SYSTEM_PROMPT\": true}" >/dev/null 2>&1 || true
-echo "[init] Filter valves set: ORCHESTRATOR_URL=$ORCHESTRATOR_URL"
+    -d "{\"ORCHESTRATOR_URL\": \"$ORCHESTRATOR_URL\", \"ARCHIVE_BUTTON\": \"on\", \"INJECT_SYSTEM_PROMPT\": true}" >/dev/null 2>&1; then
+    echo "[init] Filter valves set: ORCHESTRATOR_URL=$ORCHESTRATOR_URL"
+else
+    echo "[init] ERROR: Could not seed filter valves — ORCHESTRATOR_URL will fall back to the code default until the next successful init. Init will retry on next restart."
+    INIT_FAILED=1
+fi
 
 # Enable filter (is_active=True) and mark it global (is_global=True).
 # Open WebUI v0.8.12 has TWO separate endpoints: /toggle flips is_active,

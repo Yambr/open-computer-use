@@ -48,6 +48,9 @@ echo "Env file: $ENV_FILE"
 section "REQUIRED"
 
 pbu="${PUBLIC_BASE_URL:-}"
+# Strip a single trailing slash so `http://computer-use-server:8081/` still
+# matches the internal default check below.
+pbu="${pbu%/}"
 if [[ -z "$pbu" ]]; then
     err "PUBLIC_BASE_URL is unset (browser-reachable URL of the Computer Use server)"
 elif [[ "$pbu" == "http://computer-use-server:8081" ]]; then

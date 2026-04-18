@@ -41,7 +41,7 @@ import os as _os_module
 
 _TOOL_RESULT_MAX_CHARS = int(_os_module.environ.get('TOOL_RESULT_MAX_CHARS', '50000'))
 _TOOL_RESULT_PREVIEW_CHARS = int(_os_module.environ.get('TOOL_RESULT_PREVIEW_CHARS', '2000'))
-_ORCHESTRATOR_URL = _os_module.environ.get('ORCHESTRATOR_URL', '')
+_ORCHESTRATOR_URL = _os_module.environ.get('ORCHESTRATOR_URL', '').rstrip('/')
 
 
 async def _upload_result_to_docker_ai(content: str, filename: str, chat_id: str) -> str:
@@ -246,9 +246,9 @@ def apply_patch():
         f.write(content)
 
     print(f"  Large tool results patch applied! {changes}/3 modifications.")
-    print(f"  Config: TOOL_RESULT_MAX_CHARS (default 50000), TOOL_RESULT_PREVIEW_CHARS (default 2000)")
-    print(f"  Upload: ORCHESTRATOR_URL (optional, for Computer Use)")
-    print(f"  Log markers: TOOL_RESULT_TRUNCATED, TOOL_RESULT_HISTORY_TRUNCATED")
+    print("  Config: TOOL_RESULT_MAX_CHARS (default 50000), TOOL_RESULT_PREVIEW_CHARS (default 2000)")
+    print("  Upload: ORCHESTRATOR_URL (optional, for Computer Use)")
+    print("  Log markers: TOOL_RESULT_TRUNCATED, TOOL_RESULT_HISTORY_TRUNCATED")
     return True
 
 

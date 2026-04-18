@@ -579,6 +579,29 @@ class OutletWithoutCache(unittest.TestCase):
             "Empty cache must leave the message untouched — no iframe, button, or archive",
         )
 
+    def test_outlet_falls_back_to_email_keyed_cache_when_user_missing(self):
+        """When inlet() cached under (chat_id, "alice@x") and outlet() is later
+        invoked without __user__ (e.g. on a re-render path), the filter must
+        still find the cached public_url by scanning same-chat entries. Previously
+        outlet() only probed (chat_id, user_email) and (chat_id, ""), missing
+        the email-keyed entry and skipping all decoration."""
+        f = _make_filter()
+        _prime_cache(f, "abc", user_email="alice@example.com")
+        # Assistant already contains a file link and a browser-tool details block
+        # — either trigger must fire once outlet() finds the cached URL.
+        link = "http://localhost:8081/files/abc/report.pdf"
+        body = {"messages": [{"role": "assistant", "content": f"see {link}"}]}
+        # Note: no __user__ passed
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        decorated = out["messages"][0]["content"]
+        self.assertIn(
+            "[🖥️ Open preview](http://localhost:8081/preview/abc)", decorated
+        )
+        self.assertIn(
+            "[📦 Download all files as archive](http://localhost:8081/files/abc/archive)",
+            decorated,
+        )
+
     def test_outlet_skips_when_cache_has_different_chat_id(self):
         """Cache for chat-X must not decorate a message sent in chat-Y."""
         f = _make_filter()

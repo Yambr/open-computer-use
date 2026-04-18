@@ -51,7 +51,11 @@ USER_DATA_BASE_PATH = os.getenv("USER_DATA_BASE_PATH", "/tmp/computer-use-data")
 # dev, https://cu.example.com for prod) for the preview panel to work.
 # See docs/openwebui-filter.md.
 PUBLIC_BASE_URL_DEFAULT = "http://computer-use-server:8081"
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", PUBLIC_BASE_URL_DEFAULT)
+# Normalize: treat empty string as unset (docker-compose's `${VAR:-}` always sets
+# the env var, so os.getenv's default only fires when VAR is truly absent —
+# empty string would otherwise bypass the startup warning). Also strip any
+# trailing slash so downstream concatenations never produce `//files/...`.
+PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or PUBLIC_BASE_URL_DEFAULT).rstrip("/")
 CONTAINER_IDLE_TIMEOUT = int(os.getenv("CONTAINER_IDLE_TIMEOUT", "600"))
 DEBUG_LOGGING = os.getenv("DEBUG_LOGGING", "false").lower() == "true"
 ORCHESTRATOR_CONTAINER_NAME = os.getenv("ORCHESTRATOR_CONTAINER_NAME", "computer-use-server")

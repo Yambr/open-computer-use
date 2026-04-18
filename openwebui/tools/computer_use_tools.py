@@ -218,15 +218,19 @@ class Tools:
         self.file_handler = True
         self.citation = True
         self._mcp_client = None
-        self._mcp_client_url = None
+        # Track the (url, api_key) tuple the current client was built for —
+        # invalidate if either changes so edits to MCP_API_KEY in Valves take
+        # effect without a process restart.
+        self._mcp_client_config: tuple[str, str] | None = None
 
     @property
     def mcp_client(self) -> _MCPClient:
         """Lazy MCP client — recreated when valves change."""
         url = self.valves.ORCHESTRATOR_URL
-        if self._mcp_client is None or self._mcp_client_url != url:
+        config = (url, self.valves.MCP_API_KEY)
+        if self._mcp_client is None or self._mcp_client_config != config:
             self._mcp_client = _MCPClient(url, self.valves.MCP_API_KEY)
-            self._mcp_client_url = url
+            self._mcp_client_config = config
             print(f"[MCP] Client initialized: {self._mcp_client.mcp_url}")
         return self._mcp_client
 

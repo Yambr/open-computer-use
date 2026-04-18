@@ -417,13 +417,22 @@ class Filter:
             return body
 
         # Pull the public URL from cache (populated by inlet() via the server's
-        # X-Public-Base-URL header). We probe both the email-keyed and anonymous
-        # entries because outlet() may run on re-renders where __user__ isn't
-        # passed. If neither exists, we have no safe URL to put in links — skip.
+        # X-Public-Base-URL header). outlet() may run on re-renders where
+        # __user__ isn't passed, so the email-keyed cache entry inlet() wrote
+        # isn't directly reachable. Probe the exact (chat_id, user_email) and
+        # (chat_id, "") keys first, then fall back to ANY same-chat entry —
+        # outlet only needs public_url, not the prompt, so borrowing a URL
+        # from a different user's entry for the same chat is safe (public_url
+        # is chat-independent — it comes from the server's PUBLIC_BASE_URL env).
         user_email = __user__.get("email", "") if __user__ else ""
         cached = self._prompt_cache.get((chat_id, user_email)) or self._prompt_cache.get(
             (chat_id, "")
         )
+        if not cached:
+            for (cached_chat_id, _), entry in self._prompt_cache.items():
+                if cached_chat_id == chat_id:
+                    cached = entry
+                    break
         if not cached:
             return body
         public_url, _prompt = cached[1]

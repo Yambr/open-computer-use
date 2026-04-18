@@ -40,7 +40,9 @@ services:
       # the default network because they share the project name (the parent
       # directory "open-computer-use"), so `computer-use-server` resolves to
       # the container's IP directly. Browsers never see this URL.
-      - ORCHESTRATOR_URL=http://computer-use-server:${MCP_PORT:-8081}
+      # Internal port is always 8081 — MCP_PORT is a host-side mapping and
+      # irrelevant for container-to-container traffic on the Docker network.
+      - ORCHESTRATOR_URL=http://computer-use-server:8081
       - MCP_API_KEY=${MCP_API_KEY:-}
       # Allow complex multi-step tasks (browser + doc creation) to complete
       - CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES=200
