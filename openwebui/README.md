@@ -14,9 +14,9 @@ Everything needed to connect [Open WebUI](https://github.com/open-webui/open-web
 
 ## Quick Start
 
-**Automatic** (recommended): `docker-compose.webui.yml` builds a patched Open WebUI image and auto-installs tool + filter on first startup via `init.sh`.
+**Automatic** (recommended): `docker-compose.webui.yml` builds a patched Open WebUI image and runs `init.sh` on first startup to install the tool + filter, configure valves, mark the **tool public-read** (`group:*` + `user:*` grants) and the **filter both active AND global** (two separate Open WebUI toggles), plus set `DEFAULT_MODEL_PARAMS = {function_calling: "native", stream_response: true}`.
 
-**Manual**: Install tool and filter through Workspace UI, set Tool ID to `ai_computer_use`, enable filter globally. See [setup guide](../README.md#open-webui-integration).
+**Manual**: Install tool and filter through Workspace UI, set Tool ID to `ai_computer_use`, toggle **Active** and **Global** on the filter (both switches), set tool access to **Public** (Share → Public). See [setup guide](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack) for the full checklist and common silent-fail traps.
 
 ## Patches
 

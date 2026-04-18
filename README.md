@@ -212,7 +212,9 @@ On first `docker compose up`, the init script automatically:
 2. Installs the Computer Use tool via `POST /api/v1/tools/create`
 3. Installs the Computer Use filter via `POST /api/v1/functions/create`
 4. Configures tool valves (`FILE_SERVER_URL=http://computer-use-server:8081`)
-5. Enables the filter globally
+5. Marks the tool **public-read** (access grants for both `group:*` and `user:*` wildcards) — so non-admin users see the tool in their workspace
+6. Marks the filter both **active and global** (two separate toggles: `/toggle` and `/toggle/global`) — active-but-not-global is silently inert and a common manual-setup mistake
+7. Merges `{function_calling: "native", stream_response: true}` into `DEFAULT_MODEL_PARAMS` via `POST /api/v1/configs/models` — every model gets the right defaults without per-model Advanced Params clicks
 
 A marker file (`.computer-use-initialized`) prevents re-running on subsequent starts.
 
@@ -225,9 +227,10 @@ If you run Open WebUI separately, you need to manually:
 1. Go to **Workspace > Tools** → Create new tool → paste contents of `openwebui/tools/computer_use_tools.py`
 2. Set **Tool ID** to `ai_computer_use` (required for filter to work)
 3. Configure **Valves**: `FILE_SERVER_URL` = your Computer Use Server URL
-4. Go to **Workspace > Functions** → Create new function → paste `openwebui/functions/computer_link_filter.py`
-5. Enable the filter globally (toggle in Functions list)
-6. In your model settings, set **Function Calling** = `Native`
+4. Open the tool's **⋯ → Share** menu and set access to **Public** (grants read to both `group:*` and `user:*` wildcards) — otherwise only your admin account sees the tool and non-admin users get an empty tool list with no error
+5. Go to **Workspace > Functions** → Create new function → paste `openwebui/functions/computer_link_filter.py`
+6. Enable the filter: toggle **Active** *and* toggle **Global** in the Functions list — these are two separate switches, and active-but-not-global means the filter loads but is never applied to chats
+7. In your model settings, set **Function Calling** = `Native` and **Stream Chat Response** = `On`. Or set them globally once in **Admin → Settings → Models → Advanced Params** (`function_calling: native`, `stream_response: true`) — that becomes `DEFAULT_MODEL_PARAMS` for every model.
 
 The docker-compose stack handles all of this automatically.
 
@@ -338,7 +341,30 @@ services:
 
 > Note: the last three are **no-ops if the image is upstream ghcr.io** — they need `fix_large_tool_results` from Step 1.
 
-#### Step 5 — Verify everything at once
+#### Step 5 — Filter must be global, tool must be public-read
+
+Open WebUI has **two separate switches** for each function (`is_active` and `is_global`) and **two required grants** for each tool (`group:*` + `user:*`). The stock `init.sh` does this for you; manual / custom deployments commonly miss one side and then spend hours wondering why "everything is installed but nothing works."
+
+| Resource | What to flip | UI path | Endpoint | Why |
+|----------|--------------|---------|----------|-----|
+| Filter `computer_use_filter` | `is_active = true` **AND** `is_global = true` | Admin → Functions → `computer_use_filter` → toggle **Active** + toggle **Global** | `POST /api/v1/functions/id/computer_use_filter/toggle` + `.../toggle/global` | `is_active` only loads the function; `is_global` actually applies it to every chat. Active-but-not-global is silently inert with no log line. |
+| Tool `ai_computer_use` | access_grants for `group:*` **AND** `user:*`, `permission: read` | Workspace → Tools → `ai_computer_use` → **⋯ → Share → Public** | `POST /api/v1/tools/id/ai_computer_use/access/update` with `{"access_grants":[{"principal_type":"group","principal_id":"*","permission":"read"},{"principal_type":"user","principal_id":"*","permission":"read"}]}` | Without grants, only the admin account that created the tool sees it. Non-admin users get an empty tool list and no error. The UI "Public" toggle writes both wildcards; writing only one leaves the tool visible to some users and invisible to others depending on Open WebUI version. |
+
+Verify against the database (Postgres used by the stock stack; see `docker-compose.webui.yml:53`):
+
+```bash
+# Filter flags — expect (t, t):
+docker exec <postgres-container> psql -U openwebui -d openwebui -c \
+  "SELECT is_active, is_global FROM function WHERE id='computer_use_filter';"
+
+# Tool grants — expect TWO rows (group|* and user|*, both 'read'):
+docker exec <postgres-container> psql -U openwebui -d openwebui -c \
+  "SELECT principal_type, principal_id, permission FROM access_grant WHERE resource_id='ai_computer_use';"
+```
+
+For SQLite-backed Open WebUI deployments, swap `psql` for `sqlite3 /app/backend/data/webui.db` with the same SQL.
+
+#### Step 6 — Verify everything at once
 
 ```bash
 # 1. Image has patches:
@@ -364,6 +390,16 @@ docker exec open-webui env | grep -E 'CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES|TOOL_R
 # 6. Server env (baked into system prompt):
 docker exec computer-use-server env | grep ^FILE_SERVER_URL=
 # → must equal #5 and #2.
+
+# 7. Filter is ACTIVE *and* GLOBAL (see Step 5):
+docker exec <postgres-container> psql -U openwebui -d openwebui -c \
+  "SELECT is_active, is_global FROM function WHERE id='computer_use_filter';"
+# → expect (t, t). Two 't's, not one.
+
+# 8. Tool is public-read with both wildcards (see Step 5):
+docker exec <postgres-container> psql -U openwebui -d openwebui -c \
+  "SELECT principal_type, principal_id, permission FROM access_grant WHERE resource_id='ai_computer_use';"
+# → expect TWO rows: (group, *, read) and (user, *, read).
 ```
 
 > After rebuilding the image, do a **hard reload** in the browser (Cmd+Shift+R / Ctrl+Shift+R). Otherwise it keeps the old cached JS chunks and you'll think the fix didn't work.
@@ -378,6 +414,8 @@ docker exec computer-use-server env | grep ^FILE_SERVER_URL=
 | Tool loop cuts off at ~30 calls; banner *"Model temporarily unavailable"* | 4 (`CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES` not set) |
 | Large tool outputs silently `...(truncated)`; model makes wrong decisions | 4 (`DOCKER_AI_UPLOAD_URL` not set or unreachable) OR 1 (`fix_large_tool_results` missing) |
 | Tool-loop errors show raw Python exception | 1 (`fix_tool_loop_errors` missing) |
+| Tool list is empty for non-admin users (admin sees it) | 5 (tool missing `access_grant`s — not public-read) |
+| Filter looks "Active" in UI but preview iframe / archive button never appear | 5 (filter `is_global=false` — only `is_active=true` was flipped) |
 | File links in chat go to 404 / white screen | Server env `FILE_SERVER_URL` ≠ filter Valve — see [docs/openwebui-filter.md](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match) |
 | New behavior didn't appear even after rebuild | Browser cached old JS — hard reload |
 
