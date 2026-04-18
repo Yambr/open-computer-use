@@ -161,6 +161,7 @@ All settings via `.env`:
 | `SUB_AGENT_TIMEOUT` | `3600` | Sub-agent timeout (seconds) |
 | `SINGLE_USER_MODE` | — | `true` = one container, no chat ID needed; `false` = require X-Chat-Id; unset = lenient |
 | `FILE_SERVER_URL` | `http://computer-use-server:8081` | Public URL the browser uses to reach the sandbox file/preview server. Must match the Open WebUI filter's `FILE_SERVER_URL` Valve — [see why](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match). |
+| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `DOCKER_AI_UPLOAD_URL`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, build-arg `COMPUTER_USE_SERVER_URL` | — | Settings on the **`open-webui` container** (not CU-server). Required when embedding — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack). |
 | `POSTGRES_PASSWORD` | `openwebui` | PostgreSQL password |
 | `VISION_API_KEY` | — | Vision API key (for describe-image) |
 | `ANTHROPIC_AUTH_TOKEN` | — | Anthropic key (for Claude Code sub-agent) |
@@ -191,7 +192,7 @@ The Computer Use Server speaks standard **MCP over Streamable HTTP** — any MCP
 
 **Compatibility:** Tested with Open WebUI v0.8.11–0.8.12. Set `OPENWEBUI_VERSION` in `.env` to pin a specific version.
 
-**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use any stock [Open WebUI](https://github.com/open-webui/open-webui) version — just install the tool and filter. Patches are optional quality-of-life fixes applied at Docker build time.
+**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use any stock [Open WebUI](https://github.com/open-webui/open-webui) version — just install the tool and filter. Patches are applied at Docker build time; strongly recommended — 4 of them affect user-visible UX (artifacts panel, preview iframe, error banners, large tool-result handling). Pulling `ghcr.io/open-webui/open-webui` directly skips all of them — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack) for the full checklist.
 
 Running Claude Code through a corporate gateway (LiteLLM, Azure, Bedrock)? See [docs/claude-code-gateway.md](docs/claude-code-gateway.md) for the three-path operator recipe.
 
@@ -229,6 +230,156 @@ If you run Open WebUI separately, you need to manually:
 6. In your model settings, set **Function Calling** = `Native`
 
 The docker-compose stack handles all of this automatically.
+
+### Required setup when embedding Open WebUI into your own stack
+
+If you run Open WebUI outside the stock `docker-compose.webui.yml` — your own compose, Kubernetes, Portainer, or a downstream repo — there are **four traps** that will silently break Computer Use. All four hit us in production. Check in this order.
+
+#### Step 1 — Build the image from `openwebui/Dockerfile`, don't pull upstream
+
+Pulling `ghcr.io/open-webui/open-webui:vX.Y.Z` gives you a stock image **without** any of this repo's patches. Four of them are critical for UX:
+
+| Patch | Without it |
+|-------|------------|
+| `fix_artifacts_auto_show` | HTML/iframe renders as raw text in chat body instead of the artifacts panel |
+| `fix_preview_url_detection` | Preview iframe is never auto-inserted after file links |
+| `fix_tool_loop_errors` | Raw exceptions instead of banners; `MCP call failed: Session terminated` appears unwrapped |
+| `fix_large_tool_results` | `TOOL_RESULT_MAX_CHARS` / `DOCKER_AI_UPLOAD_URL` become no-ops; large outputs wreck the model context |
+
+Only `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES` keeps working on an upstream image (it's a stock Open WebUI env) — which creates a false "everything is configured" feeling.
+
+Use `build:` in your downstream compose, mirroring `docker-compose.webui.yml:11-15`:
+
+```yaml
+services:
+  open-webui:
+    build:
+      context: ./openwebui   # path into this repo
+      dockerfile: Dockerfile
+      args:
+        OPENWEBUI_VERSION: "0.8.12"
+        COMPUTER_USE_SERVER_URL: "cu.your-domain.com"   # see Step 2 — NOT an internal hostname
+    image: open-webui-with-cu-patches:latest   # local tag, do not pull
+```
+
+Verify the patches are baked into the running container:
+
+```bash
+docker exec open-webui bash -c \
+  'grep -l "bn.set(!0),Jr.set(!0)" /app/build/_app/immutable/chunks/*.js >/dev/null \
+   && echo "patches applied" || echo "MISSING — you are on upstream image"'
+```
+
+The `bn.set(!0),Jr.set(!0)` marker is injected by `fix_artifacts_auto_show` into the minified Svelte chunks at build time. Empty output = stock upstream image, not ours.
+
+#### Step 2 — Set `COMPUTER_USE_SERVER_URL` build-arg to the PUBLIC domain (counterintuitive)
+
+This is the most confusing trap. `COMPUTER_USE_SERVER_URL` is a **build argument** in `openwebui/Dockerfile:16-17` that — despite the name — is **not** a network endpoint. It is compiled into a regex inside the minified Svelte chunks by `openwebui/patches/fix_preview_url_detection.py:54`. The regex searches assistant messages for links of the form `{COMPUTER_USE_SERVER_URL}/(files|preview)/...` and triggers the preview iframe.
+
+The model writes whatever URL the Computer Use Server injected into the system prompt — i.e. the server's `FILE_SERVER_URL`, which is your **public** domain. So the regex must match that public domain, not the internal Docker service name.
+
+| Environment | Correct value |
+|-------------|---------------|
+| Production with domain | `cu.your-domain.com` (no scheme — the regex wraps it) |
+| Local dev (Docker Desktop) | `localhost:8081` (the default) |
+
+⚠️ If you change this after an initial build, you **must rebuild the image** (`docker compose up -d --build open-webui`) — the value is compiled into chunks, not read at runtime.
+
+Verify:
+
+```bash
+docker exec open-webui bash -c \
+  'grep -oE "[a-z0-9.:-]+\\\\/\\(files\\|preview" /app/build/_app/immutable/chunks/*.js | head -1'
+# → should contain your public domain (e.g. cu.your-domain.com), NOT computer-use-server:8081
+```
+
+#### Step 3 — Three `FILE_SERVER_URL` places + one build-arg: four settings, two opposite rules
+
+The same "where is the server" URL is configured in **four places** that each travel over a different network path. Three need the **public** URL, one needs the **internal** Docker DNS. Getting them equal breaks Computer Use in different ways.
+
+| Where | Who reads it | Travels over | Prod (with domain) | Local dev (Docker Desktop) |
+|-------|-------------|-------------|--------------------|----------------------------|
+| `FILE_SERVER_URL` env on the **`computer-use-server`** container (`docker-compose.yml` / `.env`) | The server — injects it into the system prompt so the model writes public links users can click | — | `https://cu.your-domain.com` | `http://localhost:8081` |
+| Filter Valve `FILE_SERVER_URL` (Admin → Functions → `computer_link_filter` → Valves) | The filter outlet — decorates assistant messages so the browser renders preview iframes & archive buttons | Browser → internet | `https://cu.your-domain.com` | `http://localhost:8081` |
+| Build-arg `COMPUTER_USE_SERVER_URL` (docker-compose `build.args`) | Patch `fix_preview_url_detection` — regex that searches assistant text for file URLs | — (text only) | `cu.your-domain.com` (no scheme) | `localhost:8081` |
+| Tool Valve `FILE_SERVER_URL` (Workspace → Tools → `ai_computer_use` → Valves) | The tool — HTTP client forwarding MCP `tools/call` to the server | Docker ↔ Docker | `http://computer-use-server:8081` | `http://host.docker.internal:8081` |
+
+⚠️ **Do NOT set the tool Valve to your public domain.** It technically works, but every MCP request then goes browser→CDN→Traefik→container. Any hiccup in that chain kills the stream mid-tool-call and the user sees `MCP call failed: Session terminated`. The tool is inside the same host as the server — use the internal service name.
+
+⚠️ **Do NOT set the build-arg to the internal service name.** The regex will then look for `computer-use-server:8081/files/...` in assistant text, but the model writes whatever is in the server's `FILE_SERVER_URL` — your public domain. Mismatch → preview never renders, user sees raw `<iframe>` text in chat.
+
+See also [docs/openwebui-filter.md](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match) for the long-form explanation of the first two rows.
+
+#### Step 4 — Four env vars on the `open-webui` container
+
+Copy-paste into your downstream compose `environment:` block:
+
+```yaml
+services:
+  open-webui:
+    environment:
+      # --- Computer Use required env vars (read by build-time patches) ---
+      - CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES=200
+      - TOOL_RESULT_MAX_CHARS=50000
+      - TOOL_RESULT_PREVIEW_CHARS=2000
+      # Pick ONE based on your topology:
+      # - Same Docker network:   http://computer-use-server:8081
+      # - Docker Desktop / host: http://host.docker.internal:8081
+      # - Production w/ domain:  https://cu.your-domain.com
+      - DOCKER_AI_UPLOAD_URL=http://computer-use-server:8081
+```
+
+| Variable | Default if unset | Effect when correctly set |
+|----------|------------------|---------------------------|
+| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES` | `30` (upstream) | Tool-call cap per turn. `30` cuts Computer Use multi-step tasks short; stock repo uses `200`. |
+| `TOOL_RESULT_MAX_CHARS` | `50000` (patch built-in) | Truncation threshold above which a tool result is truncated or uploaded. `0` disables. |
+| `TOOL_RESULT_PREVIEW_CHARS` | `2000` (patch built-in) | Preview size the model sees after truncation or upload. |
+| `DOCKER_AI_UPLOAD_URL` | empty | Upload target for oversized results. If empty, oversized results are **silently truncated** — the model loses the data. |
+
+> Note: the last three are **no-ops if the image is upstream ghcr.io** — they need `fix_large_tool_results` from Step 1.
+
+#### Step 5 — Verify everything at once
+
+```bash
+# 1. Image has patches:
+docker exec open-webui bash -c \
+  'grep -l "bn.set(!0),Jr.set(!0)" /app/build/_app/immutable/chunks/*.js >/dev/null \
+   && echo OK || echo MISSING'
+
+# 2. Build-arg baked into regex matches your public domain:
+docker exec open-webui bash -c \
+  'grep -oE "[a-z0-9.:-]+\\\\/\\(files\\|preview" /app/build/_app/immutable/chunks/*.js | head -1'
+
+# 3. Env vars reached the container:
+docker exec open-webui env | grep -E 'CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES|TOOL_RESULT_|DOCKER_AI_UPLOAD_URL'
+
+# 4. Tool Valve (Session-terminated trap) — Admin UI is simplest:
+#    Workspace → Tools → ai_computer_use → Valves → FILE_SERVER_URL
+#    → must be http://computer-use-server:8081 (or host.docker.internal), NOT your public domain.
+
+# 5. Filter Valve (browser preview):
+#    Admin → Functions → computer_link_filter → Valves → FILE_SERVER_URL
+#    → must be your public URL.
+
+# 6. Server env (baked into system prompt):
+docker exec computer-use-server env | grep ^FILE_SERVER_URL=
+# → must equal #5 and #2.
+```
+
+> After rebuilding the image, do a **hard reload** in the browser (Cmd+Shift+R / Ctrl+Shift+R). Otherwise it keeps the old cached JS chunks and you'll think the fix didn't work.
+
+#### Symptom → which step is wrong
+
+| Symptom | Step |
+|---------|------|
+| HTML artifact renders as raw `<iframe ...>` text in chat | 1 (upstream image) — **if not** → 2 (build-arg wrong) |
+| Preview iframe auto-insertion doesn't happen for file links | 2 (build-arg mismatched with what model emits) |
+| `MCP call failed: Session terminated` on every tool call | 3 (tool Valve points at public domain) |
+| Tool loop cuts off at ~30 calls; banner *"Model temporarily unavailable"* | 4 (`CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES` not set) |
+| Large tool outputs silently `...(truncated)`; model makes wrong decisions | 4 (`DOCKER_AI_UPLOAD_URL` not set or unreachable) OR 1 (`fix_large_tool_results` missing) |
+| Tool-loop errors show raw Python exception | 1 (`fix_tool_loop_errors` missing) |
+| File links in chat go to 404 / white screen | Server env `FILE_SERVER_URL` ≠ filter Valve — see [docs/openwebui-filter.md](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match) |
+| New behavior didn't appear even after rebuild | Browser cached old JS — hard reload |
 
 ## Security Notes
 

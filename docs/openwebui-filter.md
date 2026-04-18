@@ -61,6 +61,19 @@ There are two settings named `FILE_SERVER_URL` in this project. Both must be set
 
 **Custom project/network layouts.** The stock `docker-compose.yml` pins `container_name: computer-use-server`, so `docker compose -p myproject up` **by itself** does not rename the container — the internal hostname stays `computer-use-server`. But if you remove or change that `container_name:` pin (for example to run two stacks side by side) and/or use `-p`, the internal hostname becomes the Compose-generated one (e.g. `myproject-computer-use-server-1`) and the default `http://computer-use-server:8081` no longer resolves anywhere. In that case — and for any deployment where the browser can't reach the internal hostname — set `FILE_SERVER_URL` to the externally reachable URL and keep the server env var and the filter Valve identical. Scenario reproduced in [docs/KNOWN-BUGS.md #6](KNOWN-BUGS.md#6-preview-breaks-after-custom-container_name-or-non-default-compose-layouts).
 
+### Actually there are four — tool Valve and build-arg
+
+The section above covers the **text-matching** pair: server emits a URL, filter matches that text. Two more settings point at the same Computer Use Server from **different network roles**, and the rules are opposite — three want the public URL, one wants the internal Docker DNS name.
+
+| Where | Role | Right value (prod) | Right value (local dev) |
+|-------|------|--------------------|-------------------------|
+| `computer-use-server` env `FILE_SERVER_URL` (above) | Public URL — baked into system prompt so the model writes clickable links | `https://cu.your-domain.com` | `http://localhost:8081` |
+| Filter Valve `FILE_SERVER_URL` (above) | Public URL — regex match in browser-bound messages | `https://cu.your-domain.com` | `http://localhost:8081` |
+| Build-arg `COMPUTER_USE_SERVER_URL` (docker-compose `build.args` for `open-webui` service) | Public URL — compiled into a regex inside minified Svelte chunks by `openwebui/patches/fix_preview_url_detection.py`. Must match what the model emits, which comes from the first row. | `cu.your-domain.com` (no scheme — the regex wraps it) | `localhost:8081` |
+| Tool Valve `FILE_SERVER_URL` (Workspace → Tools → `ai_computer_use` → Valves) | Internal Docker DNS — HTTP client forwarding MCP `tools/call` to the server; staying inside the Docker network avoids Cloudflare/Traefik/TLS hops that kill MCP streams (symptom: `MCP call failed: Session terminated`). | `http://computer-use-server:8081` | `http://host.docker.internal:8081` |
+
+For the full step-by-step embedding checklist — image build, build-arg, Valves, env vars — see [README.md → Required setup when embedding Open WebUI](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack).
+
 ## Valves reference
 
 v3.3.0 collapsed the three v3.2.0 boolean preview/archive Valves into two Literal Valves. Existing deployments on v3.2.0 are migrated transparently — see [Upgrading from v3.2.0](#upgrading-from-v320-preview_mode--archive_button).
