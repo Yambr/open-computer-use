@@ -269,9 +269,21 @@ def get_tool_detail(name: str, inp: dict) -> Optional[str]:
 # MCP Server Definition
 # ============================================================================
 
+# Static instructions kwarg — fallback when Tier 4's dynamic override is
+# bypassed (client that ignores InitializeResult.instructions, or the
+# render_system_prompt pre-render failed). Points at the other tiers so any
+# client hitting this baseline learns where to fetch the real content.
+_STATIC_INSTRUCTIONS = (
+    "Computer Use tools: bash, file edits, browser, sub-agent — in an isolated "
+    "Docker sandbox. Full per-session guide is at /home/assistant/README.md "
+    "(call the view tool to read it). You can also call prompts/get('system') "
+    "to fetch the same text via the MCP protocol. Uploaded files are exposed "
+    "via resources/list."
+)
+
 mcp = FastMCP(
     name="computer-use-mcp",
-    instructions="Computer Use tools via MCP - bash, file operations in Docker containers",
+    instructions=_STATIC_INSTRUCTIONS,
     streamable_http_path="/",       # Root path — mounted at /mcp in FastAPI
     stateless_http=True,            # Each request is independent (no session persistence)
     transport_security={            # Behind proxy (LiteLLM/nginx), any Host is valid
@@ -380,6 +392,9 @@ def _truncate_output(output: str, max_chars: int = MAX_BASH_OUTPUT_CHARS) -> str
 async def bash_tool(command: str, description: str, ctx: Context) -> str:
     """
     Run a bash command in the container.
+
+    If you've lost track of your environment (chat_id, file URLs, available
+    skills), re-read /home/assistant/README.md.
 
     Args:
         command: Bash command to run in container
@@ -587,6 +602,9 @@ async def view(
     """
     View text files or directory listings.
     Binary files are detected and rejected with instructions to read SKILL documentation.
+
+    If you've lost track of your environment (chat_id, file URLs, available
+    skills), re-read /home/assistant/README.md.
 
     Supported path types:
     - Directories: Lists files and directories with details
