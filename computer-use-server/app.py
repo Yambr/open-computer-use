@@ -195,6 +195,7 @@ async def lifespan(app):
         # on the FastMCP singleton. Must happen BEFORE streamable_http_app() so
         # capabilities (prompts, resources) are advertised in InitializeResult.
         import mcp_prompts  # noqa: F401
+        import mcp_resources  # noqa: F401
         if _mcp_server._session_manager is None:
             _mcp_server.streamable_http_app()  # triggers lazy init of session_manager
         async with _mcp_server.session_manager.run():
@@ -440,6 +441,15 @@ async def upload_file(chat_id: str, filename: str, file: UploadFile = File(...))
 
         # Calculate MD5 for confirmation
         md5_hash = hashlib.md5(content).hexdigest()
+
+        # Tier 6 — refresh MCP resources for this chat so the new file
+        # appears in resources/list without reconnecting. Swallow errors
+        # so the upload itself succeeds even if MCP resource sync fails.
+        try:
+            from mcp_resources import sync_chat_resources
+            await sync_chat_resources(chat_id)
+        except Exception as e:
+            print(f"[uploads] sync_chat_resources failed: {e}")
 
         return {
             "status": "success",

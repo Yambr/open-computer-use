@@ -615,6 +615,16 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
     except Exception as e:
         print(f"[MCP] Warning: README.md write failed: {e}")
 
+    # Tier 6 — initial sync of uploaded files into MCP resources registry.
+    # Lazy import to avoid circular (mcp_resources → mcp_tools → docker_manager).
+    try:
+        from mcp_resources import sync_chat_resources_sync
+        n = sync_chat_resources_sync(chat_id)
+        if n:
+            print(f"[MCP] Registered {n} upload resource(s) for chat {chat_id}")
+    except Exception as e:
+        print(f"[MCP] Warning: MCP resources sync failed: {e}")
+
     return container
 
 
