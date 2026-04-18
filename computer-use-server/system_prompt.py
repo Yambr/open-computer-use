@@ -22,6 +22,12 @@ Use build_system_prompt() for dynamic skill injection.
 """
 
 SYSTEM_PROMPT_BEFORE_SKILLS = """
+<!--
+This is the contents of /home/assistant/README.md inside your sandbox.
+Re-read this file any time you lose track of your environment
+(chat_id, file URLs, available skills).
+-->
+
 <computer_use>
 <skills>
 A set of "skills" are available which are essentially folders that contain best practices for creating docs of different kinds. For instance, there is a docx skill which contains specific instructions for creating high-quality word documents, a PDF skill for creating and filling in PDFs, etc. These skill folders contain condensed wisdom from extensive testing to make really good, professional outputs. Sometimes multiple skills may be required to get the best results, so you should not limit yourself to just reading one.
@@ -630,3 +636,89 @@ def build_system_prompt(
         + skills_block + "\n\n"
         + fs_block
     )
+
+
+# ============================================================================
+# Per-request rendering with cache
+# ============================================================================
+#
+# render_system_prompt() is the single source of truth for the prompt text.
+# Every delivery tier (README in sandbox, InitializeResult.instructions,
+# prompts/get, HTTP /system-prompt) calls this one function.
+#
+# Cache rationale: render hits skill_manager.get_user_skills() which may do
+# an HTTP call to mcp-settings-wrapper. We cannot pay that on every MCP
+# request (middleware pre-renders for Tier 4 dynamic instructions on EVERY
+# request, not just initialize). Per-(chat_id, user_email) cache with 60s
+# TTL — matches skill_manager's own in-memory cache TTL.
+
+import asyncio
+import time
+from typing import Optional
+
+import skill_manager
+
+_RENDER_TTL_SECONDS = 60.0
+_render_cache: dict[tuple[str, Optional[str]], tuple[float, str]] = {}
+_render_lock = asyncio.Lock()
+
+
+async def _render_uncached(chat_id: str, user_email: Optional[str]) -> str:
+    """Build the full system prompt for (chat_id, user_email). No cache."""
+    # Lazy import to avoid circular: docker_manager → system_prompt at import time.
+    from docker_manager import PUBLIC_BASE_URL
+
+    if user_email:
+        skills = await skill_manager.get_user_skills(user_email)
+        for s in skills:
+            if s.category == "user":
+                await skill_manager.ensure_skill_cached(s)
+        skills_xml = skill_manager.build_available_skills_xml(skills)
+        has_user_skills = any(s.category == "user" for s in skills)
+        result = build_system_prompt(skills_xml=skills_xml, has_user_skills=has_user_skills)
+    else:
+        result = SYSTEM_PROMPT_TEMPLATE
+
+    base = f"{PUBLIC_BASE_URL}/files/{chat_id}"
+    result = result.replace("{file_base_url}", base)
+    result = result.replace("{archive_url}", f"{base}/archive")
+    result = result.replace("{chat_id}", chat_id)
+    return result
+
+
+async def render_system_prompt(chat_id: str, user_email: Optional[str]) -> str:
+    """
+    Cached per-(chat_id, user_email) async renderer. 60s TTL.
+    Hot path is ~μs; cold path is one skill-manager HTTP call + substitution.
+    """
+    key = (chat_id, user_email)
+    now = time.monotonic()
+    hit = _render_cache.get(key)
+    if hit is not None and (now - hit[0]) < _RENDER_TTL_SECONDS:
+        return hit[1]
+    async with _render_lock:
+        hit = _render_cache.get(key)  # double-check after awaiting the lock
+        if hit is not None and (now - hit[0]) < _RENDER_TTL_SECONDS:
+            return hit[1]
+        text = await _render_uncached(chat_id, user_email)
+        _render_cache[key] = (time.monotonic(), text)
+        return text
+
+
+def render_system_prompt_sync(chat_id: str, user_email: Optional[str]) -> str:
+    """
+    Sync wrapper for worker-thread callers (e.g. docker_manager._create_container,
+    which runs inside asyncio.to_thread — see mcp_tools.py:402, 475, 546, 612, 832).
+    asyncio.run() is safe here because the worker thread has no running event loop.
+    """
+    return asyncio.run(render_system_prompt(chat_id, user_email))
+
+
+def invalidate_render_cache(chat_id: Optional[str] = None) -> None:
+    """Drop cache entries. Used by tests; also callable when skills change."""
+    if chat_id is None:
+        _render_cache.clear()
+        return
+    for key in list(_render_cache.keys()):
+        if key[0] == chat_id:
+            del _render_cache[key]
