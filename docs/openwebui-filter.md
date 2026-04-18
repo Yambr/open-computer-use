@@ -76,8 +76,6 @@ For the full step-by-step embedding checklist — image build, build-arg, Valves
 
 ## Valves reference
 
-v3.3.0 collapsed the three v3.2.0 boolean preview/archive Valves into two Literal Valves. Existing deployments on v3.2.0 are migrated transparently — see [Upgrading from v3.2.0](#upgrading-from-v320-preview_mode--archive_button).
-
 | Name | Type | Default | Purpose |
 |------|------|---------|---------|
 | `FILE_SERVER_URL` | str | `"http://localhost:8081"` | Orchestrator base URL. Derives `/system-prompt`, `/files/{chat_id}/…`, `/files/{chat_id}/archive`, and `/preview/{chat_id}`. Trailing slash is tolerated (stripped internally). Must match the server-side `FILE_SERVER_URL` env var — see [Two `FILE_SERVER_URL` settings](#two-file_server_url-settings--they-must-match). |
@@ -87,16 +85,6 @@ v3.3.0 collapsed the three v3.2.0 boolean preview/archive Valves into two Litera
 | `ARCHIVE_BUTTON` | Literal `"on" \| "off"` | `"on"` | Append `[{ARCHIVE_BUTTON_TEXT}]({base}/files/{chat_id}/archive)` to assistant messages that contain files for the current chat. |
 | `PREVIEW_BUTTON_TEXT` | str | `"🖥️ Open preview"` | Label for the preview-button markdown link (used when `PREVIEW_MODE` is `button` or `both`). |
 | `ARCHIVE_BUTTON_TEXT` | str | `"📦 Download all files as archive"` | Label for the archive-download link (used when `ARCHIVE_BUTTON` is `on`). |
-
-### Deprecated Valves (kept for backward compatibility)
-
-These v3.2.0 boolean Valves are still readable for migration purposes. If you upgraded from v3.2.0 they may still be visible in the Valves UI — the filter ignores their runtime values and derives behaviour from the new fields above. **Do not edit them** on v3.3.0+; they will be removed in filter v4.0 / v0.9.0.
-
-| Legacy Name | Replaced by |
-|---|---|
-| `ENABLE_PREVIEW_ARTIFACT` | `PREVIEW_MODE` |
-| `ENABLE_PREVIEW_BUTTON`   | `PREVIEW_MODE` |
-| `ENABLE_ARCHIVE_BUTTON`   | `ARCHIVE_BUTTON` |
 
 ## Preview UX: which `PREVIEW_MODE` fits you?
 
@@ -114,23 +102,6 @@ Rule of thumb:
 ## Archive button
 
 `ARCHIVE_BUTTON="on"` (default) preserves the v3.0.x behaviour: when an assistant message contains at least one file URL under `{FILE_SERVER_URL}/files/{chat_id}/…`, `outlet()` appends a markdown link to the archive endpoint `/files/{chat_id}/archive`. The endpoint streams a zip of every file the sandbox has written for the chat. The append is idempotent (substring check against the fully-rendered URL) — safe to re-run `outlet()` on the same body as many times as the framework chooses.
-
-## Upgrading from v3.2.0 (`PREVIEW_MODE` + `ARCHIVE_BUTTON`)
-
-v3.3.0 replaces the three boolean Valves with two Literal Valves. Your saved settings are migrated automatically — you do not need to touch anything.
-
-| v3.2.0 state | v3.3.0 equivalent |
-|---|---|
-| `ENABLE_PREVIEW_ARTIFACT=True`,  `ENABLE_PREVIEW_BUTTON=False` (default) | `PREVIEW_MODE="artifact"` |
-| `ENABLE_PREVIEW_ARTIFACT=False`, `ENABLE_PREVIEW_BUTTON=True`  | `PREVIEW_MODE="button"` |
-| `ENABLE_PREVIEW_ARTIFACT=True`,  `ENABLE_PREVIEW_BUTTON=True`  | `PREVIEW_MODE="both"` |
-| `ENABLE_PREVIEW_ARTIFACT=False`, `ENABLE_PREVIEW_BUTTON=False` | `PREVIEW_MODE="off"` |
-| `ENABLE_ARCHIVE_BUTTON=True` | `ARCHIVE_BUTTON="on"` |
-| `ENABLE_ARCHIVE_BUTTON=False` | `ARCHIVE_BUTTON="off"` |
-
-Migration runs every time the filter loads (Pydantic `@model_validator(mode="after")`); the old fields remain in your DB until the next time you save a Valve — at which point Open WebUI's `exclude_unset=True` persistence strategy drops them. If you want to clean them up immediately, open the Valves page and click Save.
-
-**Deprecated fields are still visible in the Valves UI** because Open WebUI renders the full Pydantic schema. This is intentional — hiding them would require renaming, which Open WebUI cannot migrate. They will be removed entirely in filter v4.0.
 
 ## System prompt injection
 
@@ -156,7 +127,8 @@ Caused by setting `SYSTEM_PROMPT_URL` to a `file://`, `ftp://`, or similarly non
 
 ## Version history
 
-- **v3.3.0** — Collapsed three boolean preview/archive Valves (`ENABLE_PREVIEW_ARTIFACT`, `ENABLE_PREVIEW_BUTTON`, `ENABLE_ARCHIVE_BUTTON`) into two Literal Valves (`PREVIEW_MODE`, `ARCHIVE_BUTTON`). Existing v3.2.0 deployments are migrated transparently by a Pydantic `@model_validator(mode="after")` — no manual action needed. Legacy Valves remain visible in the UI labeled DEPRECATED; they will be removed in filter v4.0. `outlet()` behaviour and all v3.1.0/v3.2.0 invariants preserved.
+- **v3.4.0** — Removed the three legacy v3.2.0 boolean Valves (`ENABLE_PREVIEW_ARTIFACT`, `ENABLE_PREVIEW_BUTTON`, `ENABLE_ARCHIVE_BUTTON`) and their migration bridge. `PREVIEW_MODE` and `ARCHIVE_BUTTON` are the only knobs. Users upgrading straight from v3.2.0 revert to defaults — upgrade via v3.3.0 first if you need to preserve saved preferences.
+- **v3.3.0** — Collapsed three boolean preview/archive Valves (`ENABLE_PREVIEW_ARTIFACT`, `ENABLE_PREVIEW_BUTTON`, `ENABLE_ARCHIVE_BUTTON`) into two Literal Valves (`PREVIEW_MODE`, `ARCHIVE_BUTTON`). Existing v3.2.0 deployments were migrated transparently by a Pydantic `@model_validator(mode="after")`. `outlet()` behaviour and all v3.1.0/v3.2.0 invariants preserved.
 - **v3.2.0** — Added `ENABLE_PREVIEW_ARTIFACT` (default `True`), `ENABLE_PREVIEW_BUTTON` (default `False`), and `PREVIEW_BUTTON_TEXT` Valves. `outlet()` now emits an inline iframe artifact and/or a markdown preview link alongside the archive button. All v3.1.0 invariants preserved.
 - **v3.1.0** — Removed the hardcoded ~460-line system prompt f-string; server became the single source of truth. HTTP fetch + LRU cache + stale-cache fallback. `SYSTEM_PROMPT_URL` Valve added; non-http(s) schemes rejected.
 - **v3.0.2** — Last hardcoded-prompt revision. See git history for details.
