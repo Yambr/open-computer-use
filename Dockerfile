@@ -10,7 +10,7 @@ LABEL description="AI Computer Use Environment"
 LABEL version="1.0.0"
 
 # Claude Code version (use "latest" for newest, or pin specific version)
-ARG CLAUDE_CODE_VERSION=latest
+ARG CLAUDE_CODE_VERSION=2.1.114
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
