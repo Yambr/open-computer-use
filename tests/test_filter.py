@@ -396,6 +396,102 @@ class PreviewButton(unittest.TestCase):
         self.assertEqual(out["messages"][0]["content"], original)
 
 
+class BrowserToolTrigger(unittest.TestCase):
+    """Covers the second outlet() trigger: a `<details type="tool_calls">` block
+    referencing a browser tool (playwright / chromium / screenshot / start-browser).
+
+    Added to exercise the 2026-04-18 fix — previously untested. Sessions that
+    drive a browser without producing a downloadable file must still get a
+    preview iframe; archive button must stay gated on file URLs only.
+    """
+
+    def _tool_call_details(self, name: str = "playwright", arguments: str = "{}") -> str:
+        # Attribute values come html-escaped in production but substring
+        # keyword matching is robust to that, per _content_has_browser_tool's
+        # docstring. Use raw values here for readability.
+        return f'<details type="tool_calls" name="{name}" arguments="{arguments}" result=""></details>'
+
+    def test_helper_detects_each_browser_keyword(self):
+        """_content_has_browser_tool() must match every keyword in the allow-list."""
+        for kw in computer_link_filter._BROWSER_TOOL_KEYWORDS:
+            content = self._tool_call_details(name=kw)
+            self.assertTrue(
+                computer_link_filter._content_has_browser_tool(content),
+                f"Keyword {kw!r} inside <details type=\"tool_calls\"> should trigger detection",
+            )
+
+    def test_helper_matches_keyword_in_arguments(self):
+        """Keyword may live in the html-escaped `arguments="..."` attribute rather
+        than the tool name. Open WebUI escapes quotes inside JSON args as `&#34;`,
+        so plaintext keywords remain a valid substring of the escaped blob."""
+        escaped_args = "{&#34;action&#34;:&#34;chromium-launch&#34;}"
+        content = self._tool_call_details(name="mcp", arguments=escaped_args)
+        self.assertTrue(computer_link_filter._content_has_browser_tool(content))
+
+    def test_helper_ignores_freetext_keyword_mentions(self):
+        """Keyword in plain assistant text (outside a tool_calls details block) must NOT trigger."""
+        content = "How does playwright handle screenshot capture in chromium?"
+        self.assertFalse(computer_link_filter._content_has_browser_tool(content))
+
+    def test_helper_ignores_non_toolcall_details_blocks(self):
+        """`<details type="reasoning">playwright</details>` must NOT trigger — detection is
+        scoped to type=\"tool_calls\" only."""
+        content = '<details type="reasoning" name="playwright">thinking...</details>'
+        self.assertFalse(computer_link_filter._content_has_browser_tool(content))
+
+    def test_helper_returns_false_on_empty_content(self):
+        self.assertFalse(computer_link_filter._content_has_browser_tool(""))
+        self.assertFalse(computer_link_filter._content_has_browser_tool(None))  # type: ignore[arg-type]
+
+    def test_outlet_appends_iframe_on_browser_tool_without_file_url(self):
+        """outlet() must inject preview iframe when a browser tool ran but produced no file."""
+        f = _make_filter()
+        content = "I navigated to the page. " + self._tool_call_details(name="playwright")
+        body = {"messages": [{"role": "assistant", "content": content}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertIn('<iframe src="http://localhost:8081/preview/abc"', out["messages"][0]["content"])
+
+    def test_outlet_preview_button_triggered_by_browser_tool(self):
+        """When ENABLE_PREVIEW_BUTTON is on, browser-tool trigger alone is enough."""
+        f = _make_filter()
+        f.valves.ENABLE_PREVIEW_BUTTON = True
+        content = self._tool_call_details(name="chromium")
+        body = {"messages": [{"role": "assistant", "content": content}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertIn(
+            "[🖥️ Open preview](http://localhost:8081/preview/abc)",
+            out["messages"][0]["content"],
+        )
+
+    def test_outlet_archive_button_NOT_triggered_by_browser_tool_alone(self):
+        """Archive button is meaningless without files — must stay gated on file URLs even
+        when a browser tool ran."""
+        f = _make_filter()
+        content = self._tool_call_details(name="screenshot")
+        body = {"messages": [{"role": "assistant", "content": content}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertNotIn("archive", out["messages"][0]["content"].lower())
+
+    def test_outlet_does_not_trigger_on_freetext_keyword(self):
+        """Regression guard for false-positive scoping: assistant free text mentioning
+        a browser tool must NOT receive preview decoration."""
+        f = _make_filter()
+        body = {"messages": [{"role": "assistant", "content": "Use playwright to click the button."}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertNotIn("<iframe", out["messages"][0]["content"])
+        self.assertNotIn("preview", out["messages"][0]["content"].lower())
+
+    def test_outlet_browser_tool_trigger_is_idempotent(self):
+        """Repeated outlet() calls on browser-tool-triggered content must not duplicate iframe."""
+        f = _make_filter()
+        content = self._tool_call_details(name="playwright")
+        body = {"messages": [{"role": "assistant", "content": content}]}
+        out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
+        out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
+        self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
+        self.assertEqual(out2["messages"][0]["content"].count("<iframe src="), 1)
+
+
 class DocstringDriftGuard(unittest.TestCase):
     """Covers DOCS-03 — every Field on Filter.Valves is listed in the module VALVES: docstring."""
 
