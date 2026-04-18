@@ -38,7 +38,7 @@ Environment Variables (computer-use-orchestrator defaults):
 - ANTHROPIC_AUTH_TOKEN: Shared LiteLLM proxy key for Claude Code sub-agent
 - ANTHROPIC_BASE_URL: LLM API base URL (default: https://api.anthropic.com)
 - SUB_AGENT_DEFAULT_MODEL: Default model for sub_agent (sonnet/opus, default: sonnet)
-- SUB_AGENT_MAX_TURNS: Default max turns for sub_agent (default: 50)
+- SUB_AGENT_MAX_TURNS: Default max turns for sub_agent (default: 25)
 - SUB_AGENT_TIMEOUT: Timeout for sub_agent execution in seconds (default: 3600)
 
 LiteLLM Integration:
@@ -790,7 +790,7 @@ async def sub_agent(
         task: Detailed description of the task for the sub-agent to accomplish
         description: Why you are delegating this task to a sub-agent
         model: Model to use: 'sonnet' (default, fast) or 'opus' (powerful, better for complex tasks)
-        max_turns: Maximum number of agentic turns (default from env, typically 50)
+        max_turns: Maximum number of agentic turns (default from env, typically 25)
         working_directory: Working directory for the agent (default: /home/assistant)
         resume_session_id: Session ID to resume a previous sub-agent session (from previous result)
 

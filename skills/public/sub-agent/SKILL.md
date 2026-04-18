@@ -101,7 +101,7 @@ and fixture mocks that still reference the old name.
 - If any test remains red, explain why and what the blocker is.
 """,
     description="Fix post-refactor test suite",
-    max_turns=50
+    max_turns=25
 )
 ```
 
@@ -113,7 +113,7 @@ and fixture mocks that still reference the old name.
 | `description` | required | Why you're delegating this task |
 | `mode` | "act" | "act" (execute) or "plan" (plan only, no changes) |
 | `model` | "sonnet" | "sonnet" (fast) or "opus" (complex reasoning) |
-| `max_turns` | 50 | Max iterations (50 for 15+ slides, 80+ for large refactoring) |
+| `max_turns` | 25 | Max iterations (default; raise to 50-80 for large multi-file refactors) |
 | `working_directory` | /home/assistant | Agent's working directory |
 | `resume_session_id` | "" | Session ID to resume (from previous result) |
 
