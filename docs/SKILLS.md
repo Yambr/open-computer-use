@@ -194,7 +194,7 @@ Create a 12-slide presentation on AI trends.
 - Save to /mnt/user-data/outputs/ai_trends.pptx
 """,
     description="AI presentation for board meeting",
-    max_turns=50
+    max_turns=25
 )
 ```
 

@@ -111,7 +111,7 @@ Run tests, analyze failures, fix issues until all pass.
 - Summary of fixes applied
 """,
     description="[Brief description]",
-    max_turns=50
+    max_turns=25
 )
 ```
 

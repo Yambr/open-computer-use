@@ -446,7 +446,7 @@ class Tools:
         task: str,
         description: str,
         model: str = "sonnet",
-        max_turns: int = 50,
+        max_turns: int = 25,
         mode: str = "act",
         working_directory: str = "/home/assistant",
         resume_session_id: str = "",
@@ -462,7 +462,7 @@ class Tools:
         :param task: Structured task description
         :param description: Why you are delegating this task
         :param model: AI model - "sonnet" (fast, default) or "opus" (powerful)
-        :param max_turns: Max iterations, default 50
+        :param max_turns: Max iterations, default 25 (raise to 50-80 for large multi-file refactors)
         :param mode: "act" (execute) or "plan" (plan only)
         :param working_directory: Work dir, default /home/assistant
         :param resume_session_id: Session ID to resume (from previous result)
