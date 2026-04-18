@@ -115,6 +115,53 @@ def _find_block_start(content: str, pos: int) -> int:
     return boundary + 2 if boundary != -1 else 0
 
 
+# Open WebUI renders tool invocations into assistant content as
+# <details type="tool_calls" ... name="X" arguments="Y" result="Z" ...>.
+# The /api/chat/completed endpoint strips raw `tool_calls` / role="tool"
+# (Chat.svelte sends only {id, role, content, info, timestamp, usage, sources}),
+# so content-scan is the only reliable detection path in outlet() for sessions
+# that exercised browser tools without producing file URLs.
+_TOOL_CALL_DETAILS_RE = re.compile(
+    r'<details\s+[^>]*type="tool_calls"[^>]*>',
+    re.IGNORECASE,
+)
+_NAME_ATTR_RE = re.compile(r'\bname="([^"]*)"')
+_ARGS_ATTR_RE = re.compile(r'\barguments="([^"]*)"')
+_BROWSER_TOOL_KEYWORDS = ("playwright", "start-browser", "chromium", "screenshot")
+
+
+def _extract_tool_calls_from_content(content: str) -> list[tuple[str, str]]:
+    """Return [(name, arguments_raw), ...] from <details type="tool_calls"> tags.
+
+    Attribute values are html-escaped as delivered by Open WebUI; substring
+    keyword matching is robust to that — no need to unescape for detection.
+    """
+    if not content:
+        return []
+    out: list[tuple[str, str]] = []
+    for m in _TOOL_CALL_DETAILS_RE.finditer(content):
+        tag = m.group(0)
+        n = _NAME_ATTR_RE.search(tag)
+        a = _ARGS_ATTR_RE.search(tag)
+        out.append((n.group(1) if n else "", a.group(1) if a else ""))
+    return out
+
+
+def _content_has_browser_tool(content: str) -> bool:
+    """True when the assistant message embeds a tool_calls details block that
+    references a browser tool (playwright, chromium, screenshot, start-browser).
+
+    Scoped to <details type="tool_calls"> tags — free text in user/assistant
+    messages is never scanned, so keyword mentions ("how does playwright work?")
+    do not trigger a false positive.
+    """
+    for name, args in _extract_tool_calls_from_content(content):
+        blob = (name + " " + args).lower()
+        if any(kw in blob for kw in _BROWSER_TOOL_KEYWORDS):
+            return True
+    return False
+
+
 class Filter:
     class Valves(BaseModel):
         FILE_SERVER_URL: str = Field(
@@ -338,13 +385,24 @@ class Filter:
             content = message.get("content")
             if not content or not isinstance(content, str):
                 continue
-            if not re.search(file_url_pattern, content):
+
+            # Two independent triggers:
+            # 1. A file URL scoped to the current chat_id — legacy v3.2.0 path.
+            # 2. A <details type="tool_calls"> block that references a browser
+            #    tool — covers sessions that exercised playwright/chromium
+            #    without producing a downloadable file (e.g. pure navigation).
+            has_file_link = bool(re.search(file_url_pattern, content))
+            has_browser_tool = _content_has_browser_tool(content)
+            if not (has_file_link or has_browser_tool):
                 continue
 
             links: list[str] = []
             if self.valves.ENABLE_PREVIEW_BUTTON and preview_url not in content:
                 links.append(f"[{self.valves.PREVIEW_BUTTON_TEXT}]({preview_url})")
-            if self.valves.ENABLE_ARCHIVE_BUTTON and archive_url not in content:
+            # Archive download only makes sense when files actually exist for
+            # this chat — gate it on has_file_link, not on the browser-tool
+            # trigger.
+            if self.valves.ENABLE_ARCHIVE_BUTTON and has_file_link and archive_url not in content:
                 links.append(f"[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})")
             if links:
                 content += "\n\n" + "\n".join(links)
