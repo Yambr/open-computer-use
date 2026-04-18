@@ -12,13 +12,26 @@
 git clone https://github.com/Yambr/open-computer-use.git
 cd open-computer-use
 cp .env.example .env
-# Edit .env — set OPENAI_API_KEY (or any OpenAI-compatible provider)
+# Edit .env — see the REQUIRED section at the top of .env.example.
 
-# 1. Build and start Computer Use Server (~15 min first time)
+# 1. Pre-flight: catch common misconfigurations before docker starts
+./scripts/check-config.sh
+
+# 2. Build and start Computer Use Server (~15 min first time)
 docker compose up --build
 
-# 2. Start Open WebUI (in another terminal)
+# 3. Start Open WebUI (in another terminal)
 docker compose -f docker-compose.webui.yml up --build
+```
+
+`scripts/check-config.sh` reports `[OK]` / `[WARN]` / `[ERR]` for each setting and exits 1 if anything is likely to break end-to-end (e.g. `FILE_SERVER_URL` left at the internal-DNS default, half-configured Vision group). WARNs are fine for local dev.
+
+**Re-seeding Valves after editing `.env`.** The init script writes Open WebUI Valves from env **on first start only** — a marker file under `/app/backend/data/` guards re-runs so your admin UI edits are never clobbered. If you change `FILE_SERVER_URL` (or any other env the init script propagates into Valves) and want Open WebUI to pick it up, delete the marker and restart:
+
+```bash
+docker compose -f docker-compose.webui.yml exec open-webui \
+    rm /app/backend/data/.computer-use-initialized
+docker compose -f docker-compose.webui.yml restart open-webui
 ```
 
 Open http://localhost:3000 — login with `admin@open-computer-use.dev` / `admin`.

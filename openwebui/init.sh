@@ -2,8 +2,18 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright (c) 2025 Open Computer Use Contributors
 # Open WebUI initialization script
-# Waits for Open WebUI to be ready, then installs tools, functions, and configures valves.
-# Runs once on first startup — skips if already configured.
+#
+# Waits for Open WebUI to be ready, then installs tools, functions, and
+# configures Valves from env. Guarded by a marker file — runs once, skips on
+# subsequent container starts so user edits in the Open WebUI admin UI are
+# never clobbered on restart.
+#
+# Valves are env-seeded on FIRST boot only. To force a re-seed (e.g. after
+# changing FILE_SERVER_URL in .env), delete the marker file and restart:
+#
+#   docker compose -f docker-compose.webui.yml exec open-webui \
+#       rm /app/backend/data/.computer-use-initialized
+#   docker compose -f docker-compose.webui.yml restart open-webui
 
 set -euo pipefail
 
@@ -16,9 +26,19 @@ MCP_SERVER_EXTERNAL_URL="${MCP_SERVER_EXTERNAL_URL:-http://localhost:8081}"
 MCP_API_KEY="${MCP_API_KEY:-}"
 MARKER_FILE="/app/backend/data/.computer-use-initialized"
 
+# Sanity checks — run EVERY start (before marker-gate), so stale-default
+# warnings resurface on each restart until the user fixes them.
+if [[ "$ADMIN_PASSWORD" == "admin" || "$ADMIN_PASSWORD" == "change-me" ]]; then
+    echo "[init] WARNING: ADMIN_PASSWORD is still the default (\"$ADMIN_PASSWORD\") — change it for anything beyond local dev."
+fi
+if [[ -z "$MCP_API_KEY" ]]; then
+    echo "[init] WARNING: MCP_API_KEY is empty — /mcp endpoints accept any caller. Fine for local dev, unsafe for public deploys."
+fi
+
 # Skip if already initialized
 if [ -f "$MARKER_FILE" ]; then
     echo "[init] Already initialized, skipping."
+    echo "[init] To re-seed Valves from env, delete $MARKER_FILE and restart the container."
     exit 0
 fi
 

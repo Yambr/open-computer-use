@@ -76,5 +76,48 @@ class FileServerUrlDefaultWarning(unittest.TestCase):
         self.assertTrue(emitted)
 
 
+class McpApiKeyMissingWarning(unittest.TestCase):
+    """warn_if_mcp_api_key_missing() fires iff MCP_API_KEY is empty/unset.
+
+    An empty key leaves /mcp endpoints unauthenticated — fine for local dev,
+    dangerous for anything reachable from the internet.
+    """
+
+    def setUp(self):
+        self._saved = os.environ.get("MCP_API_KEY")
+
+    def tearDown(self):
+        if self._saved is None:
+            os.environ.pop("MCP_API_KEY", None)
+        else:
+            os.environ["MCP_API_KEY"] = self._saved
+
+    def test_warns_when_env_unset(self):
+        os.environ.pop("MCP_API_KEY", None)
+        dm = _reload_docker_manager()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            emitted = dm.warn_if_mcp_api_key_missing()
+        self.assertTrue(emitted)
+        self.assertIn("MCP_API_KEY is empty", buf.getvalue())
+
+    def test_warns_when_env_empty_string(self):
+        os.environ["MCP_API_KEY"] = ""
+        dm = _reload_docker_manager()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            emitted = dm.warn_if_mcp_api_key_missing()
+        self.assertTrue(emitted)
+
+    def test_silent_when_key_set(self):
+        os.environ["MCP_API_KEY"] = "a-long-random-token"
+        dm = _reload_docker_manager()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            emitted = dm.warn_if_mcp_api_key_missing()
+        self.assertFalse(emitted)
+        self.assertEqual(buf.getvalue(), "")
+
+
 if __name__ == "__main__":
     unittest.main()

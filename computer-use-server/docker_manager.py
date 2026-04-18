@@ -126,6 +126,30 @@ def warn_if_file_server_url_is_default() -> bool:
     return False
 
 
+def warn_if_mcp_api_key_missing() -> bool:
+    """Emit a one-time startup warning when MCP_API_KEY is empty.
+
+    An empty MCP_API_KEY makes every /mcp endpoint publicly callable without
+    authentication — fine for local dev, dangerous for any deployment the
+    internet can reach. Warn loudly so the condition does not silently survive
+    a prod rollout.
+
+    Returns True if a warning was emitted (useful for tests), False otherwise.
+    Called once from FastAPI lifespan startup — do not call per-request.
+    """
+    if not os.getenv("MCP_API_KEY", ""):
+        print(
+            "[computer-use-server] WARNING: MCP_API_KEY is empty — the /mcp "
+            "endpoints accept ANY caller with no auth. Acceptable for local "
+            "development, unsafe for anything reachable from the internet.\n"
+            "  Fix: set MCP_API_KEY in .env to a long random string and mirror "
+            "it in the Open WebUI tool Valve (Admin → Tools → Computer Use → "
+            "Valves → MCP_API_KEY)."
+        )
+        return True
+    return False
+
+
 async def _fetch_gitlab_token(email: str, mcp_tokens_url: str, mcp_tokens_api_key: str) -> Optional[str]:
     """
     Fetch decrypted GitLab token from MCP Tokens Wrapper service.
