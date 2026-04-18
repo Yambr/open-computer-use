@@ -9,8 +9,13 @@ LABEL maintainer="OpenWebUI Implementation"
 LABEL description="AI Computer Use Environment"
 LABEL version="1.0.0"
 
-# Claude Code version (use "latest" for newest, or pin specific version)
-ARG CLAUDE_CODE_VERSION=2.1.114
+# Claude Code version. Pinned to 2.1.112 — the last release that ships the
+# package as plain JS (cli.js in the tarball). Starting with 2.1.113 the pkg
+# repackaged to a postinstall loader (install.cjs) that downloads a native
+# claude.exe binary and drops cli.js entirely, which breaks our bun-wrapper
+# shim below ("Module not found .../cli.js"). Do NOT bump to 2.1.113+ without
+# also removing the wrapper and verifying the native binary works under Bun.
+ARG CLAUDE_CODE_VERSION=2.1.112
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
