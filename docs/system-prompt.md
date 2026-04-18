@@ -1,85 +1,117 @@
-# System Prompt Reference
+# System Prompt Delivery — Seven MCP-Native Tiers
 
-The Computer Use Server uses a dynamic system prompt that teaches AI models how to interact with the sandbox environment — tools, skills, file handling, output sharing, and more.
+The Computer Use Server delivers the same per-session system prompt through **seven different channels**, so clients with varying MCP support all get it. Every tier renders from the same source (`computer-use-server/system_prompt.py::render_system_prompt`) with a shared 60-second in-process cache, so fan-out cost is one render per `(chat_id, user_email)` per minute.
 
-## Dynamic API Endpoints
+**Redundancy is by design.** A client might strip `InitializeResult.instructions`, skip `prompts/get`, and never call `resources/list` — but it will always call `tools/list`, and the tool descriptions nudge the model toward `/home/assistant/README.md` inside the sandbox. That file is always present.
 
-Instead of hardcoding the system prompt, MCP clients should fetch it dynamically from the server to get up-to-date skills, correct file URLs, and the latest instructions.
+## The Tiers
 
-### GET /system-prompt
+| # | Surface | Where it lives | Who uses it |
+|---|---|---|---|
+| 1 | Tool descriptions | `tools/list` — `bash_tool` + `view` docstrings mention README.md | Every MCP client (tools are mandatory) |
+| 2 | `/home/assistant/README.md` | Rendered into the sandbox on container creation via `put_archive` | Any model that runs the `view` tool |
+| 3 | Static `instructions=` hint | FastMCP constructor, one-line pointer to README + `prompts/get` + `resources/list` | Claude Desktop, MCP Inspector; Agents SDK exposes via `server.server_initialize_result` |
+| 4 | Dynamic `InitializeResult.instructions` | Per-request ContextVar, swapped onto `mcp._mcp_server` as a `@property` | Same clients as #3, with chat-specific content |
+| 5 | `@mcp.prompt("system")` | Native MCP `prompts/get` primitive | OpenAI Agents SDK's documented fallback: `await server.get_prompt("system", {...})` |
+| 6 | `resources/list` + `resources/read` | Uploaded files surfaced as `FunctionResource` per chat, URI `file://uploads/{chat_id}/{rel_path}` | Agents SDK, Inspector, Claude Desktop |
+| 7 | `GET /system-prompt` HTTP | Backward-compat endpoint with header > query priority | Open WebUI filter; external integrations (n8n) |
 
-Returns the full system prompt as plain text.
+## Tier 1 — Tool description nudges
 
-| Parameter | Description | Required |
-|-----------|-------------|----------|
-| `chat_id` | Session ID — server constructs file download URLs from this | Recommended |
-| `user_email` | If provided, returns a prompt with user-specific skills | No |
+Docstrings of `bash_tool` and `view` tools (in `computer-use-server/mcp_tools.py`) end with:
 
-```bash
-curl "http://localhost:8081/system-prompt?chat_id=my-session&user_email=user@example.com"
+> If you've lost track of your environment (chat_id, file URLs, available skills), re-read /home/assistant/README.md.
+
+Deliberately **not** "read this first" — the system prompt itself (Tiers 3/4/5) already identifies as "contents of /home/assistant/README.md", so if the client surfaced it the model already has the content. This line is a **recovery hint**, not a forcing function.
+
+## Tier 2 — README.md in the sandbox
+
+When `docker_manager._create_container` spins up a chat's workspace container, it calls `render_system_prompt_sync(chat_id, user_email)` and writes the result to `/home/assistant/README.md` (or `/root/README.md` for the test image) via `container.put_archive`. The file survives across container removals because it lives in the chat's persistent workspace volume (`chat-{chat_id}-workspace`).
+
+Does **not** enumerate uploaded files — those are Tier 6's responsibility and are refreshed on every upload. README is static-per-container and changes only when `user_email` changes (which doesn't happen mid-chat).
+
+## Tier 3 — Static `instructions=`
+
+FastMCP's constructor kwarg. A one-liner pointing at Tiers 2, 5, 6 so a client that renders only `InitializeResult.instructions` still learns where the per-session content lives.
+
+## Tier 4 — Dynamic `InitializeResult.instructions`
+
+The same `instructions` field, but **per-request**. Relies on three facts pinned in the SDK source (`.venv/lib/python3.13/site-packages/mcp/server/...`):
+
+1. `streamable_http_manager._handle_stateless_request:196` calls `self.app.create_initialization_options()` inside a per-request task spun up for each HTTP hit — and we run `stateless_http=True` (`mcp_tools.py:276`).
+2. `lowlevel/server.py:188` reads `self.instructions` at that moment to populate `InitializationOptions`.
+3. `session.py:183` echoes it into `InitializeResult.instructions`.
+
+Mechanism:
+- `MCPContextMiddleware` (runs before every MCP request) pre-renders the prompt via `render_system_prompt(...)` and stores it in `current_instructions: ContextVar[str]`.
+- `_DynamicInstructionsServer` subclasses `mcp.server.lowlevel.Server` with `@property def instructions` returning the ContextVar value (falling back to the static `_STATIC_INSTRUCTIONS` string when unset).
+- After `FastMCP(...)` constructs the lowlevel server, we **swap the class** on the existing instance: `mcp._mcp_server.__class__ = _DynamicInstructionsServer`. No reconstruction needed.
+
+**Stateful mode would break this** (a long-lived session caches `init_options` at construction). Do NOT flip `stateless_http=False` without re-reading the SDK source above.
+
+**Private-API caveat.** We touch `mcp._mcp_server` and `_resource_manager._resources`. Pin `mcp` narrowly in `computer-use-server/requirements.txt` — an SDK minor bump requires re-verifying these attribute shapes.
+
+## Tier 5 — `@mcp.prompt("system")`
+
+Native MCP `prompts` primitive. Clients call `prompts/get("system", {"chat_id": ..., "user_email": ...})` and receive `[UserMessage(content=<rendered prompt>)]`.
+
+Arguments are **optional**; missing values fall back to the request headers (`X-Chat-Id`, `X-User-Email`, plus `X-OpenWebUI-*` aliases) via the same ContextVars the middleware populates. **Header wins over argument** when both are set — consistent with Tier 7 and the rest of the server.
+
+Role is `user` because MCP spec restricts `PromptMessage.role` to `{user, assistant}` (see `.venv/.../fastmcp/prompts/base.py:25`). No `system` role. Integrators read `messages[0].content.text` and feed it into `Agent.instructions` — role is irrelevant at that point.
+
+OpenAI Agents SDK does **not** auto-fetch prompts — integrators call `server.get_prompt(...)` explicitly:
+
+```python
+from agents.mcp import MCPServerStreamableHttp
+
+server = MCPServerStreamableHttp(...)
+result = await server.get_prompt("system", {})
+agent = Agent(instructions=result.messages[0].content.text, mcp_servers=[server])
 ```
 
-When `user_email` is provided, the server fetches the user's enabled skills from the settings wrapper and injects them into the `<available_skills>` block. Without it, the server returns a fallback prompt with the default 13 public skills.
+## Tier 6 — Uploaded files as MCP resources
 
-### GET /skill-list
+`resources/list` returns a `FunctionResource` per uploaded file with URI `file://uploads/{chat_id}/{url-encoded rel_path}`. `resources/read` fetches the content — text for `text/*` and a short MIME allowlist, base64 blob otherwise.
 
-Returns available skills as formatted text (for sub-agent delegation prompts).
+Why `chat_id` embedded in the URI: Agents SDK and Inspector don't re-send `X-Chat-Id` on per-resource calls, so URIs must be self-contained.
 
-| Parameter | Description | Required |
-|-----------|-------------|----------|
-| `user_email` | If provided, returns user-specific skills | No |
+Why URL-encoding: FastMCP's `ResourceTemplate.matches` (verified at `.venv/.../templates.py:88`) uses `[^/]+` per template param — it blocks nested paths. Flattening via `urllib.parse.quote` sidesteps the limitation cleanly without forking the SDK.
 
-```bash
-curl "http://localhost:8081/skill-list?user_email=user@example.com"
+Dynamic registration: `sync_chat_resources(chat_id)` clears previously-registered entries for that chat, re-adds from the current filesystem state, under an `asyncio.Lock` to avoid "dict changed size during iteration" when a concurrent `resources/list` runs during an upload. Called from:
+- `docker_manager._create_container` — initial sync when the container spins up.
+- `app.py:upload_file` — after `POST /api/uploads/{chat_id}/{filename}` saves a new file.
+
+Upload itself stays on HTTP — **MCP has no upload primitive.** Community consensus is out-of-band HTTP alongside the MCP server.
+
+## Tier 7 — HTTP `/system-prompt`
+
+Kept for the Open WebUI filter (`openwebui/functions/computer_link_filter.py:224–363`) which fetches the prompt server-side and injects it into the LLM's system message. The endpoint reads:
+
+```
+X-Chat-Id | X-OpenWebUI-Chat-Id   > ?chat_id=           > "default"
+X-User-Email | X-OpenWebUI-User-Email > ?user_email=   > None
 ```
 
-### GET /mcp-info
+Same header-priority rule as Tier 5. Response header `X-Public-Base-URL` is still emitted so the filter's `outlet()` can build browser-facing archive/preview URLs from the server-owned `PUBLIC_BASE_URL`.
 
-Returns MCP endpoint metadata as JSON: available tools, required headers, endpoint URL.
+## Render cache
 
-```bash
-curl "http://localhost:8081/mcp-info" \
-  -H "Authorization: Bearer $MCP_API_KEY"
-```
+`render_system_prompt(chat_id, user_email)` is cache-backed with a 60-second TTL (`_RENDER_TTL_SECONDS` in `system_prompt.py`). Matches `skill_manager`'s own memory-cache TTL. Middleware runs the render on **every** MCP request to pre-fill the ContextVar for Tier 4, so the cache is load-bearing — without it, every `tools/call` would re-hit the skills provider. The second request for the same `(chat_id, user_email)` is a dict lookup.
 
-## Best Practices for MCP Clients
+Invalidation: `invalidate_render_cache()` (no arg → clear all; `chat_id` arg → clear that chat). Used in tests; also callable when skills change upstream.
 
-1. **Fetch the system prompt dynamically** via `GET /system-prompt?chat_id={id}` at session start — this ensures the AI model gets the correct file URLs and the latest skill set
-2. **Pass `user_email`** if your platform supports per-user skill configuration
-3. **Use `/mcp-info`** to discover available tools and required headers programmatically
-4. **Do not hardcode** the system prompt — it evolves with new skills and features
+## Known duplication: Open WebUI filter × README
 
-## System Prompt Structure
+When Open WebUI is the frontend:
+- Tier 7 HTTP endpoint gives the filter the prompt, which it injects into the LLM's system message.
+- Tier 2 also writes the same text to `/home/assistant/README.md`.
+- Tier 4 puts the same text in `InitializeResult.instructions` (which the filter does not currently strip).
 
-The prompt is built from three parts (defined in `computer-use-server/system_prompt.py`):
+The model may see the prompt up to three times (~3–5K tokens per extra copy). Follow-up PR: teach the filter to skip inject when the tool is attached. Out of scope for the "maximum MCP surface" refactor — backward compat is a hard requirement.
 
-1. **Before Skills** — core instructions:
-   - Skill usage workflow (read SKILL.md before acting)
-   - File creation triggers
-   - Assistant identity
-   - Tool usage tips (prefer `view` over `cat`, `str_replace` over `sed`)
-   - Error handling guidelines
-   - Web search instructions
-   - Sub-agent delegation rules
-   - File handling (uploads in `/mnt/user-data/uploads`, outputs in `/mnt/user-data/outputs`)
-   - Context window protection (large file safeguards)
-   - Output sharing (HTTP links, image markdown syntax)
-   - Artifact creation (HTML, React, Mermaid, SVG)
-   - Package management (`pip --break-system-packages`, npm paths)
+## See also
 
-2. **Available Skills XML** — dynamic block listing enabled skills:
-   - `docx` — Word document creation and editing
-   - `pdf` — PDF manipulation, form filling, text extraction
-   - `pptx` — Presentation creation and editing
-   - `xlsx` — Spreadsheet creation, formulas, data analysis
-   - `playwright-cli` — Browser automation, screenshots, web testing
-   - `sub-agent` — Delegate complex tasks to autonomous Claude Code
-   - `describe-image` — Vision AI for image description
-   - `frontend-design` — Production-grade web UI creation
-   - `doc-coauthoring` — Structured document co-authoring workflow
-   - `webapp-testing` — Local web app testing with Playwright
-   - `test-driven-development` — TDD workflow
-   - `skill-creator` — Guide for creating new skills
-   - `gitlab-explorer` — GitLab repository exploration
-
-3. **After Skills** — filesystem configuration (read-only mount points)
+- `docs/MCP.md` — protocol-level MCP server documentation.
+- `docs/openwebui-filter.md` — how the filter consumes Tier 7.
+- `computer-use-server/system_prompt.py` — the render function + cache.
+- `tests/orchestrator/test_{render_cache,dynamic_instructions,mcp_prompts,mcp_resources,tool_descriptions,readme_in_container,system_prompt_endpoint}.py` — pinning tests for every tier.

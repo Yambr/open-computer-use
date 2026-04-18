@@ -38,6 +38,24 @@
 - `openwebui/functions/README.md` Valve table refreshed.
 - `openwebui/init.sh` bootstrap payload updated to new schema field names so fresh deployments start with new names in the DB.
 
+### Features — maximum MCP-native system-prompt surface (seven tiers)
+
+The same per-session system prompt is now delivered through seven channels backed by a single cached renderer (`computer-use-server/system_prompt.py::render_system_prompt`, 60s TTL per `(chat_id, user_email)`). Redundancy is by design — a client may skip any one channel and still get the prompt somewhere. Complete map at `docs/system-prompt.md`.
+
+1. **Tool descriptions** — `bash_tool` + `view` docstrings point at `/home/assistant/README.md` as a recovery hint (`tools/list` surface).
+2. **`/home/assistant/README.md` in sandbox** — rendered on container creation via `container.put_archive`, survives container removals via the `chat-{chat_id}-workspace` volume.
+3. **Static `InitializeResult.instructions=` hint** — one-liner pointing at README + `prompts/get('system')` + `resources/list` for clients that render the initialize-result field directly.
+4. **Dynamic `InitializeResult.instructions`** — per-request content via `current_instructions` ContextVar + `_DynamicInstructionsServer` subclass swapped onto `mcp._mcp_server`. Works thanks to `stateless_http=True` + per-request `create_initialization_options()`.
+5. **`@mcp.prompt("system")` primitive** — MCP-native `prompts/list` + `prompts/get`; OpenAI Agents SDK's documented fallback path via `server.get_prompt(...)`.
+6. **`resources/list` + `resources/read`** — uploaded files surfaced as `FunctionResource` per chat, URI shape `file://uploads/{chat_id}/{url-encoded rel_path}`. Registered on container creation AND on `POST /api/uploads` so new uploads appear without client reconnect. Upload itself stays on HTTP (MCP has no upload primitive).
+7. **`GET /system-prompt` HTTP endpoint** — backward compat for the Open WebUI filter. Now reads `X-Chat-Id` / `X-User-Email` (plus `X-OpenWebUI-*` aliases) with header priority over query params; delegates to the shared renderer; `X-Public-Base-URL` response header preserved.
+
+All five "dynamic" tiers (1, 2, 4, 5, 6) hit the same `render_system_prompt` cache — one render per `(chat_id, user_email)` per minute regardless of fan-out.
+
+Known duplication (Open WebUI): the filter still injects the prompt via `inlet()` while README and `instructions` also carry it. Follow-up PR will teach the filter to skip inject when MCP is attached. Out of scope here — backward compat is a hard requirement.
+
+Private-API touchpoints are pinned by tests (`tests/orchestrator/test_dynamic_instructions.py`, `test_mcp_resources.py`) and documented at their call sites with SDK line references; when bumping `mcp` minor, re-run these tests first.
+
 ### Dependencies
 - `claude-code` pinned to `2.1.114` in the sandbox `Dockerfile` for reproducible builds. `latest` still available as an override.
 
