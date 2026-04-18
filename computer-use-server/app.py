@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from system_prompt import SYSTEM_PROMPT_TEMPLATE, build_system_prompt
-from docker_manager import get_container_cdp_address, FILE_SERVER_URL
+from docker_manager import get_container_cdp_address, FILE_SERVER_URL, warn_if_file_server_url_is_default
 from security import sanitize_chat_id, safe_path
 import skill_manager
 
@@ -182,6 +182,7 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app):
     """FastAPI lifespan: start MCP session manager for Streamable HTTP."""
+    warn_if_file_server_url_is_default()
     try:
         from mcp_tools import mcp as _mcp_server
         if _mcp_server._session_manager is None:

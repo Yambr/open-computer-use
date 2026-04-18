@@ -41,7 +41,11 @@ CONTAINER_CPU_LIMIT = float(os.getenv("CONTAINER_CPU_LIMIT", "1.0"))
 COMMAND_TIMEOUT = int(os.getenv("COMMAND_TIMEOUT", "120"))
 ENABLE_NETWORK = os.getenv("ENABLE_NETWORK", "true").lower() == "true"
 USER_DATA_BASE_PATH = os.getenv("USER_DATA_BASE_PATH", "/tmp/computer-use-data")
-FILE_SERVER_URL = os.getenv("FILE_SERVER_URL", "http://computer-use-server:8081")
+# Internal-DNS default — only reachable from inside the compose network.
+# Users must override with a browser-reachable URL for the Open WebUI preview
+# filter to work end-to-end. See docs/openwebui-filter.md.
+FILE_SERVER_URL_DEFAULT = "http://computer-use-server:8081"
+FILE_SERVER_URL = os.getenv("FILE_SERVER_URL", FILE_SERVER_URL_DEFAULT)
 CONTAINER_IDLE_TIMEOUT = int(os.getenv("CONTAINER_IDLE_TIMEOUT", "600"))
 DEBUG_LOGGING = os.getenv("DEBUG_LOGGING", "false").lower() == "true"
 ORCHESTRATOR_CONTAINER_NAME = os.getenv("ORCHESTRATOR_CONTAINER_NAME", "computer-use-server")
@@ -94,6 +98,32 @@ VISION_API_KEY = os.getenv("VISION_API_KEY", "")
 VISION_API_URL = os.getenv("VISION_API_URL", "")
 VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o")
 
+
+def warn_if_file_server_url_is_default() -> bool:
+    """Emit a one-time startup warning when FILE_SERVER_URL is still the
+    hardcoded internal-DNS default.
+
+    The default (http://computer-use-server:8081) is only reachable from inside
+    the compose network. If the Open WebUI filter's Valve points at a
+    browser-reachable URL but the server still emits internal-DNS URLs, the
+    filter's regex never matches and the preview panel silently never appears
+    (issue #43 class bug, tracked in #59).
+
+    Returns True if a warning was emitted (useful for tests), False otherwise.
+    Called once from FastAPI lifespan startup — do not call per-request.
+    """
+    if FILE_SERVER_URL == FILE_SERVER_URL_DEFAULT:
+        print(
+            "[computer-use-server] WARNING: FILE_SERVER_URL is still the "
+            f"hardcoded default ({FILE_SERVER_URL_DEFAULT!r}). This URL is only "
+            "reachable from inside the compose network — the Open WebUI preview "
+            "panel will never appear until you set it to a browser-reachable URL.\n"
+            "  Fix: in .env, set FILE_SERVER_URL=http://<browser-reachable-host>:8081 "
+            "and set the Open WebUI filter's FILE_SERVER_URL Valve to the same value.\n"
+            "  Docs: https://github.com/Yambr/open-computer-use/blob/main/docs/openwebui-filter.md#two-file_server_url-settings--they-must-match"
+        )
+        return True
+    return False
 
 
 async def _fetch_gitlab_token(email: str, mcp_tokens_url: str, mcp_tokens_api_key: str) -> Optional[str]:
