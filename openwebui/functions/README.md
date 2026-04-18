@@ -15,12 +15,12 @@ Without this filter, the model won't know about skills or how to generate file d
 
 | Valve | Default | Description |
 |-------|---------|-------------|
-| `FILE_SERVER_URL` | `http://localhost:8081` | File server URL (browser-accessible for download links) |
+| `ORCHESTRATOR_URL` | `http://computer-use-server:8081` | Internal URL of Computer Use server (server→server fetch of `/system-prompt`). Not browser-facing — the public URL is owned by the server. |
 | `PREVIEW_MODE` | `"artifact"` | Where the preview link appears: `artifact` \| `button` \| `both` \| `off` |
 | `ARCHIVE_BUTTON` | `"on"` | Add "Download archive" button to responses: `on` \| `off` |
 | `INJECT_SYSTEM_PROMPT` | `true` | Inject skills and file URL into system prompt |
 
-See [`docs/openwebui-filter.md`](../../docs/openwebui-filter.md#valves-reference) for the full Valves reference, including advanced fields and the v3.3.0 migration notes.
+See [`docs/openwebui-filter.md`](../../docs/openwebui-filter.md#valves-reference) for the full Valves reference.
 
 ## Installation
 
@@ -38,7 +38,7 @@ inlet() → Injects file_base_url into system prompt
 outlet() → Appends archive download button
 ```
 
-The model receives the mapping: `/mnt/user-data/outputs/` → `{FILE_SERVER_URL}/files/{chat_id}/` and generates correct HTTP links directly.
+The model receives the mapping: `/mnt/user-data/outputs/` → `{PUBLIC_BASE_URL}/files/{chat_id}/` (the server substitutes its own `PUBLIC_BASE_URL` env var into the prompt) and generates correct HTTP links directly.
 
 ## Related
 

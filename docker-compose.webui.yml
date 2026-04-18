@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright (c) 2025 Open Computer Use Contributors
 # Open WebUI + PostgreSQL — example client for Computer Use
-# Communicates with Computer Use Server via host network (localhost:8081)
+#
+# Reaches Computer Use Server via Docker service DNS (computer-use-server:8081).
+# Both stacks share the default network because they share the Compose project
+# name (the parent directory "open-computer-use") — no extra_hosts required.
 #
 # Start: docker compose -f docker-compose.webui.yml up --build
-# Requires: Computer Use Server running on localhost:8081 (see docker-compose.yml)
+# Requires: Computer Use Server running (docker compose -f docker-compose.yml up -d)
 
 services:
   open-webui:
@@ -32,8 +35,12 @@ services:
       # Auto-init: install Computer Use tool + filter on first startup
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@open-computer-use.dev}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
-      - MCP_SERVER_URL=http://host.docker.internal:${MCP_PORT:-8081}
-      - MCP_SERVER_EXTERNAL_URL=http://localhost:${MCP_PORT:-8081}
+      # Internal URL of computer-use-server, seeded by init.sh into the Tool
+      # and Filter Valves. Uses Docker service DNS — both compose stacks share
+      # the default network because they share the project name (the parent
+      # directory "open-computer-use"), so `computer-use-server` resolves to
+      # the container's IP directly. Browsers never see this URL.
+      - ORCHESTRATOR_URL=http://computer-use-server:${MCP_PORT:-8081}
       - MCP_API_KEY=${MCP_API_KEY:-}
       # Allow complex multi-step tasks (browser + doc creation) to complete
       - CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES=200
@@ -41,12 +48,12 @@ services:
       # Prevents context window exhaustion from large MCP tool outputs
       - TOOL_RESULT_MAX_CHARS=${TOOL_RESULT_MAX_CHARS:-50000}
       - TOOL_RESULT_PREVIEW_CHARS=${TOOL_RESULT_PREVIEW_CHARS:-2000}
-      # Upload full tool results to Computer Use server (model gets preview + file path)
-      - DOCKER_AI_UPLOAD_URL=http://host.docker.internal:${MCP_PORT:-8081}
+      # fix_large_tool_results patch reads ORCHESTRATOR_URL (same name as the
+      # Tool/Filter Valves) to upload truncated tool results back to the server.
+      # Already set in the Valves-seed block above — re-exporting here so the
+      # patch's `os.environ.get('ORCHESTRATOR_URL')` at Python import time sees it.
     volumes:
       - open-webui-data:/app/backend/data
-    extra_hosts:
-      - host.docker.internal:host-gateway
     restart: unless-stopped
 
   postgres:

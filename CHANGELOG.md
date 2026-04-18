@@ -2,9 +2,23 @@
 
 ## v0.8.12.8 (unreleased)
 
+### Breaking Changes — single public URL on the server
+- **Server env renamed**: `FILE_SERVER_URL` → `PUBLIC_BASE_URL`. It's now the *single source of truth* for the browser-facing URL — baked into `/system-prompt` text and returned to the Open WebUI filter via the new `X-Public-Base-URL` response header. Rename in your `.env`.
+- **Tool Valve renamed**: `FILE_SERVER_URL` → `ORCHESTRATOR_URL` (same semantics — internal URL for MCP forwarding).
+- **Filter Valves changed**: `FILE_SERVER_URL` and `SYSTEM_PROMPT_URL` Valves *removed*. Replaced with a single `ORCHESTRATOR_URL` Valve (internal URL for server→server fetch). The filter reads the public URL from the server's response header — no more "two `FILE_SERVER_URL` settings that must match" footgun.
+- **Filter `_fetch_system_prompt()` signature**: now returns `tuple[public_url, prompt] | None` instead of `str | None`. `outlet()` reads `public_url` from the cache.
+- **`DOCKER_AI_UPLOAD_URL` env var renamed**: → `ORCHESTRATOR_URL` (consistent with the Valves).
+- **`docker-compose.webui.yml`**: dropped `MCP_SERVER_EXTERNAL_URL` and `extra_hosts: host.docker.internal:host-gateway`. The open-webui and computer-use-server containers now talk over the shared Compose default network using Docker service DNS (`http://computer-use-server:8081`).
+
+**Migration:**
+1. Rename `FILE_SERVER_URL=...` → `PUBLIC_BASE_URL=...` in your `.env`.
+2. If you run `docker-compose.webui.yml` / `init.sh`: the init script re-seeds Valves with the new names automatically — delete `/app/backend/data/.computer-use-initialized` and restart `open-webui` so it re-runs.
+3. If you configured Valves manually in the Open WebUI admin UI, re-enter them: tool `ORCHESTRATOR_URL`, filter `ORCHESTRATOR_URL`. The old `FILE_SERVER_URL` / `SYSTEM_PROMPT_URL` entries in the DB are ignored by the new Pydantic model and can be left in place.
+
 ### Features
 - **Filter v3.2.0 → v3.4.0 — simpler Valves**: the three boolean preview/archive Valves (`ENABLE_PREVIEW_ARTIFACT`, `ENABLE_PREVIEW_BUTTON`, `ENABLE_ARCHIVE_BUTTON`) were first collapsed in v3.3.0 into two Literal Valves (`PREVIEW_MODE` ∈ `artifact | button | both | off`, `ARCHIVE_BUTTON` ∈ `on | off`), then removed entirely in v3.4.0 along with their `@model_validator` bridge. Users upgrading straight from v3.2.0 revert to defaults — upgrade via v3.3.0 first if you need to preserve saved preferences.
-- **Startup warning for default `FILE_SERVER_URL`** (closes #59): the orchestrator logs a one-time warning when the env var is still the hardcoded internal-DNS default (`http://computer-use-server:8081`), catching the #43-class "preview panel never appears" misconfiguration at boot rather than silently in production. Docs cross-link from the warning body.
+- **Filter v4.0.0 — public URL owned by server**: the filter no longer carries a public-URL Valve. The server's new `/system-prompt` response header `X-Public-Base-URL` delivers it to the filter per request; `_fetch_system_prompt()` caches the (public_url, prompt) pair so `outlet()` can decorate with browser-facing iframe/archive links without its own Valve.
+- **Startup warning for default `PUBLIC_BASE_URL`** (closes #59): the orchestrator logs a one-time warning when the env var is still the hardcoded internal-DNS default (`http://computer-use-server:8081`), catching the #43-class "preview panel never appears" misconfiguration at boot rather than silently in production.
 
 ### Fixes
 - **Filter — browser-only sessions got no preview**: `outlet()` previously required a `/files/{chat_id}/…` URL in the assistant message to inject preview decorations, so pure browser sessions (playwright / chromium with no downloadable file) saw nothing. Detection now also fires on a `<details type="tool_calls">` block that references a browser tool. Scoped to the tag — free-text keyword mentions never false-trigger. Archive button stays gated on file URLs (unchanged).

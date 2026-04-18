@@ -24,9 +24,9 @@ docker compose up --build
 docker compose -f docker-compose.webui.yml up --build
 ```
 
-`scripts/check-config.sh` reports `[OK]` / `[WARN]` / `[ERR]` for each setting and exits 1 if anything is likely to break end-to-end (e.g. `FILE_SERVER_URL` left at the internal-DNS default, half-configured Vision group). WARNs are fine for local dev.
+`scripts/check-config.sh` reports `[OK]` / `[WARN]` / `[ERR]` for each setting and exits 1 if anything is likely to break end-to-end (e.g. `PUBLIC_BASE_URL` left at the internal-DNS default, half-configured Vision group). WARNs are fine for local dev.
 
-**Re-seeding Valves after editing `.env`.** The init script writes Open WebUI Valves from env **on first start only** — a marker file under `/app/backend/data/` guards re-runs so your admin UI edits are never clobbered. If you change `FILE_SERVER_URL` (or any other env the init script propagates into Valves) and want Open WebUI to pick it up, delete the marker and restart:
+**Re-seeding Valves after editing `.env`.** The init script writes Open WebUI Valves from env **on first start only** — a marker file under `/app/backend/data/` guards re-runs so your admin UI edits are never clobbered. If you change `PUBLIC_BASE_URL` (or any other env the init script propagates into Valves) and want Open WebUI to pick it up, delete the marker and restart:
 
 ```bash
 docker compose -f docker-compose.webui.yml exec open-webui \
@@ -47,7 +47,7 @@ Edit `.env` before starting. Key variables:
 | `MCP_API_KEY` | Recommended | Bearer token for MCP endpoint security |
 | `ANTHROPIC_AUTH_TOKEN` | No | For Claude Code sub-agent |
 | `VISION_API_KEY` | No | For describe-image skill |
-| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, `DOCKER_AI_UPLOAD_URL`, build-arg `COMPUTER_USE_SERVER_URL` | No | Settings on the **`open-webui` container** (not CU-server). Required for multi-step tasks, large tool results, and preview rendering. Full guide: [README.md → Required setup when embedding Open WebUI](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack). |
+| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, `ORCHESTRATOR_URL`, build-arg `COMPUTER_USE_SERVER_URL` | No | Settings on the **`open-webui` container** (not CU-server). Required for multi-step tasks, large tool results, and preview rendering. Full guide: [README.md → Required setup when embedding Open WebUI](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack). |
 
 See `.env.example` for the full list with defaults.
 

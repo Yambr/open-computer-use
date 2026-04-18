@@ -18,19 +18,44 @@ sys.path.insert(0, str(ROOT / "openwebui" / "functions"))
 import computer_link_filter  # noqa: E402
 
 
-def _urlopen_mock(text: str = "PROMPT") -> MagicMock:
-    """Create a mock satisfying: with urlopen(req, timeout=N) as resp: resp.read()."""
+def _urlopen_mock(
+    text: str = "PROMPT",
+    public_base_url: str = "http://localhost:8081",
+) -> MagicMock:
+    """Create a mock satisfying: with urlopen(req, timeout=N) as resp: resp.read() + resp.headers.
+
+    `public_base_url` is the value returned by the server in the X-Public-Base-URL
+    header — outlet() builds browser-facing links from it.
+    """
     cm = MagicMock()
     cm.__enter__ = MagicMock(return_value=cm)
     cm.__exit__ = MagicMock(return_value=False)
     cm.read.return_value = text.encode("utf-8")
+    cm.headers = {"X-Public-Base-URL": public_base_url}
     return cm
 
 
-def _make_filter(file_server_url: str = "http://localhost:8081") -> "computer_link_filter.Filter":
+def _make_filter(
+    orchestrator_url: str = "http://localhost:8081",
+) -> "computer_link_filter.Filter":
     f = computer_link_filter.Filter()
-    f.valves.FILE_SERVER_URL = file_server_url
+    f.valves.ORCHESTRATOR_URL = orchestrator_url
     return f
+
+
+def _prime_cache(
+    f: "computer_link_filter.Filter",
+    chat_id: str,
+    user_email: str = "",
+    public_url: str = "http://localhost:8081",
+    prompt: str = "PROMPT",
+) -> None:
+    """Seed the filter's prompt cache so outlet() has a public_url to decorate with.
+
+    outlet() never invents a public URL — it pulls from cache populated by inlet().
+    Tests that exercise outlet() in isolation must prime the cache first.
+    """
+    f._prompt_cache[(chat_id, user_email)] = (time.time(), (public_url, prompt))
 
 
 def _active_body() -> dict:
@@ -53,14 +78,17 @@ def _assistant_body_with_file(chat_id: str = "abc") -> dict:
 
 
 class TrailingSlashNormalisation(unittest.TestCase):
-    """FILE_SERVER_URL may arrive with a trailing slash; URLs must never end up with `//files/`."""
+    """Any URL Valve may arrive with a trailing slash; URLs must never end up with `//files/`."""
 
     def setUp(self):
-        # After filter rewrite (Task 3), inlet() fetches the prompt over HTTP —
-        # mock the response so it contains the expected URL verbatim.
+        # inlet() fetches the prompt over HTTP — mock the response so it contains
+        # the expected URL verbatim + the X-Public-Base-URL header outlet() reads.
         self._urlopen_patcher = patch(
             "urllib.request.urlopen",
-            return_value=_urlopen_mock("System prompt with http://localhost:8081/files/abc baked"),
+            return_value=_urlopen_mock(
+                "System prompt with http://localhost:8081/files/abc baked",
+                public_base_url="http://localhost:8081",
+            ),
         )
         self._urlopen_patcher.start()
         self.addCleanup(self._urlopen_patcher.stop)
@@ -72,6 +100,8 @@ class TrailingSlashNormalisation(unittest.TestCase):
 
     def test_outlet_archive_button_has_no_double_slash(self):
         f = _make_filter("http://localhost:8081/")
+        # Simulate server that returned public URL with trailing slash.
+        _prime_cache(f, "abc", public_url="http://localhost:8081/")
         link = "http://localhost:8081/files/abc/report.pdf"
         body = {"messages": [{"role": "assistant", "content": f"see {link}"}]}
         out = f.outlet(body, __metadata__={"chat_id": "abc"})
@@ -141,6 +171,7 @@ class BaselineBehaviour(unittest.TestCase):
 
     def test_outlet_appends_archive_button_once(self):
         f = _make_filter()
+        _prime_cache(f, "abc")
         link = "http://localhost:8081/files/abc/report.pdf"
         body = {"messages": [{"role": "assistant", "content": f"see {link}"}]}
         out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
@@ -154,6 +185,7 @@ class BaselineBehaviour(unittest.TestCase):
     def test_outlet_does_not_modify_non_assistant_messages(self):
         """User/system/tool messages must be left untouched even if they contain a file URL."""
         f = _make_filter()
+        _prime_cache(f, "abc")
         link = "http://localhost:8081/files/abc/report.pdf"
         original_user = f"check {link}"
         original_system = f"context with {link}"
@@ -175,6 +207,7 @@ class BaselineBehaviour(unittest.TestCase):
         Regression guard for W-01: outlet previously matched any chat_id via `[^/]+`.
         """
         f = _make_filter()
+        _prime_cache(f, "abc")
         other_link = "http://localhost:8081/files/other-chat/report.pdf"
         original_content = f"see artefact from the other chat: {other_link}"
         body = {"messages": [{"role": "assistant", "content": original_content}]}
@@ -188,30 +221,48 @@ class BaselineBehaviour(unittest.TestCase):
 
 
 class SystemPromptFetchCache(unittest.TestCase):
-    """New in v3.1.0: HTTP-fetch + LRU cache + stale-cache fallback."""
+    """HTTP-fetch + LRU cache + stale-cache fallback.
+
+    v4.0.0: _fetch_system_prompt() returns (public_url, prompt) tuple instead of
+    just the prompt — public_url comes from the X-Public-Base-URL response header
+    so outlet() doesn't need its own URL Valve.
+    """
 
     def test_fresh_fetch_populates_cache(self):
         f = _make_filter()
-        with patch("urllib.request.urlopen", return_value=_urlopen_mock("PROMPT_V1")):
+        with patch(
+            "urllib.request.urlopen",
+            return_value=_urlopen_mock("PROMPT_V1", public_base_url="http://pub:8081"),
+        ):
             result = f._fetch_system_prompt("chat-a", "")
-        self.assertEqual(result, "PROMPT_V1")
+        self.assertEqual(result, ("http://pub:8081", "PROMPT_V1"))
         self.assertIn(("chat-a", ""), f._prompt_cache)
-        self.assertEqual(f._prompt_cache[("chat-a", "")][1], "PROMPT_V1")
+        self.assertEqual(f._prompt_cache[("chat-a", "")][1], ("http://pub:8081", "PROMPT_V1"))
+
+    def test_fetch_falls_back_to_orchestrator_url_when_header_missing(self):
+        """Older servers may not send X-Public-Base-URL. Filter falls back to
+        reusing ORCHESTRATOR_URL as public_url (only correct for bare-metal)."""
+        f = _make_filter("http://int:8081")
+        cm = _urlopen_mock("PROMPT")
+        cm.headers = {}  # server did not set the header
+        with patch("urllib.request.urlopen", return_value=cm):
+            result = f._fetch_system_prompt("chat-a", "")
+        self.assertEqual(result, ("http://int:8081", "PROMPT"))
 
     def test_cache_hit_within_ttl_skips_http(self):
         f = _make_filter()
-        f._prompt_cache[("chat-a", "")] = (time.time(), "CACHED")
+        f._prompt_cache[("chat-a", "")] = (time.time(), ("http://pub:8081", "CACHED"))
         with patch("urllib.request.urlopen", side_effect=AssertionError("urlopen must not be called")) as m:
             result = f._fetch_system_prompt("chat-a", "")
-        self.assertEqual(result, "CACHED")
+        self.assertEqual(result, ("http://pub:8081", "CACHED"))
         m.assert_not_called()
 
     def test_ttl_expiry_triggers_refetch(self):
         f = _make_filter()
-        f._prompt_cache[("chat-a", "")] = (time.time() - 301, "OLD")
+        f._prompt_cache[("chat-a", "")] = (time.time() - 301, ("http://pub:8081", "OLD"))
         with patch("urllib.request.urlopen", return_value=_urlopen_mock("FRESH")):
             result = f._fetch_system_prompt("chat-a", "")
-        self.assertEqual(result, "FRESH")
+        self.assertEqual(result[1], "FRESH")
         self.assertGreater(f._prompt_cache[("chat-a", "")][0], time.time() - 5)
 
     def test_lru_eviction_at_max_size(self):
@@ -225,10 +276,13 @@ class SystemPromptFetchCache(unittest.TestCase):
 
     def test_stale_cache_fallback_on_server_down(self):
         f = _make_filter()
-        f._prompt_cache[("chat-a", "")] = (time.time() - 9999, "STALE")
+        f._prompt_cache[("chat-a", "")] = (
+            time.time() - 9999,
+            ("http://pub:8081", "STALE"),
+        )
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("conn refused")):
             result = f._fetch_system_prompt("chat-a", "")
-        self.assertEqual(result, "STALE")
+        self.assertEqual(result, ("http://pub:8081", "STALE"))
 
     def test_cold_cache_returns_none_when_server_down(self):
         f = _make_filter()
@@ -251,11 +305,10 @@ class SystemPromptFetchCache(unittest.TestCase):
 
     def test_rejects_non_http_scheme_without_urlopen(self):
         """Valves misconfiguration (file://, ftp://, etc.) must not reach urlopen.
-        Regression guard for ruff S310: SYSTEM_PROMPT_URL=file:///etc/passwd used
-        to read the file as the injected system prompt.
+        Regression guard for ruff S310: ORCHESTRATOR_URL=file:///etc/passwd would
+        otherwise read the file as the injected system prompt.
         """
-        f = _make_filter()
-        f.valves.SYSTEM_PROMPT_URL = "file:///etc/passwd"
+        f = _make_filter("file:///etc/passwd")
         with patch("urllib.request.urlopen", side_effect=AssertionError("must not be called")) as m:
             result = f._fetch_system_prompt("chat-a", "")
         self.assertIsNone(result)
@@ -264,12 +317,14 @@ class SystemPromptFetchCache(unittest.TestCase):
     def test_rejects_non_http_scheme_serves_stale_cache_when_available(self):
         """If the scheme is invalid but a cached value exists, serve it (same
         policy as transport failure)."""
-        f = _make_filter()
-        f.valves.SYSTEM_PROMPT_URL = "ftp://example.com/prompt"
-        f._prompt_cache[("chat-a", "")] = (time.time() - 9999, "STALE")
+        f = _make_filter("ftp://example.com")
+        f._prompt_cache[("chat-a", "")] = (
+            time.time() - 9999,
+            ("http://pub:8081", "STALE"),
+        )
         with patch("urllib.request.urlopen", side_effect=AssertionError("must not be called")):
             result = f._fetch_system_prompt("chat-a", "")
-        self.assertEqual(result, "STALE")
+        self.assertEqual(result, ("http://pub:8081", "STALE"))
 
     def test_narrow_exception_propagates_programming_errors(self):
         """A broad `except Exception` used to swallow programming bugs (e.g.
@@ -291,19 +346,27 @@ class SystemPromptFetchCache(unittest.TestCase):
         with patch("urllib.request.urlopen", side_effect=_serve_next):
             a = f._fetch_system_prompt("chat-shared", "alice@example.com")
             b = f._fetch_system_prompt("chat-shared", "bob@example.com")
-        self.assertEqual(a, "PROMPT_FOR_ALICE")
-        self.assertEqual(b, "PROMPT_FOR_BOB")
+        self.assertEqual(a[1], "PROMPT_FOR_ALICE")
+        self.assertEqual(b[1], "PROMPT_FOR_BOB")
         self.assertIn(("chat-shared", "alice@example.com"), f._prompt_cache)
         self.assertIn(("chat-shared", "bob@example.com"), f._prompt_cache)
         # No cross-contamination: Alice's cached entry still holds Alice's prompt
-        self.assertEqual(f._prompt_cache[("chat-shared", "alice@example.com")][1], "PROMPT_FOR_ALICE")
+        self.assertEqual(
+            f._prompt_cache[("chat-shared", "alice@example.com")][1][1],
+            "PROMPT_FOR_ALICE",
+        )
 
 
 class PreviewArtifact(unittest.TestCase):
     """Covers PREVIEW-01 (default iframe artifact), PREVIEW-03 (invariants for iframe), PREVIEW-04 (iframe idempotency)."""
 
-    def test_outlet_appends_iframe_artifact_by_default(self):
+    def _filter(self, public_url: str = "http://localhost:8081") -> "computer_link_filter.Filter":
         f = _make_filter()
+        _prime_cache(f, "abc", public_url=public_url)
+        return f
+
+    def test_outlet_appends_iframe_artifact_by_default(self):
+        f = self._filter()
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
         self.assertIn('<iframe src="http://localhost:8081/preview/abc"', content)
@@ -311,7 +374,7 @@ class PreviewArtifact(unittest.TestCase):
         self.assertIn('allow="clipboard-write; keyboard-map"', content)
 
     def test_outlet_iframe_artifact_is_idempotent(self):
-        f = _make_filter()
+        f = self._filter()
         body = _assistant_body_with_file()
         out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
         out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
@@ -319,7 +382,7 @@ class PreviewArtifact(unittest.TestCase):
         self.assertEqual(out2["messages"][0]["content"].count("<iframe src="), 1)
 
     def test_outlet_iframe_artifact_disabled_when_valve_false(self):
-        f = _make_filter()
+        f = self._filter()
         f.valves.PREVIEW_MODE = "button"  # artifact disabled (only button)
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
@@ -327,7 +390,7 @@ class PreviewArtifact(unittest.TestCase):
         self.assertNotIn("```html", content)
 
     def test_outlet_iframe_artifact_respects_other_chat_ids(self):
-        f = _make_filter()
+        f = self._filter()
         other_link = "http://localhost:8081/files/other-chat/report.pdf"
         original = f"see artefact from another chat: {other_link}"
         body = {"messages": [{"role": "assistant", "content": original}]}
@@ -335,7 +398,7 @@ class PreviewArtifact(unittest.TestCase):
         self.assertEqual(out["messages"][0]["content"], original)
 
     def test_outlet_iframe_not_added_to_non_assistant_roles(self):
-        f = _make_filter()
+        f = self._filter()
         link = "http://localhost:8081/files/abc/report.pdf"
         body = {
             "messages": [
@@ -350,7 +413,7 @@ class PreviewArtifact(unittest.TestCase):
             self.assertNotIn("```html", msg["content"])
 
     def test_outlet_iframe_url_has_no_double_slash_when_trailing_slash(self):
-        f = _make_filter("http://localhost:8081/")
+        f = self._filter(public_url="http://localhost:8081/")
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         content = body["messages"][0]["content"]
         self.assertNotIn("//preview/", content)
@@ -360,13 +423,18 @@ class PreviewArtifact(unittest.TestCase):
 class PreviewButton(unittest.TestCase):
     """Covers PREVIEW-02 (opt-in markdown button), PREVIEW-04 (button idempotency)."""
 
-    def test_outlet_preview_button_off_by_default(self):
+    def _filter(self) -> "computer_link_filter.Filter":
         f = _make_filter()
+        _prime_cache(f, "abc")
+        return f
+
+    def test_outlet_preview_button_off_by_default(self):
+        f = self._filter()
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         self.assertNotIn("[🖥️ Open preview]", body["messages"][0]["content"])
 
     def test_outlet_preview_button_appended_when_enabled(self):
-        f = _make_filter()
+        f = self._filter()
         f.valves.PREVIEW_MODE = "both"
         body = f.outlet(_assistant_body_with_file(), __metadata__={"chat_id": "abc"})
         self.assertIn(
@@ -375,7 +443,7 @@ class PreviewButton(unittest.TestCase):
         )
 
     def test_outlet_preview_button_is_idempotent(self):
-        f = _make_filter()
+        f = self._filter()
         f.valves.PREVIEW_MODE = "both"
         body = _assistant_body_with_file()
         out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
@@ -387,7 +455,7 @@ class PreviewButton(unittest.TestCase):
         )
 
     def test_outlet_preview_button_respects_other_chat_ids(self):
-        f = _make_filter()
+        f = self._filter()
         f.valves.PREVIEW_MODE = "both"
         other_link = "http://localhost:8081/files/other-chat/report.pdf"
         original = f"see {other_link}"
@@ -443,9 +511,14 @@ class BrowserToolTrigger(unittest.TestCase):
         self.assertFalse(computer_link_filter._content_has_browser_tool(""))
         self.assertFalse(computer_link_filter._content_has_browser_tool(None))  # type: ignore[arg-type]
 
+    def _primed_filter(self) -> "computer_link_filter.Filter":
+        f = _make_filter()
+        _prime_cache(f, "abc")
+        return f
+
     def test_outlet_appends_iframe_on_browser_tool_without_file_url(self):
         """outlet() must inject preview iframe when a browser tool ran but produced no file."""
-        f = _make_filter()
+        f = self._primed_filter()
         content = "I navigated to the page. " + self._tool_call_details(name="playwright")
         body = {"messages": [{"role": "assistant", "content": content}]}
         out = f.outlet(body, __metadata__={"chat_id": "abc"})
@@ -453,7 +526,7 @@ class BrowserToolTrigger(unittest.TestCase):
 
     def test_outlet_preview_button_triggered_by_browser_tool(self):
         """When PREVIEW_MODE is "both", browser-tool trigger alone is enough to inject the button."""
-        f = _make_filter()
+        f = self._primed_filter()
         f.valves.PREVIEW_MODE = "both"
         content = self._tool_call_details(name="chromium")
         body = {"messages": [{"role": "assistant", "content": content}]}
@@ -466,7 +539,7 @@ class BrowserToolTrigger(unittest.TestCase):
     def test_outlet_archive_button_NOT_triggered_by_browser_tool_alone(self):
         """Archive button is meaningless without files — must stay gated on file URLs even
         when a browser tool ran."""
-        f = _make_filter()
+        f = self._primed_filter()
         content = self._tool_call_details(name="screenshot")
         body = {"messages": [{"role": "assistant", "content": content}]}
         out = f.outlet(body, __metadata__={"chat_id": "abc"})
@@ -475,7 +548,7 @@ class BrowserToolTrigger(unittest.TestCase):
     def test_outlet_does_not_trigger_on_freetext_keyword(self):
         """Regression guard for false-positive scoping: assistant free text mentioning
         a browser tool must NOT receive preview decoration."""
-        f = _make_filter()
+        f = self._primed_filter()
         body = {"messages": [{"role": "assistant", "content": "Use playwright to click the button."}]}
         out = f.outlet(body, __metadata__={"chat_id": "abc"})
         self.assertNotIn("<iframe", out["messages"][0]["content"])
@@ -483,13 +556,54 @@ class BrowserToolTrigger(unittest.TestCase):
 
     def test_outlet_browser_tool_trigger_is_idempotent(self):
         """Repeated outlet() calls on browser-tool-triggered content must not duplicate iframe."""
-        f = _make_filter()
+        f = self._primed_filter()
         content = self._tool_call_details(name="playwright")
         body = {"messages": [{"role": "assistant", "content": content}]}
         out1 = f.outlet(body, __metadata__={"chat_id": "abc"})
         out2 = f.outlet(out1, __metadata__={"chat_id": "abc"})
         self.assertEqual(out1["messages"][0]["content"], out2["messages"][0]["content"])
         self.assertEqual(out2["messages"][0]["content"].count("<iframe src="), 1)
+
+
+class OutletWithoutCache(unittest.TestCase):
+    """outlet() must not invent a public URL. When the cache is empty (outlet
+    invoked on a re-rendered old message after a server restart, or before
+    inlet() ran), decoration is skipped — broken links are worse than no links.
+    """
+
+    def test_outlet_skips_all_decoration_when_cache_empty(self):
+        f = _make_filter()
+        link = "http://localhost:8081/files/abc/report.pdf"
+        original = f"assistant said: {link}"
+        body = {"messages": [{"role": "assistant", "content": original}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertEqual(
+            out["messages"][0]["content"],
+            original,
+            "Empty cache must leave the message untouched — no iframe, button, or archive",
+        )
+
+    def test_outlet_skips_when_cache_has_different_chat_id(self):
+        """Cache for chat-X must not decorate a message sent in chat-Y."""
+        f = _make_filter()
+        _prime_cache(f, "other-chat")
+        link = "http://localhost:8081/files/abc/report.pdf"
+        original = f"assistant said: {link}"
+        body = {"messages": [{"role": "assistant", "content": original}]}
+        out = f.outlet(body, __metadata__={"chat_id": "abc"})
+        self.assertEqual(out["messages"][0]["content"], original)
+
+
+class ValveSchema(unittest.TestCase):
+    """Filter owns exactly one URL Valve (ORCHESTRATOR_URL). FILE_SERVER_URL and
+    SYSTEM_PROMPT_URL are gone — the public URL is owned by the server and returned
+    via the X-Public-Base-URL response header on /system-prompt."""
+
+    def test_only_orchestrator_url_valve_exists(self):
+        valve_fields = set(computer_link_filter.Filter.Valves.model_fields.keys())
+        self.assertIn("ORCHESTRATOR_URL", valve_fields)
+        self.assertNotIn("FILE_SERVER_URL", valve_fields)
+        self.assertNotIn("SYSTEM_PROMPT_URL", valve_fields)
 
 
 class DocstringDriftGuard(unittest.TestCase):

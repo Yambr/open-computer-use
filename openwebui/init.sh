@@ -9,7 +9,7 @@
 # never clobbered on restart.
 #
 # Valves are env-seeded on FIRST boot only. To force a re-seed (e.g. after
-# changing FILE_SERVER_URL in .env), delete the marker file and restart:
+# changing PUBLIC_BASE_URL in .env), delete the marker file and restart:
 #
 #   docker compose -f docker-compose.webui.yml exec open-webui \
 #       rm /app/backend/data/.computer-use-initialized
@@ -21,8 +21,11 @@ WEBUI_URL="${WEBUI_URL:-http://localhost:8080}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@open-computer-use.dev}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"
 ADMIN_NAME="${ADMIN_NAME:-Admin}"
-MCP_SERVER_URL="${MCP_SERVER_URL:-http://localhost:8081}"
-MCP_SERVER_EXTERNAL_URL="${MCP_SERVER_EXTERNAL_URL:-http://localhost:8081}"
+# ORCHESTRATOR_URL: internal URL of computer-use-server, reachable from inside
+# the open-webui container. Seeded into both Tool and Filter Valves. The public
+# URL (browser-facing) is NOT set here — it lives only on the server as the
+# PUBLIC_BASE_URL env var and is delivered to the filter via response header.
+ORCHESTRATOR_URL="${ORCHESTRATOR_URL:-http://computer-use-server:8081}"
 MCP_API_KEY="${MCP_API_KEY:-}"
 MARKER_FILE="/app/backend/data/.computer-use-initialized"
 
@@ -112,8 +115,8 @@ fi
 echo "[init] Configuring tool valves..."
 curl -sf -X POST "$WEBUI_URL/api/v1/tools/id/ai_computer_use/valves/update" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d "{\"FILE_SERVER_URL\": \"$MCP_SERVER_URL\", \"MCP_API_KEY\": \"$MCP_API_KEY\", \"DEBUG_LOGGING\": false}" >/dev/null
-echo "[init] Valves set: FILE_SERVER_URL=$MCP_SERVER_URL"
+    -d "{\"ORCHESTRATOR_URL\": \"$ORCHESTRATOR_URL\", \"MCP_API_KEY\": \"$MCP_API_KEY\", \"DEBUG_LOGGING\": false}" >/dev/null
+echo "[init] Tool valves set: ORCHESTRATOR_URL=$ORCHESTRATOR_URL"
 
 # Make tool public-read so non-admin users can see & call it.
 # Open WebUI's UI "Public" toggle writes BOTH group:* and user:* wildcards — we mirror
@@ -159,12 +162,16 @@ else
     echo "[init] Function created: computer_use_filter"
 fi
 
-# Configure filter valves (FILE_SERVER_URL for links in chat)
+# Configure filter valves. ORCHESTRATOR_URL is the internal URL used for
+# server→server fetch of /system-prompt. The public URL (for browser-facing
+# iframe/archive links) lives only on the server as PUBLIC_BASE_URL env and is
+# returned to the filter via the X-Public-Base-URL response header — no Valve
+# for it here.
 echo "[init] Configuring filter valves..."
 curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/valves/update" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d "{\"FILE_SERVER_URL\": \"$MCP_SERVER_EXTERNAL_URL\", \"ARCHIVE_BUTTON\": \"on\", \"INJECT_SYSTEM_PROMPT\": true}" >/dev/null 2>&1 || true
-echo "[init] Filter valves set: FILE_SERVER_URL=$MCP_SERVER_EXTERNAL_URL (external/browser URL)"
+    -d "{\"ORCHESTRATOR_URL\": \"$ORCHESTRATOR_URL\", \"ARCHIVE_BUTTON\": \"on\", \"INJECT_SYSTEM_PROMPT\": true}" >/dev/null 2>&1 || true
+echo "[init] Filter valves set: ORCHESTRATOR_URL=$ORCHESTRATOR_URL"
 
 # Enable filter (is_active=True) and mark it global (is_global=True).
 # Open WebUI v0.8.12 has TWO separate endpoints: /toggle flips is_active,

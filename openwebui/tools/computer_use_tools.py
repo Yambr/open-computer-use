@@ -3,10 +3,10 @@
 """
 title: Computer Use Tools
 author: OpenWebUI Implementation
-version: 3.0.0
+version: 4.0.0
 
 Thin MCP client proxy to computer-use-orchestrator. All config lives server-side.
-Only FILE_SERVER_URL + MCP_API_KEY needed — everything else is auto.
+Only ORCHESTRATOR_URL + MCP_API_KEY needed — everything else is auto.
 
 Container naming: owui-chat-{chat_id}
 
@@ -200,9 +200,9 @@ ViewRange = Annotated[
 
 class Tools:
     class Valves(BaseModel):
-        FILE_SERVER_URL: str = Field(
-            default="http://localhost:8081",
-            description="File server URL (hosts MCP endpoint and file uploads)"
+        ORCHESTRATOR_URL: str = Field(
+            default="http://computer-use-server:8081",
+            description="Internal URL of the Computer Use orchestrator (MCP endpoint + file uploads). Must be reachable from inside the Open WebUI container."
         )
         MCP_API_KEY: str = Field(
             default="",
@@ -223,7 +223,7 @@ class Tools:
     @property
     def mcp_client(self) -> _MCPClient:
         """Lazy MCP client — recreated when valves change."""
-        url = self.valves.FILE_SERVER_URL
+        url = self.valves.ORCHESTRATOR_URL
         if self._mcp_client is None or self._mcp_client_url != url:
             self._mcp_client = _MCPClient(url, self.valves.MCP_API_KEY)
             self._mcp_client_url = url
@@ -262,7 +262,7 @@ class Tools:
         if __files__:
             try:
                 sync_result = await asyncio.to_thread(
-                    _sync_uploaded_files, self.valves.FILE_SERVER_URL, chat_id, __files__,
+                    _sync_uploaded_files, self.valves.ORCHESTRATOR_URL, chat_id, __files__,
                     debug=self.valves.DEBUG_LOGGING
                 )
                 if sync_result.get("synced", 0) > 0:

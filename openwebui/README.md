@@ -27,7 +27,7 @@ Applied at Docker build time. All are idempotent and non-breaking. The 4 patches
 | `fix_artifacts_auto_show` | Active | Auto-opens preview panel for generated files | HTML/iframe renders as raw text in the chat body instead of the artifacts panel |
 | `fix_preview_url_detection` | Active | Detects file URLs in messages and opens iframe preview | Preview iframe is never auto-inserted after file links |
 | `fix_tool_loop_errors` | Active | Better error messages for tool call budget/transport errors | Raw exceptions instead of banners; `MCP call failed: Session terminated` appears unwrapped |
-| `fix_large_tool_results` | Active | Truncates large MCP tool results (>50K chars) and optionally uploads them to the Computer Use server | `TOOL_RESULT_MAX_CHARS` / `DOCKER_AI_UPLOAD_URL` become no-ops; large outputs wreck the model context |
+| `fix_large_tool_results` | Active | Truncates large MCP tool results (>50K chars) and optionally uploads them to the Computer Use server | `TOOL_RESULT_MAX_CHARS` / `ORCHESTRATOR_URL` become no-ops; large outputs wreck the model context |
 | `fix_large_tool_args` | Optional | Truncates huge tool call args (>10KB) to prevent browser freeze | Browser UI can freeze on "Executing [tool]..." with large str_replace payloads |
 | `fix_attached_files_position` | Optional | Moves file context to end of message (better prompt caching) | Attaching a file invalidates the cached prefix of the message |
 | `fix_skip_embedding_chat_files` | Optional | Skips embedding for large uploads (>1MB) | Large uploads block the chat for minutes on extraction/embedding |

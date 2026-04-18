@@ -33,8 +33,8 @@ from pydantic import BaseModel, Field
 from system_prompt import SYSTEM_PROMPT_TEMPLATE, build_system_prompt
 from docker_manager import (
     get_container_cdp_address,
-    FILE_SERVER_URL,
-    warn_if_file_server_url_is_default,
+    PUBLIC_BASE_URL,
+    warn_if_public_base_url_is_default,
     warn_if_mcp_api_key_missing,
 )
 from security import sanitize_chat_id, safe_path
@@ -187,7 +187,7 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app):
     """FastAPI lifespan: start MCP session manager for Streamable HTTP."""
-    warn_if_file_server_url_is_default()
+    warn_if_public_base_url_is_default()
     warn_if_mcp_api_key_missing()
     try:
         from mcp_tools import mcp as _mcp_server
@@ -1198,7 +1198,7 @@ async def system_prompt(
 
     if chat_id:
         # New path: server constructs URLs from chat_id
-        base = f"{FILE_SERVER_URL}/files/{chat_id}"
+        base = f"{PUBLIC_BASE_URL}/files/{chat_id}"
         result = result.replace("{file_base_url}", base)
         result = result.replace("{archive_url}", f"{base}/archive")
         result = result.replace("{chat_id}", chat_id)
@@ -1209,7 +1209,14 @@ async def system_prompt(
         result = result.replace("{chat_id}", legacy_chat_id)
         if archive_url is not None:
             result = result.replace("{archive_url}", archive_url)
-    return result
+
+    # Public URL is owned by the server. Expose via response header so the
+    # Open WebUI filter can decorate outlet() with browser-facing links without
+    # needing its own Valve — its ORCHESTRATOR_URL is internal-only.
+    return PlainTextResponse(
+        content=result,
+        headers={"X-Public-Base-URL": PUBLIC_BASE_URL},
+    )
 
 
 @app.get("/skill-mounts", tags=["System"])

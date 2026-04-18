@@ -149,7 +149,7 @@ from docker_manager import (
     build_mcp_config, build_mcp_config_write_script,
     _fetch_gitlab_token, _ensure_gitlab_token,
     DOCKER_SOCKET, DOCKER_IMAGE, CONTAINER_MEM_LIMIT, CONTAINER_CPU_LIMIT,
-    COMMAND_TIMEOUT, ENABLE_NETWORK, USER_DATA_BASE_PATH, FILE_SERVER_URL,
+    COMMAND_TIMEOUT, ENABLE_NETWORK, USER_DATA_BASE_PATH, PUBLIC_BASE_URL,
     MCP_TOKENS_URL, MCP_TOKENS_API_KEY,
     SUB_AGENT_DEFAULT_MODEL, SUB_AGENT_MAX_TURNS, SUB_AGENT_TIMEOUT,
     ANTHROPIC_DEFAULT_SONNET_MODEL,
@@ -844,7 +844,7 @@ async def sub_agent(
                 await asyncio.to_thread(_execute_bash, container, write_cmd, 15)
 
         # Build the sub-agent system prompt with dynamic skills
-        file_base_url = f"{FILE_SERVER_URL}/files/{chat_id}"
+        file_base_url = f"{PUBLIC_BASE_URL}/files/{chat_id}"
         plan_file = "/home/assistant/task_plan.md"
         skills = skill_manager.get_user_skills_sync(user_email) if user_email else skill_manager.get_user_skills_sync(None)
         skills_text = skill_manager.build_sub_agent_skills_text(skills)
