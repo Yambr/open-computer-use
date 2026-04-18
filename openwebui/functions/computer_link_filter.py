@@ -3,7 +3,7 @@
 """
 title: Computer Use Filter
 author: Open Computer Use Contributors
-version: 3.3.0
+version: 3.4.0
 required_open_webui_version: 0.5.17
 description: HTTP-fetches Computer Use system prompt from orchestrator, with LRU cache and stale-cache fallback. outlet() decorates assistant messages with a preview iframe / preview button / archive button based on PREVIEW_MODE and ARCHIVE_BUTTON Valves.
 
@@ -22,14 +22,17 @@ FUNCTIONALITY:
   ARCHIVE_BUTTON ("on" | "off", default "on"). All decorations are idempotent (substring
   guarded) and scoped to the current chat_id. Archive button also requires a file URL.
 
+CHANGELOG (v3.4.0):
+- Removed legacy v3.2.0 boolean Valves (ENABLE_PREVIEW_ARTIFACT,
+  ENABLE_PREVIEW_BUTTON, ENABLE_ARCHIVE_BUTTON) and their @model_validator bridge.
+  PREVIEW_MODE and ARCHIVE_BUTTON (introduced in v3.3.0) are now the only knobs.
+  Users upgrading from v3.2.0 directly to v3.4.0 will revert to defaults — upgrade
+  via v3.3.0 first if you need to preserve saved preferences.
+
 CHANGELOG (v3.3.0):
 - Collapsed three boolean preview/archive Valves (ENABLE_PREVIEW_ARTIFACT,
   ENABLE_PREVIEW_BUTTON, ENABLE_ARCHIVE_BUTTON) into two Literal Valves
   (PREVIEW_MODE, ARCHIVE_BUTTON). Fewer, clearer knobs.
-- Backward compatible: legacy fields are still read from existing deployments and
-  migrated transparently by a @model_validator. Users who saved v3.2.0 settings
-  keep them on upgrade. Legacy fields remain visible in the Valves UI labeled
-  DEPRECATED until filter v4.0 / v0.9.0.
 - outlet() rewritten to read PREVIEW_MODE + ARCHIVE_BUTTON only. No behavioural
   regression — the same four user-facing states (artifact / button / both / off)
   remain reachable.
@@ -91,16 +94,6 @@ CHANGELOG (v3.0.2):
         ARCHIVE_BUTTON_TEXT (str, default "📦 Download all files as archive"):
             Label for the archive-download markdown link (only used when
             ARCHIVE_BUTTON is "on").
-
-    DEPRECATED VALVES (v3.3.0 — read-only, migrated automatically):
-        ENABLE_PREVIEW_ARTIFACT (Optional[bool]):
-            Replaced by PREVIEW_MODE. Users on v3.2.0 who had this set keep their
-            preference after upgrade (mapped to PREVIEW_MODE). Will be removed in
-            filter v4.0 / v0.9.0.
-        ENABLE_PREVIEW_BUTTON (Optional[bool]):
-            Replaced by PREVIEW_MODE. See above.
-        ENABLE_ARCHIVE_BUTTON (Optional[bool]):
-            Replaced by ARCHIVE_BUTTON. See above.
 """
 
 import re
@@ -111,7 +104,7 @@ import urllib.request
 from collections import OrderedDict
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 # All known Open WebUI template variables
@@ -219,54 +212,6 @@ class Filter:
             default="📦 Download all files as archive",
             description="Text for the archive-download button (when ARCHIVE_BUTTON is on).",
         )
-
-        # Legacy v3.2.0 fields — kept for backward compatibility so existing
-        # deployments do not lose their settings on upgrade. The _migrate_legacy
-        # validator maps them onto the new fields. These will be removed in
-        # filter v4.0 / open-computer-use v0.9.0.
-        ENABLE_PREVIEW_ARTIFACT: Optional[bool] = Field(
-            default=None,
-            description="DEPRECATED (v3.3.0) — use PREVIEW_MODE. Value is migrated automatically on first load.",
-        )
-        ENABLE_PREVIEW_BUTTON: Optional[bool] = Field(
-            default=None,
-            description="DEPRECATED (v3.3.0) — use PREVIEW_MODE. Value is migrated automatically on first load.",
-        )
-        ENABLE_ARCHIVE_BUTTON: Optional[bool] = Field(
-            default=None,
-            description="DEPRECATED (v3.3.0) — use ARCHIVE_BUTTON. Value is migrated automatically on first load.",
-        )
-
-        @model_validator(mode="after")
-        def _migrate_legacy(self):
-            """Map v3.2.0 boolean Valves onto v3.3.0 Literal Valves.
-
-            Only fires when the user has NOT explicitly set the new field —
-            prevents a stale legacy value (e.g. a cleared but still-persisted
-            ENABLE_PREVIEW_ARTIFACT=True) from overwriting a deliberate
-            PREVIEW_MODE choice made after the upgrade.
-            """
-            touched = self.model_fields_set
-
-            if "PREVIEW_MODE" not in touched and (
-                self.ENABLE_PREVIEW_ARTIFACT is not None
-                or self.ENABLE_PREVIEW_BUTTON is not None
-            ):
-                a = self.ENABLE_PREVIEW_ARTIFACT
-                b = self.ENABLE_PREVIEW_BUTTON
-                if a and b:
-                    self.PREVIEW_MODE = "both"
-                elif a:
-                    self.PREVIEW_MODE = "artifact"
-                elif b:
-                    self.PREVIEW_MODE = "button"
-                else:
-                    self.PREVIEW_MODE = "off"
-
-            if "ARCHIVE_BUTTON" not in touched and self.ENABLE_ARCHIVE_BUTTON is not None:
-                self.ARCHIVE_BUTTON = "on" if self.ENABLE_ARCHIVE_BUTTON else "off"
-
-            return self
 
     def __init__(self):
         self.valves = self.Valves()
