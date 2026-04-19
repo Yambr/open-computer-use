@@ -37,11 +37,13 @@ endpoints. Per-chat auth is out of scope.
 """
 
 import asyncio
+import threading
 import urllib.parse
 
 from mcp.server.fastmcp.resources import FunctionResource  # verified path
 
 from mcp_tools import mcp
+from security import sanitize_chat_id
 from uploads import UploadEntry, list_chat_uploads, read_chat_upload
 
 
@@ -58,7 +60,14 @@ _TEXT_MIMES = frozenset({
 })
 
 
-_resource_lock = asyncio.Lock()
+# threading.Lock instead of asyncio.Lock — sync_chat_resources_sync runs in
+# a worker thread (asyncio.to_thread) under its own asyncio.run() loop, while
+# the request-path sync_chat_resources runs on the main server loop. An
+# asyncio.Lock binds to the loop that first awaits it; once bound, the other
+# loop's await would either deadlock or silently no-op. The critical section
+# below contains NO `await` (all dict ops are synchronous), so a plain
+# threading.Lock serializes both paths correctly.
+_resource_lock = threading.Lock()
 # chat_id → set of URIs we registered for that chat, so we can remove them
 # on the next sync without sweeping the whole _resources dict.
 _chat_uris: dict[str, set[str]] = {}
@@ -105,17 +114,35 @@ async def sync_chat_resources(chat_id: str) -> int:
     (e.g. _create_container from a worker thread) — clients still see the
     fresh list on their next resources/list call.
     """
-    changed = False
-    async with _resource_lock:
-        stale = _chat_uris.pop(chat_id, set())
-        for uri in stale:
-            mcp._resource_manager._resources.pop(uri, None)
+    # Normalize at the boundary so case/whitespace variants of chat_id
+    # share the same _chat_uris entry (files in uploads.py are also keyed
+    # by sanitized chat_id, so out-of-band variants would otherwise leak
+    # stale registrations).
+    chat_id = sanitize_chat_id(chat_id)
 
-        fresh: set[str] = set()
-        for entry in list_chat_uploads(chat_id):
-            resource = _build_function_resource(chat_id, entry)
-            mcp.add_resource(resource)
-            fresh.add(str(resource.uri))
+    # Build new resources OUTSIDE the lock — list_chat_uploads scans the
+    # filesystem and may be slow. We only need the lock to protect the
+    # registry mutation window. Doing the FS scan + resource construction
+    # under the lock would block all other syncs (and any future
+    # list_resources callers that take the same lock) for the scan duration.
+    new_entries = list_chat_uploads(chat_id)
+    new_resources = [(_build_function_resource(chat_id, e)) for e in new_entries]
+    fresh: set[str] = {str(r.uri) for r in new_resources}
+
+    changed = False
+    # Critical section: must contain NO `await` so list_resources() (which
+    # currently does NOT take this lock) cannot observe a half-swapped
+    # registry. The window is now O(len(stale) + len(fresh)) dict ops only.
+    # threading.Lock works across event loops — see _resource_lock comment.
+    with _resource_lock:
+        stale = _chat_uris.pop(chat_id, set())
+        registry = mcp._resource_manager._resources
+        # Remove stale entries that are NOT in the fresh set (idempotent
+        # re-sync should not flap visible URIs).
+        for uri in stale - fresh:
+            registry.pop(uri, None)
+        for resource in new_resources:
+            registry[str(resource.uri)] = resource
         _chat_uris[chat_id] = fresh
         changed = fresh != stale
 

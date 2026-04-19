@@ -659,12 +659,28 @@ from typing import Optional
 import skill_manager
 
 _RENDER_TTL_SECONDS = 60.0
-_render_cache: dict[tuple[str, Optional[str]], tuple[float, str]] = {}
-_render_lock = asyncio.Lock()
+_RenderKey = tuple[Optional[str], Optional[str]]
+_render_cache: dict[_RenderKey, tuple[float, str]] = {}
+
+# Per-key render locks. A single global lock would serialize cold renders
+# across every chat — one slow skills-provider call would freeze every
+# concurrent /system-prompt and middleware pre-render. _locks_dict_lock
+# only guards the dict mutation (get-or-create), not the actual render.
+_render_locks: dict[_RenderKey, asyncio.Lock] = {}
+_locks_dict_lock = asyncio.Lock()
 
 
-async def _render_uncached(chat_id: str, user_email: Optional[str]) -> str:
-    """Build the full system prompt for (chat_id, user_email). No cache."""
+async def _render_uncached(chat_id: Optional[str], user_email: Optional[str]) -> str:
+    """
+    Build the full system prompt for (chat_id, user_email). No cache.
+
+    chat_id=None is the legacy diagnostic path: external integrators
+    (n8n, custom HTTP callers) hit /system-prompt with no params and do
+    their own placeholder substitution downstream. Returning the template
+    with placeholders intact preserves that contract — substituting them
+    with a fake "default" chat_id silently feeds the caller URLs they
+    never agreed to.
+    """
     # Lazy import to avoid circular: docker_manager → system_prompt at import time.
     from docker_manager import PUBLIC_BASE_URL
 
@@ -679,6 +695,11 @@ async def _render_uncached(chat_id: str, user_email: Optional[str]) -> str:
     else:
         result = SYSTEM_PROMPT_TEMPLATE
 
+    if chat_id is None:
+        # Legacy diagnostic path — leave placeholders intact for downstream
+        # callers that still substitute themselves.
+        return result
+
     base = f"{PUBLIC_BASE_URL}/files/{chat_id}"
     result = result.replace("{file_base_url}", base)
     result = result.replace("{archive_url}", f"{base}/archive")
@@ -686,17 +707,31 @@ async def _render_uncached(chat_id: str, user_email: Optional[str]) -> str:
     return result
 
 
-async def render_system_prompt(chat_id: str, user_email: Optional[str]) -> str:
+async def _get_render_lock(key: _RenderKey) -> asyncio.Lock:
+    """Get-or-create the per-key lock under the dict-mutation guard."""
+    async with _locks_dict_lock:
+        lock = _render_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _render_locks[key] = lock
+        return lock
+
+
+async def render_system_prompt(chat_id: Optional[str], user_email: Optional[str]) -> str:
     """
     Cached per-(chat_id, user_email) async renderer. 60s TTL.
     Hot path is ~μs; cold path is one skill-manager HTTP call + substitution.
+
+    chat_id=None is the legacy /system-prompt no-params path — see
+    _render_uncached docstring.
     """
-    key = (chat_id, user_email)
+    key: _RenderKey = (chat_id, user_email)
     now = time.monotonic()
     hit = _render_cache.get(key)
     if hit is not None and (now - hit[0]) < _RENDER_TTL_SECONDS:
         return hit[1]
-    async with _render_lock:
+    lock = await _get_render_lock(key)
+    async with lock:
         hit = _render_cache.get(key)  # double-check after awaiting the lock
         if hit is not None and (now - hit[0]) < _RENDER_TTL_SECONDS:
             return hit[1]
@@ -705,7 +740,7 @@ async def render_system_prompt(chat_id: str, user_email: Optional[str]) -> str:
         return text
 
 
-def render_system_prompt_sync(chat_id: str, user_email: Optional[str]) -> str:
+def render_system_prompt_sync(chat_id: Optional[str], user_email: Optional[str]) -> str:
     """
     Sync wrapper for worker-thread callers (e.g. docker_manager._create_container,
     which runs inside asyncio.to_thread — see mcp_tools.py:402, 475, 546, 612, 832).
@@ -718,7 +753,9 @@ def invalidate_render_cache(chat_id: Optional[str] = None) -> None:
     """Drop cache entries. Used by tests; also callable when skills change."""
     if chat_id is None:
         _render_cache.clear()
+        _render_locks.clear()
         return
     for key in list(_render_cache.keys()):
         if key[0] == chat_id:
             del _render_cache[key]
+            _render_locks.pop(key, None)

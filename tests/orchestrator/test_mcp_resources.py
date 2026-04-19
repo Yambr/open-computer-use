@@ -53,47 +53,65 @@ class McpResourcesContract(unittest.TestCase):
         target.write_text(content)
 
     def test_flat_and_nested_list_read(self):
-        self._make_upload("demoA", "hello.txt", "hi")
-        self._make_upload("demoA", "sub/nested.json", '{"k":1}')
-        n = asyncio.run(self.mcp_resources.sync_chat_resources("demoA"))
+        self._make_upload("demoa", "hello.txt", "hi")
+        self._make_upload("demoa", "sub/nested.json", '{"k":1}')
+        n = asyncio.run(self.mcp_resources.sync_chat_resources("demoa"))
         self.assertEqual(n, 2)
 
         resources = asyncio.run(self.mcp_tools.mcp.list_resources())
         uris = {str(r.uri) for r in resources}
-        self.assertIn("file://uploads/demoA/hello.txt", uris)
-        self.assertIn("file://uploads/demoA/sub%2Fnested.json", uris)
+        self.assertIn("file://uploads/demoa/hello.txt", uris)
+        self.assertIn("file://uploads/demoa/sub%2Fnested.json", uris)
 
         from pydantic import AnyUrl
         flat = list(asyncio.run(self.mcp_tools.mcp.read_resource(
-            AnyUrl("file://uploads/demoA/hello.txt"))))
+            AnyUrl("file://uploads/demoa/hello.txt"))))
         self.assertEqual(flat[0].content, "hi")
         nested = list(asyncio.run(self.mcp_tools.mcp.read_resource(
-            AnyUrl("file://uploads/demoA/sub%2Fnested.json"))))
+            AnyUrl("file://uploads/demoa/sub%2Fnested.json"))))
         self.assertEqual(nested[0].content, '{"k":1}')
 
     def test_tenancy_empty_for_unknown_chat(self):
-        n = asyncio.run(self.mcp_resources.sync_chat_resources("nobody-chat"))
+        # Plant a real upload for tenant A so the global resource registry
+        # has at least one entry. Then assert tenant B sees ZERO resources
+        # AND the registry-level list contains tenant A's URI but not any
+        # tenant-B URI — proves there is no leak across chats via the
+        # shared FastMCP._resource_manager._resources dict.
+        self._make_upload("tenant-a", "secret.txt", "A-only")
+        asyncio.run(self.mcp_resources.sync_chat_resources("tenant-a"))
+
+        n = asyncio.run(self.mcp_resources.sync_chat_resources("tenant-b"))
         self.assertEqual(n, 0)
 
+        all_uris = {
+            str(r.uri) for r in asyncio.run(self.mcp_tools.mcp.list_resources())
+        }
+        # Tenant A's resource must still be present (sync_chat_resources(B)
+        # must not have wiped A).
+        self.assertIn("file://uploads/tenant-a/secret.txt", all_uris)
+        # And NO resource URI should mention tenant-b.
+        leaked = [u for u in all_uris if "tenant-b" in u]
+        self.assertEqual(leaked, [], f"tenant-b leaked URIs: {leaked}")
+
     def test_idempotent_resync(self):
-        self._make_upload("demoB", "once.txt", "only")
-        asyncio.run(self.mcp_resources.sync_chat_resources("demoB"))
-        asyncio.run(self.mcp_resources.sync_chat_resources("demoB"))
+        self._make_upload("demob", "once.txt", "only")
+        asyncio.run(self.mcp_resources.sync_chat_resources("demob"))
+        asyncio.run(self.mcp_resources.sync_chat_resources("demob"))
         resources = asyncio.run(self.mcp_tools.mcp.list_resources())
-        demoB_uris = [r for r in resources if "demoB" in str(r.uri)]
-        self.assertEqual(len(demoB_uris), 1, "re-sync must not duplicate entries")
+        demob_uris = [r for r in resources if "demob" in str(r.uri)]
+        self.assertEqual(len(demob_uris), 1, "re-sync must not duplicate entries")
 
     def test_concurrent_sync_and_list(self):
         """Stress: sync + list in parallel. Without the lock around the
         clear-then-rebuild, `dict changed size during iteration` fires."""
-        self._make_upload("demoC", "a.txt", "A")
-        self._make_upload("demoC", "b.txt", "B")
+        self._make_upload("democ", "a.txt", "A")
+        self._make_upload("democ", "b.txt", "B")
 
         async def _stress():
-            await self.mcp_resources.sync_chat_resources("demoC")
+            await self.mcp_resources.sync_chat_resources("democ")
             tasks = []
             for _ in range(20):
-                tasks.append(self.mcp_resources.sync_chat_resources("demoC"))
+                tasks.append(self.mcp_resources.sync_chat_resources("democ"))
                 tasks.append(self.mcp_tools.mcp.list_resources())
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for r in results:
@@ -109,12 +127,12 @@ class McpResourcesContract(unittest.TestCase):
         on a worker thread — no `request_ctx` is set, and we must NOT blow up.
         Notification is silently skipped; fresh list still surfaces on the
         next resources/list call."""
-        self._make_upload("demoD", "skip.txt", "no ctx")
+        self._make_upload("demod", "skip.txt", "no ctx")
         # Confirm we actually have no request context right now
         from mcp.server.lowlevel.server import request_ctx
         self.assertRaises(LookupError, request_ctx.get)
         # Should not raise — graceful skip of the notification branch
-        n = asyncio.run(self.mcp_resources.sync_chat_resources("demoD"))
+        n = asyncio.run(self.mcp_resources.sync_chat_resources("demod"))
         self.assertEqual(n, 1)
 
 

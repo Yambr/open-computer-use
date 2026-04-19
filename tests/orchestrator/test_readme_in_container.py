@@ -29,6 +29,9 @@ class ReadmeWriterContract(unittest.TestCase):
         def _capture(path, tar_bytes):
             captured["path"] = path
             captured["tar"] = tar_bytes
+            # Real put_archive returns True on success; the helper now
+            # raises on False.
+            return True
 
         container.put_archive.side_effect = _capture
 

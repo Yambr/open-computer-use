@@ -346,7 +346,24 @@ class _DynamicInstructionsServer(_LowlevelServer):
 # `instructions` in `self.__dict__`; move it to the `_static_instructions`
 # slot before swapping the class so the property getter can read it as the
 # fallback.
+#
+# Defensive shape assertions — these guard against silent breakage when the
+# `mcp` SDK changes the private attribute layout (e.g. moves `_mcp_server` to
+# `_lowlevel_server`, or switches to __slots__). Without them, an SDK rename
+# would silently drop us back to static instructions for every chat — Tier 4
+# would just stop working with no error to debug.
+assert hasattr(mcp, "_mcp_server"), (
+    "FastMCP no longer exposes _mcp_server — Tier 4 dynamic instructions "
+    "broke. Re-pin mcp in requirements.txt and update mcp_tools.py."
+)
 _existing_lowlevel_server = mcp._mcp_server  # private; pinned mcp version guards
+assert isinstance(_existing_lowlevel_server, _LowlevelServer), (
+    f"mcp._mcp_server is not a lowlevel Server (got {type(_existing_lowlevel_server)!r}). "
+    "Tier 4 class-swap will not work. Re-pin mcp."
+)
+assert hasattr(_existing_lowlevel_server, "__dict__"), (
+    "Lowlevel Server uses __slots__ — class-swap pop() will fail. Re-pin mcp."
+)
 _existing_instructions_value = _existing_lowlevel_server.__dict__.pop(
     "instructions", _STATIC_INSTRUCTIONS
 )

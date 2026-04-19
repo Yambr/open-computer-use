@@ -107,18 +107,22 @@ class SystemPromptEndpointContract(unittest.TestCase):
         self.assertIn(f"{self.public_base_url}/files/winner", resp.text)
         self.assertNotIn("loser", resp.text)
 
-    def test_no_params_falls_back_to_default_chat(self):
-        """Post-Tier-7: the endpoint no longer ships raw placeholders; it
-        renders with chat_id='default' when nothing is supplied. Gives
-        probing clients a valid (if generic) prompt instead of
-        `{chat_id}` literals that confuse downstream consumers."""
+    def test_no_params_returns_unsubstituted_template(self):
+        """Legacy diagnostic path — pre-v4.0.0 external integrators (n8n, custom
+        HTTP callers) hit /system-prompt with no params and substitute the
+        placeholders themselves downstream. Substituting them server-side with a
+        fake "default" chat_id silently feeds those callers URLs they never
+        agreed to. Keep the placeholders intact when no chat_id is provided
+        from any source (header, query, or legacy file_base_url)."""
         resp = self.client.get("/system-prompt")
         self.assertEqual(resp.status_code, 200)
         body = resp.text
-        self.assertNotIn("{file_base_url}", body)
-        self.assertNotIn("{archive_url}", body)
-        self.assertNotIn("{chat_id}", body)
-        self.assertIn(f"{self.public_base_url}/files/default", body)
+        # At least one placeholder still present — the template wasn't
+        # substituted with a synthetic chat_id.
+        self.assertTrue(
+            any(ph in body for ph in ("{file_base_url}", "{archive_url}", "{chat_id}")),
+            "Expected un-substituted placeholders in no-params response",
+        )
 
     # ------------------------------------------------------------------
     # Tier 7 header priority — added in the "maximum native surface" refactor
@@ -143,20 +147,26 @@ class SystemPromptEndpointContract(unittest.TestCase):
         self.assertIn(f"{self.public_base_url}/files/alias-demo", resp.text)
 
     def test_header_user_email_overrides_query(self):
-        async def _no_provider(_email):
-            return None
+        # Patch the renderer itself so we can assert exactly which user_email
+        # the endpoint forwarded — without this, the assertion only proves
+        # that *some* prompt came back (DEFAULT_PUBLIC_SKILLS appears for
+        # every email), which would silently pass even if header priority
+        # broke and the query value won.
+        captured: dict = {}
 
-        with patch.object(skill_manager_module, "_fetch_user_config", side_effect=_no_provider), \
-             patch.object(skill_manager_module, "_load_user_config_cache", return_value=None):
+        async def _capture(chat_id, user_email):
+            captured["chat_id"] = chat_id
+            captured["user_email"] = user_email
+            return "stub-prompt-body"
+
+        with patch.object(app_module, "render_system_prompt", side_effect=_capture):
             resp = self.client.get(
                 "/system-prompt",
                 params={"chat_id": "abc", "user_email": "ignored@example.com"},
                 headers={"X-User-Email": "winner@example.com"},
             )
         self.assertEqual(resp.status_code, 200)
-        # Both paths produce <available_skills>; the distinguishing bit is
-        # that skill_manager.get_user_skills was called with the header value.
-        self.assertIn("<available_skills>", resp.text)
+        self.assertEqual(captured.get("user_email"), "winner@example.com")
 
     def test_content_type_is_text_plain(self):
         resp = self.client.get("/system-prompt", params={"chat_id": "abc"})

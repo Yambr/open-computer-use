@@ -447,8 +447,9 @@ async def upload_file(chat_id: str, filename: str, file: UploadFile = File(...))
         try:
             from mcp_resources import sync_chat_resources
             await sync_chat_resources(chat_id)
-        except Exception as e:
-            print(f"[uploads] sync_chat_resources failed: {e}")
+        except Exception:
+            import traceback
+            print(f"[uploads] sync_chat_resources failed for chat {chat_id}:\n{traceback.format_exc()}")
 
         return {
             "status": "success",
@@ -1216,18 +1217,26 @@ async def system_prompt(
         tail = url.rstrip("/").rsplit("/", 1)[-1]
         return tail or None
 
-    effective_chat_id = (
+    raw_chat_id = (
         _header("x-chat-id", "x-openwebui-chat-id")
         or chat_id
         or _extract_chat_id_from_legacy_url(file_base_url)
     )
+    # Sanitize at the boundary — same invariant other endpoints in this
+    # file enforce (see /files/{chat_id}/archive). Without this,
+    # untrusted chat_id from headers/query lands in /system-prompt URLs
+    # via the renderer.
+    effective_chat_id = sanitize_chat_id(raw_chat_id) if raw_chat_id else None
     effective_user_email = (
         _header("x-user-email", "x-openwebui-user-email") or user_email
     )
 
     # Single rendering path — shared cache with Tiers 2, 4, 5.
+    # chat_id=None preserves the legacy diagnostic path: external callers
+    # (n8n et al.) hitting /system-prompt with no params get the template
+    # back with placeholders intact and substitute them themselves.
     result = await render_system_prompt(
-        effective_chat_id or "default",
+        effective_chat_id,
         effective_user_email,
     )
 

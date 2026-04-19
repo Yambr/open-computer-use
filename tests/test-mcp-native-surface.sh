@@ -140,11 +140,19 @@ banner "Tiers 1/3/4/5 — MCP JSON-RPC probe"
 
 INIT_PAYLOAD='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0"}}}'
 
-STATUS=$(curl -s -o /tmp/mcp-init.out -w '%{http_code}' -X POST "${SERVER_URL}/mcp" \
+# Capture both response headers AND body — the streamable-HTTP transport
+# allocates an Mcp-Session-Id on the initialize response, and ALL subsequent
+# JSON-RPC calls on the same logical session must echo that header back.
+# Without it, tools/list / resources/list error out (or worse, silently
+# allocate a fresh session and lose the chat context that initialize set).
+STATUS=$(curl -s -D /tmp/mcp-init.hdrs -o /tmp/mcp-init.out -w '%{http_code}' -X POST "${SERVER_URL}/mcp" \
     -H 'Content-Type: application/json' \
     -H 'Accept: application/json, text/event-stream' \
     -H 'X-Chat-Id: smoke-mcp' \
     -d "$INIT_PAYLOAD")
+
+# Header name is case-insensitive; normalize to lower for grep, then strip CRLF.
+SESSION_ID=$(grep -i '^mcp-session-id:' /tmp/mcp-init.hdrs | head -1 | cut -d: -f2- | tr -d ' \r\n')
 
 if [ "$STATUS" = "200" ]; then
     if grep -q '"instructions"' /tmp/mcp-init.out || grep -q 'instructions' /tmp/mcp-init.out; then
@@ -153,16 +161,36 @@ if [ "$STATUS" = "200" ]; then
         fail "MCP initialize returned 200 but no 'instructions' field"
     fi
 
-    # tools/list
-    curl -sS -X POST "${SERVER_URL}/mcp" \
-        -H 'Content-Type: application/json' \
-        -H 'Accept: application/json, text/event-stream' \
-        -H 'X-Chat-Id: smoke-mcp' \
-        -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' > /tmp/mcp-tools.out
-    if grep -q 'README.md' /tmp/mcp-tools.out; then
-        pass "tools/list descriptions mention README.md (Tier 1)"
+    if [ -z "$SESSION_ID" ]; then
+        skip "no Mcp-Session-Id header in initialize response — skipping session-bound probes (server may not be in streamable-HTTP mode)"
     else
-        fail "tools/list descriptions do not mention README.md"
+        # tools/list — pass session id so we stay on the same logical session
+        curl -sS -X POST "${SERVER_URL}/mcp" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -H 'X-Chat-Id: smoke-mcp' \
+            -H "Mcp-Session-Id: ${SESSION_ID}" \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' > /tmp/mcp-tools.out
+        if grep -q 'README.md' /tmp/mcp-tools.out; then
+            pass "tools/list descriptions mention README.md (Tier 1)"
+        else
+            fail "tools/list descriptions do not mention README.md"
+        fi
+
+        # resources/list — Tier 5 surface for uploaded files. Empty list is OK
+        # for a fresh smoke chat that has no uploads; the test verifies the
+        # method itself works (not an error response).
+        curl -sS -X POST "${SERVER_URL}/mcp" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -H 'X-Chat-Id: smoke-mcp' \
+            -H "Mcp-Session-Id: ${SESSION_ID}" \
+            -d '{"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}' > /tmp/mcp-resources.out
+        if grep -q '"resources"' /tmp/mcp-resources.out && ! grep -q '"error"' /tmp/mcp-resources.out; then
+            pass "resources/list responds without error (Tier 5)"
+        else
+            fail "resources/list errored or returned no resources field"
+        fi
     fi
 else
     skip "MCP /mcp endpoint returned ${STATUS} — pre-existing double-session_manager bug (see PR). In-process pytest covers these tiers."

@@ -644,7 +644,15 @@ def _write_file_to_container(container, dirpath: str, filename: str, text: str) 
         info.mode = 0o644
         tar.addfile(info, io.BytesIO(data))
     buf.seek(0)
-    container.put_archive(dirpath, buf.getvalue())
+    # put_archive returns False on extraction failure (e.g. dirpath does not
+    # exist) and True on success. Without this check the caller logs success
+    # even though the file was never written. APIError still propagates as
+    # an exception per docker-py docs.
+    if not container.put_archive(dirpath, buf.getvalue()):
+        raise RuntimeError(
+            f"put_archive returned False writing {dirpath}/{filename} "
+            f"to container {container.short_id} — target dir may not exist"
+        )
 
 
 def _get_container_user_and_workdir() -> tuple:
