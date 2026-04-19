@@ -98,7 +98,14 @@ async def sync_chat_resources(chat_id: str) -> int:
     Holds _resource_lock so a concurrent list_resources() won't see a dict
     mutating mid-iteration. Private-API access into
     mcp._resource_manager._resources is covered by the mcp version pin.
+
+    Emits notifications/resources/list_changed when the set of URIs for this
+    chat actually changed AND a request-scoped session is available
+    (`request_ctx` ContextVar set). Skipped silently outside a request context
+    (e.g. _create_container from a worker thread) — clients still see the
+    fresh list on their next resources/list call.
     """
+    changed = False
     async with _resource_lock:
         stale = _chat_uris.pop(chat_id, set())
         for uri in stale:
@@ -110,7 +117,21 @@ async def sync_chat_resources(chat_id: str) -> int:
             mcp.add_resource(resource)
             fresh.add(str(resource.uri))
         _chat_uris[chat_id] = fresh
-        return len(fresh)
+        changed = fresh != stale
+
+    if changed:
+        try:
+            session = mcp._mcp_server.request_context.session
+            await session.send_resource_list_changed()
+        except LookupError:
+            # No active request context (e.g. called from docker_manager
+            # during container creation in a worker thread). Skip —
+            # clients will see the updated list next time they poll.
+            pass
+        except Exception as e:
+            print(f"[MCP] resource list_changed notification failed: {e}")
+
+    return len(fresh)
 
 
 def sync_chat_resources_sync(chat_id: str) -> int:

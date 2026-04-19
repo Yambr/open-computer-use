@@ -104,6 +104,19 @@ class McpResourcesContract(unittest.TestCase):
         n = asyncio.run(_stress())
         self.assertEqual(n, 40)
 
+    def test_list_changed_notification_skipped_outside_request_context(self):
+        """sync_chat_resources is called from docker_manager._create_container
+        on a worker thread — no `request_ctx` is set, and we must NOT blow up.
+        Notification is silently skipped; fresh list still surfaces on the
+        next resources/list call."""
+        self._make_upload("demoD", "skip.txt", "no ctx")
+        # Confirm we actually have no request context right now
+        from mcp.server.lowlevel.server import request_ctx
+        self.assertRaises(LookupError, request_ctx.get)
+        # Should not raise — graceful skip of the notification branch
+        n = asyncio.run(self.mcp_resources.sync_chat_resources("demoD"))
+        self.assertEqual(n, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
