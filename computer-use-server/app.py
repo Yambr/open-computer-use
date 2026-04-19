@@ -1398,16 +1398,19 @@ _mcp_set_context = None
 
 
 def _init_mcp():
-    """Initialize MCP server (lazy load)."""
+    """Initialize MCP server (lazy load).
+
+    Note: ImportError used to be caught here. After the lifespan rewrite that
+    crashes loud on missing mcp_tools, that catch is dead code — if the
+    import would fail, the server never gets past startup. Keeping the
+    import unguarded so any stale assumption blows up at the call site
+    rather than silently returning None.
+    """
     global _mcp_server, _mcp_set_context
     if _mcp_server is None:
-        try:
-            from mcp_tools import mcp, set_context_from_headers
-            _mcp_server = mcp
-            _mcp_set_context = set_context_from_headers
-            print("[MCP] MCP server initialized")
-        except ImportError as e:
-            print(f"[MCP] Warning: MCP tools not available: {e}")
+        from mcp_tools import mcp, set_context_from_headers
+        _mcp_server = mcp
+        _mcp_set_context = set_context_from_headers
     return _mcp_server, _mcp_set_context
 
 
@@ -1436,25 +1439,28 @@ def _init_mcp():
 #               "description": "Test command"
 #           })
 
-try:
-    from mcp_tools import get_mcp_app
-    _mcp_asgi_app = get_mcp_app(api_key=MCP_API_KEY)
+# Module-level MCP route registration — runs at import time, before lifespan.
+# ImportError used to be caught here too; removed because the lifespan now
+# also imports mcp_tools and crashes loud, so a missing module produced two
+# different failure modes for the same root cause (silent skip here, then
+# crash from lifespan). Single failure mode is easier to debug.
+from mcp_tools import get_mcp_app
+from starlette.routing import Route
 
-    # Add MCP Starlette route directly to FastAPI router (avoids trailing slash issues)
-    from starlette.routing import Route
+_mcp_asgi_app = get_mcp_app(api_key=MCP_API_KEY)
 
-    async def _mcp_endpoint(request):
-        """Forward to MCP ASGI app."""
-        # Rewrite path to "/" (root of MCP app)
-        scope = dict(request.scope)
-        scope["path"] = "/"
-        scope["raw_path"] = b"/"
-        await _mcp_asgi_app(scope, request.receive, request._send)
 
-    app.routes.insert(0, Route("/mcp", endpoint=_mcp_endpoint, methods=["POST", "GET", "DELETE"]))
-    print("[MCP] Native Streamable HTTP MCP app route added at /mcp")
-except ImportError as e:
-    print(f"[MCP] Warning: MCP tools not available: {e}")
+async def _mcp_endpoint(request):
+    """Forward to MCP ASGI app."""
+    # Rewrite path to "/" (root of MCP app)
+    scope = dict(request.scope)
+    scope["path"] = "/"
+    scope["raw_path"] = b"/"
+    await _mcp_asgi_app(scope, request.receive, request._send)
+
+
+app.routes.insert(0, Route("/mcp", endpoint=_mcp_endpoint, methods=["POST", "GET", "DELETE"]))
+print("[MCP] Native Streamable HTTP MCP app route added at /mcp")
 
 
 @app.get("/mcp-info", tags=["MCP"], response_model=MCPInfo)

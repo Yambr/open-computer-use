@@ -552,7 +552,19 @@ class Tools:
           - the wrapper-crash error string
         and they drifted (str_replace used `"error" in result.lower()[:20]` which
         false-positives on "errors fixed: 0", view only matched "Error:", etc).
+
+        NOTE for new tool wrappers:
+          - If your tool needs uploaded files, call `await self._sync_files_if_needed(...)`
+            BEFORE delegating here (this helper does NOT take __files__).
+          - chat_id is defaulted to "default" if empty/None — server-side
+            chat scoping needs a non-empty value.
         """
+        # Defense-in-depth: every per-tool wrapper already does
+        # `chat_id or "default"`, but if a future wrapper forgets, the
+        # server-side X-Chat-Id header would otherwise be empty and the
+        # MCP call would silently land in the wrong (or no) chat scope.
+        chat_id = chat_id or "default"
+
         async def emit(description: str, status: str, done: bool):
             if not emitter:
                 return

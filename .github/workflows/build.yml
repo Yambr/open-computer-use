@@ -245,11 +245,12 @@ jobs:
         run: |
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:8081/health >/dev/null 2>&1; then
-              echo "healthy after ${i}s"; exit 0
+              echo ""; echo "healthy after ${i}s"; exit 0
             fi
+            printf '.'
             sleep 1
           done
-          echo "TIMEOUT — server never became healthy"
+          echo ""; echo "TIMEOUT — server never became healthy"
           docker logs cu-server || true
           exit 1
 
