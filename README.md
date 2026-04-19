@@ -15,10 +15,10 @@ MCP server that gives any LLM its own computer — managed Docker workspaces wit
 | Path | URL | What you need | Best for |
 |------|-----|---------------|----------|
 | **Free demo** — Open WebUI + Computer Use, models included | **[chat.yambr.com](https://chat.yambr.com)** | Sign in with GitHub or Google | Trying it end-to-end in 30 seconds, zero setup |
-| **Hosted MCP endpoint** — tools only, bring your own LLM | Key at **[app.yambr.com](https://app.yambr.com)** → connect to `https://api.yambr.com/mcp/computer_use` | GitHub or Google sign-in, short manual approval, your own OpenAI / Anthropic / OpenRouter key | Adding Computer Use tools to an existing agent, Claude Desktop, n8n, OpenAI Agents SDK |
+| **Hosted MCP endpoint** — tools only, bring your own LLM | Key at **[app.yambr.com](https://app.yambr.com)** → connect to `https://api.yambr.com/mcp/computer_use` | GitHub or Google sign-in; your own OpenAI / Anthropic / OpenRouter key for inference | Adding Computer Use tools to an existing agent, Claude Desktop, n8n, OpenAI Agents SDK |
 | **Self-host** | [Quick Start](#quick-start) below | Docker, ~15 min first build, your own LLM key | Full control, air-gapped, heavy use |
 
-Sign-in is GitHub or Google OAuth — no email/password, no SMS. On the hosted API, Yambr provides the tools; your LLM inference stays on your provider (OpenAI, Anthropic, OpenRouter, …). On `chat.yambr.com` the hosted Open WebUI instance includes models too, as a free convenience. See [docs/CLOUD.md](docs/CLOUD.md) for the full hosted-vs-self-host picture; [docs.yambr.com](https://docs.yambr.com) holds the canonical cloud docs.
+Sign-in is GitHub or Google OAuth — no email/password, no SMS. `chat.yambr.com` includes models as a free convenience; the hosted API is tools-only. Canonical cloud docs: [docs.yambr.com](https://docs.yambr.com). Short orientation: [docs/CLOUD.md](docs/CLOUD.md).
 
 ![Demo: AI reads GitHub README and creates a landing page](docs/demo-landing-page.gif)
 
@@ -145,33 +145,19 @@ See [docs/SKILLS.md](docs/SKILLS.md) for details.
 
 ## MCP Integration
 
-The server speaks standard MCP over Streamable HTTP. Connect it to anything — run the server yourself, or use the managed endpoint at `api.yambr.com`.
+The server speaks standard MCP over Streamable HTTP. Point any MCP client at it — hosted or self-hosted.
 
-### Hosted (managed)
+- **Hosted**: `https://api.yambr.com/mcp/computer_use` with `Authorization: Bearer <key from app.yambr.com>`. Client configs and full reference live on [docs.yambr.com](https://docs.yambr.com).
+- **Self-hosted**: `http://localhost:8081/mcp`. Quick sanity check:
 
-```bash
-# Request a key at app.yambr.com first, then:
-curl -X POST https://api.yambr.com/mcp/computer_use \
-  -H "Authorization: Bearer sk-yambr-..." \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -H "X-Chat-Id: my-session" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
-```
+  ```bash
+  curl -X POST http://localhost:8081/mcp \
+    -H "Content-Type: application/json" \
+    -H "X-Chat-Id: test" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+  ```
 
-You bring your own model provider — Yambr doesn't resell inference. See [docs/CLOUD.md](docs/CLOUD.md) for Claude Desktop / OpenAI Agents SDK / n8n configs and [docs.yambr.com](https://docs.yambr.com) for the canonical cloud reference.
-
-### Self-hosted
-
-```bash
-# Test with curl
-curl -X POST http://localhost:8081/mcp \
-  -H "Content-Type: application/json" \
-  -H "X-Chat-Id: test" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
-```
-
-See [docs/MCP.md](docs/MCP.md) for the full self-host integration guide (LiteLLM, Claude Desktop, custom clients). The per-chat system prompt rides **six redundant MCP-native channels** (tool descriptions, `/home/assistant/README.md` in the sandbox, `InitializeResult.instructions`, `resources/list` for uploaded files, plus an HTTP `/system-prompt` endpoint for legacy integrations) — full map in [docs/system-prompt.md](docs/system-prompt.md).
+  Full self-host integration guide (LiteLLM, Claude Desktop, custom clients): [docs/MCP.md](docs/MCP.md). The per-chat system prompt rides **six redundant MCP-native channels** (tool descriptions, `/home/assistant/README.md` in the sandbox, `InitializeResult.instructions`, `resources/list` for uploaded files, plus an HTTP `/system-prompt` endpoint for legacy integrations) — full map in [docs/system-prompt.md](docs/system-prompt.md).
 
 ## Configuration
 
