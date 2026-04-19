@@ -6,6 +6,8 @@ The Computer Use Filter (`openwebui/functions/computer_link_filter.py`) is the o
 
 The filter is the single source of truth for the client-side URL shape; the server owns prompt content and preview rendering. Read the file itself for the authoritative Valve defaults and behaviour.
 
+> **Heads up on prompt duplication.** The six-tier MCP-native surface (see `docs/system-prompt.md`) also writes the system prompt to `/home/assistant/README.md` and returns it on `InitializeResult.instructions`. In Open WebUI through LiteLLM, `InitializeResult.instructions` is **not** forwarded to the LLM (LiteLLM is a tool-call proxy and drops it), so the real duplication in this deployment is: filter `inlet()` injects the prompt once; the model optionally calls `view /home/assistant/README.md` if it follows the recovery-nudge in the `bash_tool` / `view` tool descriptions — that adds a second ~3–5K token copy. Worst case is two copies, not three. The nudge is kept to help pathological clients that strip the system prompt — alternatives discussed in `docs/system-prompt.md`.
+
 ## Installation
 
 - Open WebUI → **Admin Panel** → **Functions** → **New Function**.

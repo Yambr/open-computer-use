@@ -17,6 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY ./app.py .
 COPY ./mcp_tools.py .
+COPY ./mcp_resources.py .
+COPY ./uploads.py .
 COPY ./system_prompt.py .
 COPY ./skill_manager.py .
 COPY ./docker_manager.py .

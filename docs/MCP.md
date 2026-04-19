@@ -77,6 +77,19 @@ Leave `MCP_API_KEY` empty for development (no auth required).
 | `str_replace` | Edit files via text replacement |
 | `sub_agent` | Delegate tasks to autonomous Claude Code agent |
 
+## Native MCP primitives beyond tools
+
+Beyond the five tools, the server exposes three more native primitives of the Streamable-HTTP MCP protocol — all scoped by `X-Chat-Id`:
+
+| Primitive | What you get | How |
+|---|---|---|
+| `InitializeResult.instructions` | The per-chat system prompt as a string, delivered in the handshake | Dynamic — re-rendered each stateless request from `X-Chat-Id` / `X-User-Email` headers |
+| `resources/list` + `resources/read` | Chat's uploaded files as `file://uploads/{chat_id}/{url-encoded-rel-path}` | Auto-registered on container create + on every `POST /api/uploads` |
+
+In addition, `/home/assistant/README.md` inside the sandbox carries the same prompt text, so any model that runs the `view` tool can recover its environment even if the client stripped every MCP handshake field. Full map: `docs/system-prompt.md`.
+
+*Note: we intentionally do NOT expose the system prompt via `prompts/get`. The MCP `prompts/*` primitive is user-controlled (slash commands) and `PromptMessage.role` is restricted to `user | assistant` — duplicating `InitializeResult.instructions` there would be off-spec.*
+
 ## Required Headers
 
 > **`X-Chat-Id` is mandatory.** Without it, the server returns an error. Every request must include a unique session identifier.

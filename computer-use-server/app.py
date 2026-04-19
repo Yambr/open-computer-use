@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse, Pla
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from system_prompt import SYSTEM_PROMPT_TEMPLATE, build_system_prompt
+from system_prompt import SYSTEM_PROMPT_TEMPLATE, build_system_prompt, render_system_prompt
 from docker_manager import (
     get_container_cdp_address,
     PUBLIC_BASE_URL,
@@ -186,17 +186,30 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app):
-    """FastAPI lifespan: start MCP session manager for Streamable HTTP."""
+    """FastAPI lifespan: start MCP session manager for Streamable HTTP.
+
+    Do NOT swallow ImportError here. The previous version did, and a missing
+    `mcp_resources` (e.g. not COPYed in Dockerfile) caused the lifespan to
+    yield WITHOUT calling `session_manager.run()`. The MCP ASGI app then
+    served every /mcp request with HTTP 500 ("Task group is not
+    initialized"), and uvicorn's default error handler hid the traceback —
+    a 100% silent failure mode that took hours of bisecting to find.
+
+    If imports fail, crash loudly so the deploy is obviously broken.
+    """
     warn_if_public_base_url_is_default()
     warn_if_mcp_api_key_missing()
-    try:
-        from mcp_tools import mcp as _mcp_server
-        if _mcp_server._session_manager is None:
-            _mcp_server.streamable_http_app()  # triggers lazy init of session_manager
-        async with _mcp_server.session_manager.run():
-            yield
-    except ImportError:
+    from mcp_tools import mcp as _mcp_server
+    # Import-for-side-effect: registers @mcp.resource handlers on the
+    # FastMCP singleton. Must happen BEFORE streamable_http_app() so the
+    # resources capability is advertised in InitializeResult.
+    import mcp_resources  # noqa: F401
+    if _mcp_server._session_manager is None:
+        _mcp_server.streamable_http_app()  # triggers lazy init of session_manager
+    async with _mcp_server.session_manager.run():
+        print("[MCP] session_manager.run() entered — /mcp endpoint is live")
         yield
+        print("[MCP] session_manager.run() exiting")
 
 app = FastAPI(
     title="Computer Use File Server + MCP",
@@ -436,6 +449,16 @@ async def upload_file(chat_id: str, filename: str, file: UploadFile = File(...))
 
         # Calculate MD5 for confirmation
         md5_hash = hashlib.md5(content).hexdigest()
+
+        # Tier 6 — refresh MCP resources for this chat so the new file
+        # appears in resources/list without reconnecting. Swallow errors
+        # so the upload itself succeeds even if MCP resource sync fails.
+        try:
+            from mcp_resources import sync_chat_resources
+            await sync_chat_resources(chat_id)
+        except Exception:
+            import traceback
+            print(f"[uploads] sync_chat_resources failed for chat {chat_id}:\n{traceback.format_exc()}")
 
         return {
             "status": "success",
@@ -1160,6 +1183,7 @@ setInterval(function() {{ fetch('/terminal/' + {json.dumps(chat_id)} + '/heartbe
 
 @app.get("/system-prompt", response_class=PlainTextResponse, tags=["System"])
 async def system_prompt(
+    request: Request,
     chat_id: Optional[str] = None,
     file_base_url: Optional[str] = None,
     archive_url: Optional[str] = None,
@@ -1168,47 +1192,62 @@ async def system_prompt(
     """
     Get Computer Use system prompt for AI integrations.
 
-    Returns the system prompt template that teaches AI how to use the
-    Computer Use virtual machine (tools, skills, file handling, etc.).
+    Tier 6 — backward-compat HTTP endpoint. Open WebUI filter fetches this URL
+    and injects the response into the LLM's system message. Every other
+    consumer (Agents SDK, Inspector, Claude Desktop) should prefer the native
+    MCP tiers (InitializeResult.instructions on initialize, or just
+    /home/assistant/README.md inside the sandbox).
 
-    When user_email is provided, returns a dynamic prompt with skills
-    based on the user's settings (fetched from mcp-settings-wrapper).
+    chat_id resolution, in priority order:
+        1. request header (X-Chat-Id / X-User-Email, plus X-OpenWebUI-* aliases
+           to match the rest of the server — see mcp_tools.set_context_from_headers)
+        2. `chat_id` query param
+        3. last path segment of the deprecated `file_base_url` query param
+           (kept for backwards compat with pre-v4.0.0 integrations; see below)
+        4. "default"
 
-    Args:
-        chat_id: Recommended. Server constructs file URLs from this.
-        file_base_url: Deprecated (legacy). Use chat_id instead.
-        archive_url: Deprecated (legacy). Use chat_id instead.
-        user_email: Optional. If provided, fetches user-specific skill settings.
+    `file_base_url` / `archive_url` are deprecated query params from pre-v4.0.0:
+    before the server owned `PUBLIC_BASE_URL`, clients passed their own
+    browser-facing URLs here. Now the server always emits PUBLIC_BASE_URL/files/
+    {chat_id} and we only still read `file_base_url` to extract the trailing
+    chat_id for legacy callers. `archive_url` is ignored entirely — the server
+    derives archive URLs from PUBLIC_BASE_URL + chat_id.
     """
-    if user_email:
-        # Dynamic prompt based on user's enabled skills
-        skills = await skill_manager.get_user_skills(user_email)
+    def _header(*names: str) -> Optional[str]:
+        for n in names:
+            v = request.headers.get(n)
+            if v:
+                return v
+        return None
 
-        # Cache user-uploaded skill ZIPs
-        for s in skills:
-            if s.category == "user":
-                await skill_manager.ensure_skill_cached(s)
+    def _extract_chat_id_from_legacy_url(url: Optional[str]) -> Optional[str]:
+        if not url:
+            return None
+        tail = url.rstrip("/").rsplit("/", 1)[-1]
+        return tail or None
 
-        skills_xml = skill_manager.build_available_skills_xml(skills)
-        has_user_skills = any(s.category == "user" for s in skills)
-        result = build_system_prompt(skills_xml=skills_xml, has_user_skills=has_user_skills)
-    else:
-        # Fallback: static template with hardcoded 10 public skills
-        result = SYSTEM_PROMPT_TEMPLATE
+    raw_chat_id = (
+        _header("x-chat-id", "x-openwebui-chat-id")
+        or chat_id
+        or _extract_chat_id_from_legacy_url(file_base_url)
+    )
+    # Sanitize at the boundary — same invariant other endpoints in this
+    # file enforce (see /files/{chat_id}/archive). Without this,
+    # untrusted chat_id from headers/query lands in /system-prompt URLs
+    # via the renderer.
+    effective_chat_id = sanitize_chat_id(raw_chat_id) if raw_chat_id else None
+    effective_user_email = (
+        _header("x-user-email", "x-openwebui-user-email") or user_email
+    )
 
-    if chat_id:
-        # New path: server constructs URLs from chat_id
-        base = f"{PUBLIC_BASE_URL}/files/{chat_id}"
-        result = result.replace("{file_base_url}", base)
-        result = result.replace("{archive_url}", f"{base}/archive")
-        result = result.replace("{chat_id}", chat_id)
-    elif file_base_url is not None:
-        # Legacy path: external integrations (n8n etc.) pass full URLs
-        result = result.replace("{file_base_url}", file_base_url)
-        legacy_chat_id = file_base_url.rstrip("/").rsplit("/", 1)[-1]
-        result = result.replace("{chat_id}", legacy_chat_id)
-        if archive_url is not None:
-            result = result.replace("{archive_url}", archive_url)
+    # Single rendering path — shared cache with Tiers 2, 4, 5.
+    # chat_id=None preserves the legacy diagnostic path: external callers
+    # (n8n et al.) hitting /system-prompt with no params get the template
+    # back with placeholders intact and substitute them themselves.
+    result = await render_system_prompt(
+        effective_chat_id,
+        effective_user_email,
+    )
 
     # Public URL is owned by the server. Expose via response header so the
     # Open WebUI filter can decorate outlet() with browser-facing links without
@@ -1359,16 +1398,19 @@ _mcp_set_context = None
 
 
 def _init_mcp():
-    """Initialize MCP server (lazy load)."""
+    """Initialize MCP server (lazy load).
+
+    Note: ImportError used to be caught here. After the lifespan rewrite that
+    crashes loud on missing mcp_tools, that catch is dead code — if the
+    import would fail, the server never gets past startup. Keeping the
+    import unguarded so any stale assumption blows up at the call site
+    rather than silently returning None.
+    """
     global _mcp_server, _mcp_set_context
     if _mcp_server is None:
-        try:
-            from mcp_tools import mcp, set_context_from_headers
-            _mcp_server = mcp
-            _mcp_set_context = set_context_from_headers
-            print("[MCP] MCP server initialized")
-        except ImportError as e:
-            print(f"[MCP] Warning: MCP tools not available: {e}")
+        from mcp_tools import mcp, set_context_from_headers
+        _mcp_server = mcp
+        _mcp_set_context = set_context_from_headers
     return _mcp_server, _mcp_set_context
 
 
@@ -1397,25 +1439,28 @@ def _init_mcp():
 #               "description": "Test command"
 #           })
 
-try:
-    from mcp_tools import get_mcp_app
-    _mcp_asgi_app = get_mcp_app(api_key=MCP_API_KEY)
+# Module-level MCP route registration — runs at import time, before lifespan.
+# ImportError used to be caught here too; removed because the lifespan now
+# also imports mcp_tools and crashes loud, so a missing module produced two
+# different failure modes for the same root cause (silent skip here, then
+# crash from lifespan). Single failure mode is easier to debug.
+from mcp_tools import get_mcp_app
+from starlette.routing import Route
 
-    # Add MCP Starlette route directly to FastAPI router (avoids trailing slash issues)
-    from starlette.routing import Route
+_mcp_asgi_app = get_mcp_app(api_key=MCP_API_KEY)
 
-    async def _mcp_endpoint(request):
-        """Forward to MCP ASGI app."""
-        # Rewrite path to "/" (root of MCP app)
-        scope = dict(request.scope)
-        scope["path"] = "/"
-        scope["raw_path"] = b"/"
-        await _mcp_asgi_app(scope, request.receive, request._send)
 
-    app.routes.insert(0, Route("/mcp", endpoint=_mcp_endpoint, methods=["POST", "GET", "DELETE"]))
-    print("[MCP] Native Streamable HTTP MCP app route added at /mcp")
-except ImportError as e:
-    print(f"[MCP] Warning: MCP tools not available: {e}")
+async def _mcp_endpoint(request):
+    """Forward to MCP ASGI app."""
+    # Rewrite path to "/" (root of MCP app)
+    scope = dict(request.scope)
+    scope["path"] = "/"
+    scope["raw_path"] = b"/"
+    await _mcp_asgi_app(scope, request.receive, request._send)
+
+
+app.routes.insert(0, Route("/mcp", endpoint=_mcp_endpoint, methods=["POST", "GET", "DELETE"]))
+print("[MCP] Native Streamable HTTP MCP app route added at /mcp")
 
 
 @app.get("/mcp-info", tags=["MCP"], response_model=MCPInfo)

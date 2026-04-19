@@ -15,3 +15,10 @@ current_anthropic_base_url: ContextVar[Optional[str]] = ContextVar("current_anth
 current_mcp_tokens_url: ContextVar[str] = ContextVar("current_mcp_tokens_url", default="")
 current_mcp_tokens_api_key: ContextVar[str] = ContextVar("current_mcp_tokens_api_key", default="")
 current_mcp_servers: ContextVar[str] = ContextVar("current_mcp_servers", default="")
+
+# Pre-rendered system prompt for this request. Set by MCPContextMiddleware
+# after awaiting render_system_prompt(); read synchronously by the lowlevel
+# Server's @property def instructions when building InitializeResult.
+# See .venv/.../mcp/server/lowlevel/server.py:188 — that property must be
+# sync, so we pre-compute the string here.
+current_instructions: ContextVar[Optional[str]] = ContextVar("current_instructions", default=None)

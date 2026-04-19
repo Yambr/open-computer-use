@@ -188,3 +188,77 @@ jobs:
           chmod +x tests/test-no-corporate.sh tests/test-project-structure.sh
           ./tests/test-no-corporate.sh
           ./tests/test-project-structure.sh
+
+  pytest-orchestrator:
+    name: Pytest — orchestrator
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install server deps
+        run: |
+          pip install -r computer-use-server/requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run orchestrator pytest
+        run: pytest tests/orchestrator/ -v
+
+  smoke-mcp-endpoint:
+    name: Smoke — POST /mcp returns 200
+    runs-on: ubuntu-latest
+    # Catches the failure mode where /health is up but /mcp returns 500
+    # because the lifespan never entered session_manager.run() (e.g. a
+    # missing module COPY in the Dockerfile silently makes the import fail).
+    # This is the test that, had it existed earlier, would have caught the
+    # 2026-04-19 regression in one CI run.
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build computer-use-server image locally
+        uses: docker/build-push-action@v7
+        with:
+          context: ./computer-use-server
+          load: true
+          tags: cu-server:smoke
+          cache-from: type=gha,scope=server-smoke
+          cache-to: type=gha,mode=max,scope=server-smoke
+
+      - name: Start computer-use-server
+        run: |
+          # No real Docker socket needed for this smoke — the orchestrator
+          # only needs to boot, register MCP, and respond to /health + /mcp.
+          # We don't exercise sandbox container creation here.
+          docker run -d --name cu-server -p 8081:8081 \
+            -e PUBLIC_BASE_URL=http://localhost:8081 \
+            -e BASE_DATA_DIR=/tmp/data \
+            cu-server:smoke
+
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8081/health >/dev/null 2>&1; then
+              echo ""; echo "healthy after ${i}s"; exit 0
+            fi
+            printf '.'
+            sleep 1
+          done
+          echo ""; echo "TIMEOUT — server never became healthy"
+          docker logs cu-server || true
+          exit 1
+
+      - name: Smoke /mcp endpoint
+        run: |
+          chmod +x tests/test-mcp-endpoint-live.sh
+          ./tests/test-mcp-endpoint-live.sh http://localhost:8081
+
+      - name: Dump server logs on failure
+        if: failure()
+        run: docker logs cu-server || true

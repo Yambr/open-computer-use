@@ -84,7 +84,9 @@ from context_vars import (
     current_gitlab_token, current_gitlab_host,
     current_anthropic_auth_token, current_anthropic_base_url,
     current_mcp_tokens_url, current_mcp_tokens_api_key, current_mcp_servers,
+    current_instructions,
 )
+from system_prompt import render_system_prompt
 
 
 # Single-user mode: "" (lenient default), "true" (solo), "false" (strict multi-user)
@@ -269,15 +271,104 @@ def get_tool_detail(name: str, inp: dict) -> Optional[str]:
 # MCP Server Definition
 # ============================================================================
 
+# Static instructions kwarg — fallback when Tier 4's dynamic override is
+# bypassed (client that ignores InitializeResult.instructions, or the
+# render_system_prompt pre-render failed). Points at the other tiers so any
+# client hitting this baseline learns where to fetch the real content.
+_STATIC_INSTRUCTIONS = (
+    "Computer Use tools: bash, file edits, browser, sub-agent — in an isolated "
+    "Docker sandbox. Full per-session guide is at /home/assistant/README.md "
+    "(call the view tool to read it). Uploaded files are exposed via "
+    "resources/list."
+)
+
 mcp = FastMCP(
     name="computer-use-mcp",
-    instructions="Computer Use tools via MCP - bash, file operations in Docker containers",
+    instructions=_STATIC_INSTRUCTIONS,
     streamable_http_path="/",       # Root path — mounted at /mcp in FastAPI
     stateless_http=True,            # Each request is independent (no session persistence)
     transport_security={            # Behind proxy (LiteLLM/nginx), any Host is valid
         "enable_dns_rebinding_protection": False,
     },
 )
+
+
+# ============================================================================
+# Tier 4 — Dynamic InitializeResult.instructions
+# ============================================================================
+#
+# The static `instructions=` kwarg above ships as a constant in every
+# InitializeResult. We want per-chat content (file URLs, skills) to ride in
+# that same field so clients like Claude Desktop / MCP Inspector (which
+# render `instructions` directly) get dynamic content without any explicit
+# prompts/get call.
+#
+# Mechanism (works ONLY because stateless_http=True):
+#   1. Middleware awaits render_system_prompt(chat_id, user_email) BEFORE
+#      dispatching the MCP handler and stores the result in
+#      `current_instructions` ContextVar (see MCPContextMiddleware below).
+#   2. `streamable_http_manager._handle_stateless_request` (verified at
+#      .venv/.../mcp/server/streamable_http_manager.py:196) spins up a fresh
+#      `server.run(..., initialization_options, stateless=True)` per HTTP
+#      request, and `create_initialization_options()` is called INSIDE that
+#      per-request task — after the middleware has run.
+#   3. `lowlevel/server.py:188` reads `self.instructions` at that moment.
+#      We override the property to return the ContextVar value.
+#   4. `session.py:183` echoes it into `InitializeResult.instructions`.
+#
+# Stateful mode would break this: a long-lived session caches init_options at
+# construction time. Do NOT flip stateless_http=False without re-reading the
+# SDK source above.
+#
+# Private-API caveat: we swap `mcp._mcp_server.__class__` in place. FastMCP
+# doesn't expose a public hook. Pin the `mcp` version in requirements.txt to
+# protect against attribute renames.
+from mcp.server.lowlevel.server import Server as _LowlevelServer
+
+
+class _DynamicInstructionsServer(_LowlevelServer):
+    """Subclass that reads `instructions` from the current-request ContextVar.
+
+    Falls back to the static string if the middleware hasn't pre-rendered
+    (e.g. a render exception, or a direct in-process call without ASGI)."""
+
+    @property
+    def instructions(self):  # type: ignore[override]
+        return current_instructions.get() or self._static_instructions
+
+    @instructions.setter
+    def instructions(self, value):
+        self._static_instructions = value
+
+
+# Rebind class on the already-constructed lowlevel Server so the property
+# override takes effect without reconstructing FastMCP. The base class stores
+# `instructions` in `self.__dict__`; move it to the `_static_instructions`
+# slot before swapping the class so the property getter can read it as the
+# fallback.
+#
+# Defensive shape assertions — these guard against silent breakage when the
+# `mcp` SDK changes the private attribute layout (e.g. moves `_mcp_server` to
+# `_lowlevel_server`, or switches to __slots__). Without them, an SDK rename
+# would silently drop us back to static instructions for every chat — Tier 4
+# would just stop working with no error to debug.
+assert hasattr(mcp, "_mcp_server"), (
+    "FastMCP no longer exposes _mcp_server — Tier 4 dynamic instructions "
+    "broke. Re-pin mcp in requirements.txt and update mcp_tools.py."
+)
+_existing_lowlevel_server = mcp._mcp_server  # private; pinned mcp version guards
+assert isinstance(_existing_lowlevel_server, _LowlevelServer), (
+    f"mcp._mcp_server is not a lowlevel Server (got {type(_existing_lowlevel_server)!r}). "
+    "Tier 4 class-swap will not work. Re-pin mcp."
+)
+assert hasattr(_existing_lowlevel_server, "__dict__"), (
+    "Lowlevel Server uses __slots__ — class-swap pop() will fail. Re-pin mcp."
+)
+_existing_instructions_value = _existing_lowlevel_server.__dict__.pop(
+    "instructions", _STATIC_INSTRUCTIONS
+)
+_existing_lowlevel_server._static_instructions = _existing_instructions_value
+_existing_lowlevel_server.__class__ = _DynamicInstructionsServer
 
 
 async def send_progress(ctx: "Context", progress: float, total: float, message: str):
@@ -380,6 +471,9 @@ def _truncate_output(output: str, max_chars: int = MAX_BASH_OUTPUT_CHARS) -> str
 async def bash_tool(command: str, description: str, ctx: Context) -> str:
     """
     Run a bash command in the container.
+
+    If you've lost track of your environment (chat_id, file URLs, available
+    skills), re-read /home/assistant/README.md.
 
     Args:
         command: Bash command to run in container
@@ -587,6 +681,9 @@ async def view(
     """
     View text files or directory listings.
     Binary files are detected and rejected with instructions to read SKILL documentation.
+
+    If you've lost track of your environment (chat_id, file URLs, available
+    skills), re-read /home/assistant/README.md.
 
     Supported path types:
     - Directories: Lists files and directories with details
@@ -1191,7 +1288,14 @@ class MCPAuthMiddleware:
 
 
 class MCPContextMiddleware:
-    """ASGI middleware: HTTP headers → ContextVars before MCP handler."""
+    """ASGI middleware: HTTP headers → ContextVars before MCP handler.
+
+    Also pre-renders the system prompt and stores it in `current_instructions`
+    so the _DynamicInstructionsServer.instructions property can read it
+    synchronously when building InitializeResult (Tier 4).
+    Rendering is cache-backed (60s TTL per (chat_id, user_email)), so real
+    cost on a hot key is a dict lookup.
+    """
 
     def __init__(self, app):
         self.app = app
@@ -1200,6 +1304,18 @@ class MCPContextMiddleware:
         if scope["type"] == "http":
             headers = {k.decode(): v.decode() for k, v in scope.get("headers", [])}
             set_context_from_headers(headers)
+
+            # Pre-render system prompt for Tier 4 (dynamic instructions).
+            # Swallow errors — fall back to the static _STATIC_INSTRUCTIONS
+            # string that the _DynamicInstructionsServer getter returns when
+            # current_instructions is None.
+            try:
+                chat_id = current_chat_id.get()
+                user_email = current_user_email.get()
+                rendered = await render_system_prompt(chat_id, user_email)
+                current_instructions.set(rendered)
+            except Exception as e:
+                print(f"[MCP] render_system_prompt warning: {e}")
         await self.app(scope, receive, send)
 
 

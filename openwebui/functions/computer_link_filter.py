@@ -434,8 +434,21 @@ class Filter:
                     cached = entry
                     break
         if not cached:
-            return body
-        public_url, _prompt = cached[1]
+            # Cold-cache fallback: an Open WebUI restart wipes self._prompt_cache,
+            # and a re-render of an old assistant message can hit outlet() without
+            # inlet() running first (no new user message → no inlet pass). Rather
+            # than silently dropping preview/archive buttons, re-fetch from the
+            # orchestrator. This re-uses _fetch_system_prompt's own stale-cache
+            # fallback and url-scheme validation. Still respects the "broken links
+            # are worse than no links" invariant: if the server is unreachable AND
+            # we have no stale entry, _fetch_system_prompt returns None and we
+            # skip decoration.
+            cached_pair = self._fetch_system_prompt(chat_id, user_email)
+            if not cached_pair:
+                return body
+            public_url, _prompt = cached_pair
+        else:
+            public_url, _prompt = cached[1]
         base = public_url.rstrip("/")
         file_url_pattern = re.escape(base) + r"/files/" + re.escape(chat_id) + r"/[^\s\)]+"
         preview_url = f"{base}/preview/{chat_id}"
