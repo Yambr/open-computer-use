@@ -1182,21 +1182,26 @@ async def system_prompt(
     """
     Get Computer Use system prompt for AI integrations.
 
-    Tier 7 — backward-compat HTTP endpoint. Open WebUI filter still fetches
-    this URL and injects the response into the LLM's system message. Every
-    other consumer (Agents SDK, Inspector, Claude Desktop) should prefer the
-    native MCP tiers (prompts/get('system'), InitializeResult.instructions,
-    or just /home/assistant/README.md inside the sandbox).
+    Tier 6 — backward-compat HTTP endpoint. Open WebUI filter fetches this URL
+    and injects the response into the LLM's system message. Every other
+    consumer (Agents SDK, Inspector, Claude Desktop) should prefer the native
+    MCP tiers (InitializeResult.instructions on initialize, or just
+    /home/assistant/README.md inside the sandbox).
 
-    Priority for `chat_id` / `user_email`:
-        request header (X-Chat-Id / X-User-Email, plus X-OpenWebUI-* aliases
-        to match the rest of the server — see mcp_tools.set_context_from_headers)
-        > query param
-        > default.
+    chat_id resolution, in priority order:
+        1. request header (X-Chat-Id / X-User-Email, plus X-OpenWebUI-* aliases
+           to match the rest of the server — see mcp_tools.set_context_from_headers)
+        2. `chat_id` query param
+        3. last path segment of the deprecated `file_base_url` query param
+           (kept for backwards compat with pre-v4.0.0 integrations; see below)
+        4. "default"
 
-    Deprecated query params `file_base_url` / `archive_url` are kept for
-    external integrations (n8n) that pass full URLs; the new path uses
-    chat_id to derive both from PUBLIC_BASE_URL.
+    `file_base_url` / `archive_url` are deprecated query params from pre-v4.0.0:
+    before the server owned `PUBLIC_BASE_URL`, clients passed their own
+    browser-facing URLs here. Now the server always emits PUBLIC_BASE_URL/files/
+    {chat_id} and we only still read `file_base_url` to extract the trailing
+    chat_id for legacy callers. `archive_url` is ignored entirely — the server
+    derives archive URLs from PUBLIC_BASE_URL + chat_id.
     """
     def _header(*names: str) -> Optional[str]:
         for n in names:
@@ -1205,30 +1210,26 @@ async def system_prompt(
                 return v
         return None
 
+    def _extract_chat_id_from_legacy_url(url: Optional[str]) -> Optional[str]:
+        if not url:
+            return None
+        tail = url.rstrip("/").rsplit("/", 1)[-1]
+        return tail or None
+
     effective_chat_id = (
-        _header("x-chat-id", "x-openwebui-chat-id") or chat_id
+        _header("x-chat-id", "x-openwebui-chat-id")
+        or chat_id
+        or _extract_chat_id_from_legacy_url(file_base_url)
     )
     effective_user_email = (
         _header("x-user-email", "x-openwebui-user-email") or user_email
     )
 
-    # New path: use the shared renderer (cache-backed, same source of truth
-    # as Tiers 2, 4, 5).
-    if effective_chat_id or not file_base_url:
-        result = await render_system_prompt(
-            effective_chat_id or "default",
-            effective_user_email,
-        )
-    else:
-        # Legacy path: external integrations pass full URLs directly.
-        # Render without a chat_id-scoped base and then splice their values in.
-        result = await render_system_prompt("default", effective_user_email)
-        result = result.replace(f"{PUBLIC_BASE_URL}/files/default/archive",
-                                archive_url or f"{file_base_url.rstrip('/')}/archive")
-        result = result.replace(f"{PUBLIC_BASE_URL}/files/default",
-                                file_base_url)
-        legacy_chat_id = file_base_url.rstrip("/").rsplit("/", 1)[-1]
-        result = result.replace("default", legacy_chat_id)
+    # Single rendering path — shared cache with Tiers 2, 4, 5.
+    result = await render_system_prompt(
+        effective_chat_id or "default",
+        effective_user_email,
+    )
 
     # Public URL is owned by the server. Expose via response header so the
     # Open WebUI filter can decorate outlet() with browser-facing links without

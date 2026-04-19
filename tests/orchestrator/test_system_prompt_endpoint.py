@@ -67,22 +67,45 @@ class SystemPromptEndpointContract(unittest.TestCase):
         # DEFAULT_PUBLIC_SKILLS must appear — pin a representative one
         self.assertIn("<name>\ndocx\n</name>", resp.text)
 
-    def test_legacy_file_base_url_and_archive_url_substitute(self):
+    def test_legacy_file_base_url_extracts_chat_id(self):
+        """
+        Pre-v4.0.0 integrations could pass ?file_base_url=... to embed their
+        own browser-facing URLs in the prompt. Since v4.0.0 the server owns
+        PUBLIC_BASE_URL. We only still accept file_base_url to extract its
+        trailing chat_id for seamless migration. archive_url is ignored —
+        server derives it from PUBLIC_BASE_URL + chat_id.
+        """
         resp = self.client.get(
             "/system-prompt",
             params={
-                "file_base_url": "https://example.com/files/xyz",
-                "archive_url": "https://example.com/files/xyz/arch",
+                "file_base_url": "https://legacy.example.com/files/xyz",
+                "archive_url": "https://legacy.example.com/files/xyz/arch",
             },
         )
         self.assertEqual(resp.status_code, 200)
         body = resp.text
-        self.assertIn("https://example.com/files/xyz", body)
-        self.assertIn("https://example.com/files/xyz/arch", body)
-        self.assertIn("xyz", body)
+        # chat_id extracted from the trailing path segment, URL owned by server.
+        self.assertIn(f"{self.public_base_url}/files/xyz", body)
+        self.assertIn(f"{self.public_base_url}/files/xyz/archive", body)
+        # Neither the legacy host nor the legacy archive URL leaks into the prompt.
+        self.assertNotIn("legacy.example.com", body)
+        # No raw template placeholders.
         self.assertNotIn("{file_base_url}", body)
         self.assertNotIn("{archive_url}", body)
         self.assertNotIn("{chat_id}", body)
+
+    def test_legacy_file_base_url_ignored_when_chat_id_present(self):
+        """Explicit chat_id always wins over legacy file_base_url extraction."""
+        resp = self.client.get(
+            "/system-prompt",
+            params={
+                "chat_id": "winner",
+                "file_base_url": "https://legacy.example.com/files/loser",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(f"{self.public_base_url}/files/winner", resp.text)
+        self.assertNotIn("loser", resp.text)
 
     def test_no_params_falls_back_to_default_chat(self):
         """Post-Tier-7: the endpoint no longer ships raw placeholders; it

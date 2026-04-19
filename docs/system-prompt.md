@@ -83,14 +83,27 @@ Header-priority rule consistent with the rest of the server (MCP middleware read
 
 Invalidation: `invalidate_render_cache()` (no arg → clear all; `chat_id` arg → clear that chat). Used in tests; also callable when skills change upstream.
 
-## Known duplication: Open WebUI filter × README
+## Duplication analysis (honest per-scenario breakdown)
 
-When Open WebUI is the frontend:
-- Tier 6 HTTP endpoint gives the filter the prompt, which it injects into the LLM's system message.
-- Tier 2 also writes the same text to `/home/assistant/README.md`.
-- Tier 4 puts the same text in `InitializeResult.instructions` (which the filter does not currently strip).
+**Open WebUI via LiteLLM (main scenario):**
+- Filter `inlet()` fetches Tier 6 and puts the prompt into `body["messages"]` as a system message → model sees it **once**.
+- Tier 4 `InitializeResult.instructions` is returned on MCP `initialize` — but LiteLLM is a tool-call proxy, it does NOT ingest `instructions` and forward it to the LLM. Tier 4 simply doesn't reach the model here.
+- Tier 2 README.md sits in the container but the model only reads it if it actively calls `view`.
+- The **only** real duplication source in this scenario is the recovery-nudge in `bash_tool`/`view` docstrings (Tier 1): "If you've lost track of your environment, re-read /home/assistant/README.md." A model following that hint adds a **second copy** of the same ~3–5K tokens.
+- **Total: up to 2 copies** (filter inject + optional nudged `view`).
 
-The model may see the prompt up to three times (~3–5K tokens per extra copy). Follow-up PR: teach the filter to skip inject when the tool is attached. Out of scope for the "maximum MCP surface" refactor — backward compat is a hard requirement.
+**Agents SDK / MCP Inspector / Claude Desktop (MCP-native scenario):**
+- No Open WebUI filter.
+- Integrator surfaces Tier 4 via `server.server_initialize_result.instructions` (Agents SDK), or Claude Desktop auto-applies it → model sees prompt **once**.
+- Same story: if the Tier 1 nudge is honored, `view /home/assistant/README.md` adds a **second copy**.
+- **Total: up to 2 copies**.
+
+**Why keep the nudge.** Without it, a client that strips the system prompt leaves the model in a sandbox with zero context. The Tier 1 recovery hint is the only fallback that works in that pathological case — its token cost is paid only when the model actually needs it (context thins out, hint gets re-attended).
+
+Follow-up options if duplication proves costly in practice:
+- Weaken the nudge to "If your system prompt does not already describe this sandbox, read /home/assistant/README.md" — model self-selects.
+- Drop the nudge entirely and rely on Tier 4 + filter inject; README stays as a file-only fallback.
+- Teach the Open WebUI filter to skip its inject when the MCP tool is attached — only makes sense after Tier 4 reliably reaches the model through LiteLLM (today it does not).
 
 ## See also
 

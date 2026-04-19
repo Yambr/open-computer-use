@@ -53,7 +53,7 @@ All four "dynamic" tiers (2, 4, 5, 6) hit the same `render_system_prompt` cache 
 
 **Deliberately NOT using `@mcp.prompt("system")`.** We considered exposing the prompt via the MCP `prompts/*` primitive (OpenAI Agents SDK's documented fallback `server.get_prompt(...)`), but the 2025-11-25 spec restricts `PromptMessage.role` to `{user, assistant}` and positions prompts as user-controlled slash commands. Naming a prompt `"system"` clashes with both, and `InitializeResult.instructions` is the canonical field for server-supplied instructions. Tier 4 covers that canonically — a `prompts/get("system")` entry would have been off-spec duplication.
 
-Known duplication (Open WebUI): the filter still injects the prompt via `inlet()` while README and `instructions` also carry it. Follow-up PR will teach the filter to skip inject when MCP is attached. Out of scope here — backward compat is a hard requirement.
+Duplication analysis (per-scenario): Open WebUI through LiteLLM sees the prompt **once** via the filter's `inlet()` inject — `InitializeResult.instructions` is not forwarded by LiteLLM. MCP-native clients (Agents SDK, Inspector, Claude Desktop) see it **once** via `InitializeResult.instructions`. In both paths a second copy appears only if the model follows the Tier 1 recovery-nudge and calls `view /home/assistant/README.md`. Worst case: 2 copies; typical case: 1. The nudge stays to help pathological clients that strip system prompts — see `docs/system-prompt.md` for tightening options.
 
 Private-API touchpoints are pinned by tests (`tests/orchestrator/test_dynamic_instructions.py`, `test_mcp_resources.py`) and documented at their call sites with SDK line references; when bumping `mcp` minor, re-run these tests first.
 
