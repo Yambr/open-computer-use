@@ -2,6 +2,8 @@
 
 Everything needed to connect [Open WebUI](https://github.com/open-webui/open-webui) to [Open Computer Use](https://github.com/Yambr/open-computer-use). Works with stock Open WebUI — no fork required.
 
+> Just want to try it? [chat.yambr.com](https://chat.yambr.com) is a ready-to-use Open WebUI with Computer Use already wired in (GitHub/Google sign-in, models included). This directory is for embedding Computer Use into **your own** Open WebUI stack.
+
 ## Components
 
 | # | Component | Type | Required | What it does |

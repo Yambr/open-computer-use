@@ -1,5 +1,7 @@
 # Installation Guide
 
+This guide is for **self-hosting**. For the managed version (GitHub/Google sign-in, no Docker), see [CLOUD.md](CLOUD.md) or try [chat.yambr.com](https://chat.yambr.com) directly.
+
 ## Prerequisites
 
 - **Docker Engine** 24+ with Docker Compose v2
