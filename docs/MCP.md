@@ -4,6 +4,20 @@ The Computer Use Server exposes a standard [MCP (Model Context Protocol)](https:
 
 This server is published in the [MCP Registry](https://github.com/modelcontextprotocol/registry) as `io.github.yambr/open-computer-use`.
 
+## Hosted endpoint (managed)
+
+Skip the self-host deployment and point any MCP client at the managed endpoint:
+
+```
+POST https://api.yambr.com/mcp/computer_use
+Authorization: Bearer <YAMBR_API_KEY>
+X-Chat-Id: <session-id>
+```
+
+Request a key at [app.yambr.com](https://app.yambr.com) (GitHub or Google sign-in). You bring your own model provider — Yambr doesn't resell inference. Per-client configs (Claude Desktop, OpenAI Agents SDK, n8n, LiteLLM) live on [docs.yambr.com](https://docs.yambr.com); repo-side orientation in [CLOUD.md](CLOUD.md).
+
+The rest of this document covers **self-hosting** the same MCP server.
+
 ## Deployment Prerequisite
 
 This is a **self-hosted** MCP server. You must deploy it before connecting:
