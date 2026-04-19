@@ -16,7 +16,7 @@ Yambr publishes the MCP tool endpoint; it is **not** an LLM gateway. On `api.yam
 ## Which path?
 
 - **Just want to try it?** Open [chat.yambr.com](https://chat.yambr.com), sign in with GitHub or Google.
-- **Want to plug Computer Use into your own agent?** Get a key from [app.yambr.com](https://app.yambr.com), point your MCP client at `https://api.yambr.com/mcp/computer_use` with a `Bearer` header. Client-specific configs (Claude Desktop, OpenAI Agents SDK, n8n, LiteLLM, curl) live under [docs.yambr.com/integrations](https://docs.yambr.com).
+- **Want to plug Computer Use into your own agent?** Get a key from [app.yambr.com](https://app.yambr.com), point your MCP client at `https://api.yambr.com/mcp/computer_use` with a `Bearer` header. Per-client configs (Claude Desktop, OpenAI Agents SDK, n8n, LiteLLM, curl) live on [docs.yambr.com](https://docs.yambr.com) under the Integrations section.
 - **Want full control / air-gap / heavy use?** See [INSTALL.md](INSTALL.md).
 
 A bare `GET https://api.yambr.com/mcp/computer_use` returns `500` — that's expected, the endpoint requires `POST` with MCP headers. Not a service outage.

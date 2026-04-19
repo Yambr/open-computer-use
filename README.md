@@ -194,11 +194,11 @@ The Computer Use Server speaks standard **MCP over Streamable HTTP** — any MCP
 
 | Client | Self-hosted URL | Hosted URL | Status |
 |--------|-----------------|------------|--------|
-| [**Open WebUI**](https://github.com/open-webui/open-webui) | Docker Compose stack included, auto-configured | [chat.yambr.com](https://chat.yambr.com) (ready-made) | Tested in production |
+| [**Open WebUI**](https://github.com/open-webui/open-webui) | Docker Compose stack included, auto-configured | n/a — use [chat.yambr.com](https://chat.yambr.com) directly (pointing your own Open WebUI at the hosted API isn't a documented path) | Tested in production |
 | [**Claude Desktop**](https://claude.ai/download) | `http://localhost:8081/mcp` — see [docs/MCP.md](docs/MCP.md) | `https://api.yambr.com/mcp/computer_use` — see [docs/CLOUD.md](docs/CLOUD.md) | Works |
 | [**n8n**](https://n8n.io) | MCP Tool node → `http://computer-use-server:8081/mcp` | MCP Tool node → `https://api.yambr.com/mcp/computer_use` | Works |
 | [**LiteLLM**](https://github.com/BerriAI/litellm) | MCP proxy config — see [docs/MCP.md](docs/MCP.md) | MCP proxy → `https://api.yambr.com/mcp/computer_use` | Works |
-| **Custom client** | Any HTTP client with MCP JSON-RPC — see curl examples in [docs/MCP.md](docs/MCP.md) | Same, with `Authorization: Bearer sk-yambr-...` | Works |
+| **Custom client** | Any HTTP client with MCP JSON-RPC — see curl examples in [docs/MCP.md](docs/MCP.md) | Same, with `Authorization: Bearer sk-...` (key from [app.yambr.com](https://app.yambr.com)) | Works |
 
 ## Open WebUI Integration
 

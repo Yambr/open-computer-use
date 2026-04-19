@@ -14,7 +14,7 @@ Authorization: Bearer <YAMBR_API_KEY>
 X-Chat-Id: <session-id>
 ```
 
-Request a key at [app.yambr.com](https://app.yambr.com) (GitHub or Google sign-in). You bring your own model provider — Yambr doesn't resell inference. Full walkthrough with Claude Desktop / OpenAI Agents SDK / n8n configs: [CLOUD.md](CLOUD.md). Canonical cloud docs: [docs.yambr.com](https://docs.yambr.com).
+Request a key at [app.yambr.com](https://app.yambr.com) (GitHub or Google sign-in). You bring your own model provider — Yambr doesn't resell inference. Per-client configs (Claude Desktop, OpenAI Agents SDK, n8n, LiteLLM) live on [docs.yambr.com](https://docs.yambr.com); repo-side orientation in [CLOUD.md](CLOUD.md).
 
 The rest of this document covers **self-hosting** the same MCP server.
 
