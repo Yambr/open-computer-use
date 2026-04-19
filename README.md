@@ -10,6 +10,16 @@
 
 MCP server that gives any LLM its own computer — managed Docker workspaces with live browser, terminal, code execution, document skills, and autonomous sub-agents. Self-hosted, open-source, pluggable into any model.
 
+## Three ways to try it
+
+| Path | URL | What you need | Best for |
+|------|-----|---------------|----------|
+| **Free demo** — Open WebUI + Computer Use, models included | **[chat.yambr.com](https://chat.yambr.com)** | Sign in with GitHub or Google | Trying it end-to-end in 30 seconds, zero setup |
+| **Hosted MCP endpoint** — tools only, bring your own LLM | Key at **[app.yambr.com](https://app.yambr.com)** → connect to `https://api.yambr.com/mcp/computer_use` | GitHub or Google sign-in, short manual approval, your own OpenAI / Anthropic / OpenRouter key | Adding Computer Use tools to an existing agent, Claude Desktop, n8n, OpenAI Agents SDK |
+| **Self-host** | [Quick Start](#quick-start) below | Docker, ~15 min first build, your own LLM key | Full control, air-gapped, heavy use |
+
+Sign-in is GitHub or Google OAuth — no email/password, no SMS. On the hosted API, Yambr provides the tools; your LLM inference stays on your provider (OpenAI, Anthropic, OpenRouter, …). On `chat.yambr.com` the hosted Open WebUI instance includes models too, as a free convenience. See [docs/CLOUD.md](docs/CLOUD.md) for the full hosted-vs-self-host picture; [docs.yambr.com](https://docs.yambr.com) holds the canonical cloud docs.
+
 ![Demo: AI reads GitHub README and creates a landing page](docs/demo-landing-page.gif)
 
 ## What is this?
@@ -135,7 +145,23 @@ See [docs/SKILLS.md](docs/SKILLS.md) for details.
 
 ## MCP Integration
 
-The server speaks standard MCP over Streamable HTTP. Connect it to anything:
+The server speaks standard MCP over Streamable HTTP. Connect it to anything — run the server yourself, or use the managed endpoint at `api.yambr.com`.
+
+### Hosted (managed)
+
+```bash
+# Request a key at app.yambr.com first, then:
+curl -X POST https://api.yambr.com/mcp/computer_use \
+  -H "Authorization: Bearer sk-yambr-..." \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "X-Chat-Id: my-session" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+You bring your own model provider — Yambr doesn't resell inference. See [docs/CLOUD.md](docs/CLOUD.md) for Claude Desktop / OpenAI Agents SDK / n8n configs and [docs.yambr.com](https://docs.yambr.com) for the canonical cloud reference.
+
+### Self-hosted
 
 ```bash
 # Test with curl
@@ -145,7 +171,7 @@ curl -X POST http://localhost:8081/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
 ```
 
-See [docs/MCP.md](docs/MCP.md) for full integration guide (LiteLLM, Claude Desktop, custom clients). The per-chat system prompt rides **six redundant MCP-native channels** (tool descriptions, `/home/assistant/README.md` in the sandbox, `InitializeResult.instructions`, `resources/list` for uploaded files, plus an HTTP `/system-prompt` endpoint for legacy integrations) — full map in [docs/system-prompt.md](docs/system-prompt.md).
+See [docs/MCP.md](docs/MCP.md) for the full self-host integration guide (LiteLLM, Claude Desktop, custom clients). The per-chat system prompt rides **six redundant MCP-native channels** (tool descriptions, `/home/assistant/README.md` in the sandbox, `InitializeResult.instructions`, `resources/list` for uploaded files, plus an HTTP `/system-prompt` endpoint for legacy integrations) — full map in [docs/system-prompt.md](docs/system-prompt.md).
 
 ## Configuration
 
@@ -178,13 +204,13 @@ By default, all 13 built-in skills are available to everyone. For per-user skill
 
 The Computer Use Server speaks standard **MCP over Streamable HTTP** — any MCP-compatible client can connect. Open WebUI is the primary tested frontend, but not the only option.
 
-| Client | How to connect | Status |
-|--------|---------------|--------|
-| [**Open WebUI**](https://github.com/open-webui/open-webui) | Docker Compose stack included, auto-configured | Tested in production |
-| [**Claude Desktop**](https://claude.ai/download) | Add to `claude_desktop_config.json` — see [docs/MCP.md](docs/MCP.md) | Works |
-| [**n8n**](https://n8n.io) | MCP Tool node → `http://computer-use-server:8081/mcp` | Works |
-| [**LiteLLM**](https://github.com/BerriAI/litellm) | MCP proxy config — see [docs/MCP.md](docs/MCP.md) | Works |
-| **Custom client** | Any HTTP client with MCP JSON-RPC — see curl examples in [docs/MCP.md](docs/MCP.md) | Works |
+| Client | Self-hosted URL | Hosted URL | Status |
+|--------|-----------------|------------|--------|
+| [**Open WebUI**](https://github.com/open-webui/open-webui) | Docker Compose stack included, auto-configured | [chat.yambr.com](https://chat.yambr.com) (ready-made) | Tested in production |
+| [**Claude Desktop**](https://claude.ai/download) | `http://localhost:8081/mcp` — see [docs/MCP.md](docs/MCP.md) | `https://api.yambr.com/mcp/computer_use` — see [docs/CLOUD.md](docs/CLOUD.md) | Works |
+| [**n8n**](https://n8n.io) | MCP Tool node → `http://computer-use-server:8081/mcp` | MCP Tool node → `https://api.yambr.com/mcp/computer_use` | Works |
+| [**LiteLLM**](https://github.com/BerriAI/litellm) | MCP proxy config — see [docs/MCP.md](docs/MCP.md) | MCP proxy → `https://api.yambr.com/mcp/computer_use` | Works |
+| **Custom client** | Any HTTP client with MCP JSON-RPC — see curl examples in [docs/MCP.md](docs/MCP.md) | Same, with `Authorization: Bearer sk-yambr-...` | Works |
 
 ## Open WebUI Integration
 
@@ -470,6 +496,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome!
 
 ## Community
 
+- **Managed hosting**: [yambr.com](https://yambr.com) — cloud version by the maintainers ([chat.yambr.com](https://chat.yambr.com) for the free demo, [app.yambr.com](https://app.yambr.com) for API keys, [docs.yambr.com](https://docs.yambr.com) for the cloud docs)
 - **Issues & Ideas**: [GitHub Issues](https://github.com/Yambr/open-computer-use/issues)
 - **Telegram**: [@yambrcom](https://t.me/yambrcom)
 
