@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.8.12.8 (unreleased)
+## v0.8.12.8 (2026-04-19)
 
 ### Breaking Changes — filter v4.1.0, preview-mode surface narrowed
 - **`PREVIEW_MODE="artifact"` and `PREVIEW_MODE="both"` removed** (closes #43). `outlet()` no longer emits a fenced ```html `<iframe>` block — it only appends a markdown preview link. The extra html block was redundant *and* actively harmful: the `fix_preview_url_detection` frontend patch is guarded by `!htmlGroups.some(o=>o.html)`, so pre-emitting an html block from the filter caused the patch to skip detection, leaving the iframe rendered as a raw code fence in chat (the #43 symptom that had been reappearing since v3.2.0). Only `"button"` and `"off"` remain; `"button"` is the new default. Matches Alfa prod v3.8.0 behaviour — the long-standing production reference was never using artifact mode to begin with.
