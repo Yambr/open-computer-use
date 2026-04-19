@@ -10,15 +10,7 @@
 
 MCP server that gives any LLM its own computer — managed Docker workspaces with live browser, terminal, code execution, document skills, and autonomous sub-agents. Self-hosted, open-source, pluggable into any model.
 
-## Three ways to try it
-
-| Path | URL | What you need | Best for |
-|------|-----|---------------|----------|
-| **Free demo** — Open WebUI + Computer Use, models included | **[chat.yambr.com](https://chat.yambr.com)** | Sign in with GitHub or Google | Trying it end-to-end in 30 seconds, zero setup |
-| **Hosted MCP endpoint** — tools only, bring your own LLM | Key at **[app.yambr.com](https://app.yambr.com)** → connect to `https://api.yambr.com/mcp/computer_use` | GitHub or Google sign-in; your own OpenAI / Anthropic / OpenRouter key for inference | Adding Computer Use tools to an existing agent, Claude Desktop, n8n, OpenAI Agents SDK |
-| **Self-host** | [Quick Start](#quick-start) below | Docker, ~15 min first build, your own LLM key | Full control, air-gapped, heavy use |
-
-Sign-in is GitHub or Google OAuth — no email/password, no SMS. `chat.yambr.com` includes models as a free convenience; the hosted API is tools-only. Canonical cloud docs: [docs.yambr.com](https://docs.yambr.com). Short orientation: [docs/CLOUD.md](docs/CLOUD.md).
+> **Online demo:** **[chat.yambr.com](https://chat.yambr.com)** — Open WebUI with Computer Use already set up, sign in with GitHub or Google. ([More ways to try it](#ways-to-try-it) below.)
 
 ![Demo: AI reads GitHub README and creates a landing page](docs/demo-landing-page.gif)
 
@@ -71,6 +63,16 @@ See [docs/FEATURES.md](docs/FEATURES.md) for architecture details and [docs/SCRE
 ## Architecture
 
 ![Architecture](docs/architecture.svg)
+
+## Ways to try it
+
+| Path | URL | What you need | Best for |
+|------|-----|---------------|----------|
+| **Free online demo** — Open WebUI + Computer Use, models included | **[chat.yambr.com](https://chat.yambr.com)** | GitHub or Google sign-in | Trying it end-to-end in 30 seconds |
+| **Hosted MCP endpoint** — tools only, bring your own LLM | Key at [app.yambr.com](https://app.yambr.com) → connect to `https://api.yambr.com/mcp/computer_use` | GitHub/Google sign-in; your own OpenAI / Anthropic / OpenRouter key | Plugging Computer Use into Claude Desktop, n8n, OpenAI Agents SDK |
+| **Self-host** | [Quick Start](#quick-start) below | Docker, ~15 min first build | Full control, air-gapped, heavy use |
+
+OAuth only — no email/password, no SMS. On `chat.yambr.com` models are bundled as a free convenience; the hosted API is tools-only. Canonical cloud docs: [docs.yambr.com](https://docs.yambr.com). Repo-side orientation: [docs/CLOUD.md](docs/CLOUD.md).
 
 ## Quick Start
 
