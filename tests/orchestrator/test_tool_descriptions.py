@@ -4,7 +4,7 @@
 Tier 1 — MCP tool descriptions must mention README.md as the recovery hint.
 
 Static `instructions=` kwarg on the FastMCP constructor (Tier 3 fallback)
-must also mention README.md, prompts/get, and resources/list — the entry
+must also mention README.md and resources/list — the entry
 points a confused client would otherwise miss.
 """
 import asyncio
@@ -32,12 +32,15 @@ class ToolDescriptionsContract(unittest.TestCase):
         self.assertIsNotNone(view, "view tool missing from tools/list")
         self.assertIn("README.md", view.description)
 
-    def test_static_instructions_mentions_three_channels(self):
+    def test_static_instructions_mentions_fallback_channels(self):
         static = mcp_tools._STATIC_INSTRUCTIONS
-        # Three fallback pointers a confused client needs
+        # Two fallback pointers a confused client needs. We intentionally do
+        # NOT advertise prompts/get — naming a prompt "system" is off-spec
+        # (PromptMessage.role ∈ {user, assistant}) and InitializeResult.
+        # instructions is the canonical channel for server instructions.
         self.assertIn("README.md", static)
-        self.assertIn("prompts/get", static)
         self.assertIn("resources/list", static)
+        self.assertNotIn("prompts/get", static)
 
     def test_total_tool_count_unchanged_at_five(self):
         """We promised the user: 5 tools before, 5 tools after."""

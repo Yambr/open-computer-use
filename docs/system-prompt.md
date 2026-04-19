@@ -1,8 +1,10 @@
-# System Prompt Delivery — Seven MCP-Native Tiers
+# System Prompt Delivery — Six MCP-Native Tiers
 
-The Computer Use Server delivers the same per-session system prompt through **seven different channels**, so clients with varying MCP support all get it. Every tier renders from the same source (`computer-use-server/system_prompt.py::render_system_prompt`) with a shared 60-second in-process cache, so fan-out cost is one render per `(chat_id, user_email)` per minute.
+The Computer Use Server delivers the same per-session system prompt through **six different channels**, so clients with varying MCP support all get it. Every tier renders from the same source (`computer-use-server/system_prompt.py::render_system_prompt`) with a shared 60-second in-process cache, so fan-out cost is one render per `(chat_id, user_email)` per minute.
 
-**Redundancy is by design.** A client might strip `InitializeResult.instructions`, skip `prompts/get`, and never call `resources/list` — but it will always call `tools/list`, and the tool descriptions nudge the model toward `/home/assistant/README.md` inside the sandbox. That file is always present.
+**Redundancy is by design.** A client might strip `InitializeResult.instructions` and never call `resources/list` — but it will always call `tools/list`, and the tool descriptions nudge the model toward `/home/assistant/README.md` inside the sandbox. That file is always present.
+
+**Why not `@mcp.prompt("system")`?** MCP `prompts/*` is user-controlled (slash-commands the user explicitly picks) and `PromptMessage.role` is restricted to `{user, assistant}` — naming a prompt `"system"` both clashes with the spec's role model and duplicates `InitializeResult.instructions`, which is the canonical field for "how the server wants itself used." We chose the canonical path.
 
 ## The Tiers
 
@@ -10,11 +12,10 @@ The Computer Use Server delivers the same per-session system prompt through **se
 |---|---|---|---|
 | 1 | Tool descriptions | `tools/list` — `bash_tool` + `view` docstrings mention README.md | Every MCP client (tools are mandatory) |
 | 2 | `/home/assistant/README.md` | Rendered into the sandbox on container creation via `put_archive` | Any model that runs the `view` tool |
-| 3 | Static `instructions=` hint | FastMCP constructor, one-line pointer to README + `prompts/get` + `resources/list` | Claude Desktop, MCP Inspector; Agents SDK exposes via `server.server_initialize_result` |
+| 3 | Static `instructions=` hint | FastMCP constructor, one-line pointer to README + `resources/list` | Claude Desktop, MCP Inspector; Agents SDK exposes via `server.server_initialize_result` |
 | 4 | Dynamic `InitializeResult.instructions` | Per-request ContextVar, swapped onto `mcp._mcp_server` as a `@property` | Same clients as #3, with chat-specific content |
-| 5 | `@mcp.prompt("system")` | Native MCP `prompts/get` primitive | OpenAI Agents SDK's documented fallback: `await server.get_prompt("system", {...})` |
-| 6 | `resources/list` + `resources/read` | Uploaded files surfaced as `FunctionResource` per chat, URI `file://uploads/{chat_id}/{rel_path}` | Agents SDK, Inspector, Claude Desktop |
-| 7 | `GET /system-prompt` HTTP | Backward-compat endpoint with header > query priority | Open WebUI filter; external integrations (n8n) |
+| 5 | `resources/list` + `resources/read` | Uploaded files surfaced as `FunctionResource` per chat, URI `file://uploads/{chat_id}/{rel_path}` | Agents SDK, Inspector, Claude Desktop |
+| 6 | `GET /system-prompt` HTTP | Backward-compat endpoint with header > query priority | Open WebUI filter; external integrations (n8n) |
 
 ## Tier 1 — Tool description nudges
 
@@ -22,17 +23,17 @@ Docstrings of `bash_tool` and `view` tools (in `computer-use-server/mcp_tools.py
 
 > If you've lost track of your environment (chat_id, file URLs, available skills), re-read /home/assistant/README.md.
 
-Deliberately **not** "read this first" — the system prompt itself (Tiers 3/4/5) already identifies as "contents of /home/assistant/README.md", so if the client surfaced it the model already has the content. This line is a **recovery hint**, not a forcing function.
+Deliberately **not** "read this first" — the system prompt itself (Tiers 3/4) already identifies as "contents of /home/assistant/README.md", so if the client surfaced it the model already has the content. This line is a **recovery hint**, not a forcing function.
 
 ## Tier 2 — README.md in the sandbox
 
 When `docker_manager._create_container` spins up a chat's workspace container, it calls `render_system_prompt_sync(chat_id, user_email)` and writes the result to `/home/assistant/README.md` (or `/root/README.md` for the test image) via `container.put_archive`. The file survives across container removals because it lives in the chat's persistent workspace volume (`chat-{chat_id}-workspace`).
 
-Does **not** enumerate uploaded files — those are Tier 6's responsibility and are refreshed on every upload. README is static-per-container and changes only when `user_email` changes (which doesn't happen mid-chat).
+Does **not** enumerate uploaded files — those are Tier 5's responsibility and are refreshed on every upload. README is static-per-container and changes only when `user_email` changes (which doesn't happen mid-chat).
 
 ## Tier 3 — Static `instructions=`
 
-FastMCP's constructor kwarg. A one-liner pointing at Tiers 2, 5, 6 so a client that renders only `InitializeResult.instructions` still learns where the per-session content lives.
+FastMCP's constructor kwarg. A one-liner pointing at Tiers 2 and 5 (README + uploaded-file resources) so a client that renders only `InitializeResult.instructions` still learns where the per-session content lives.
 
 ## Tier 4 — Dynamic `InitializeResult.instructions`
 
@@ -51,25 +52,7 @@ Mechanism:
 
 **Private-API caveat.** We touch `mcp._mcp_server` and `_resource_manager._resources`. Pin `mcp` narrowly in `computer-use-server/requirements.txt` — an SDK minor bump requires re-verifying these attribute shapes.
 
-## Tier 5 — `@mcp.prompt("system")`
-
-Native MCP `prompts` primitive. Clients call `prompts/get("system", {"chat_id": ..., "user_email": ...})` and receive `[UserMessage(content=<rendered prompt>)]`.
-
-Arguments are **optional**; missing values fall back to the request headers (`X-Chat-Id`, `X-User-Email`, plus `X-OpenWebUI-*` aliases) via the same ContextVars the middleware populates. **Header wins over argument** when both are set — consistent with Tier 7 and the rest of the server.
-
-Role is `user` because MCP spec restricts `PromptMessage.role` to `{user, assistant}` (see `.venv/.../fastmcp/prompts/base.py:25`). No `system` role. Integrators read `messages[0].content.text` and feed it into `Agent.instructions` — role is irrelevant at that point.
-
-OpenAI Agents SDK does **not** auto-fetch prompts — integrators call `server.get_prompt(...)` explicitly:
-
-```python
-from agents.mcp import MCPServerStreamableHttp
-
-server = MCPServerStreamableHttp(...)
-result = await server.get_prompt("system", {})
-agent = Agent(instructions=result.messages[0].content.text, mcp_servers=[server])
-```
-
-## Tier 6 — Uploaded files as MCP resources
+## Tier 5 — Uploaded files as MCP resources
 
 `resources/list` returns a `FunctionResource` per uploaded file with URI `file://uploads/{chat_id}/{url-encoded rel_path}`. `resources/read` fetches the content — text for `text/*` and a short MIME allowlist, base64 blob otherwise.
 
@@ -83,7 +66,7 @@ Dynamic registration: `sync_chat_resources(chat_id)` clears previously-registere
 
 Upload itself stays on HTTP — **MCP has no upload primitive.** Community consensus is out-of-band HTTP alongside the MCP server.
 
-## Tier 7 — HTTP `/system-prompt`
+## Tier 6 — HTTP `/system-prompt`
 
 Kept for the Open WebUI filter (`openwebui/functions/computer_link_filter.py:224–363`) which fetches the prompt server-side and injects it into the LLM's system message. The endpoint reads:
 
@@ -92,7 +75,7 @@ X-Chat-Id | X-OpenWebUI-Chat-Id   > ?chat_id=           > "default"
 X-User-Email | X-OpenWebUI-User-Email > ?user_email=   > None
 ```
 
-Same header-priority rule as Tier 5. Response header `X-Public-Base-URL` is still emitted so the filter's `outlet()` can build browser-facing archive/preview URLs from the server-owned `PUBLIC_BASE_URL`.
+Header-priority rule consistent with the rest of the server (MCP middleware reads the same headers and aliases). Response header `X-Public-Base-URL` is still emitted so the filter's `outlet()` can build browser-facing archive/preview URLs from the server-owned `PUBLIC_BASE_URL`.
 
 ## Render cache
 
@@ -103,7 +86,7 @@ Invalidation: `invalidate_render_cache()` (no arg → clear all; `chat_id` arg �
 ## Known duplication: Open WebUI filter × README
 
 When Open WebUI is the frontend:
-- Tier 7 HTTP endpoint gives the filter the prompt, which it injects into the LLM's system message.
+- Tier 6 HTTP endpoint gives the filter the prompt, which it injects into the LLM's system message.
 - Tier 2 also writes the same text to `/home/assistant/README.md`.
 - Tier 4 puts the same text in `InitializeResult.instructions` (which the filter does not currently strip).
 
@@ -112,6 +95,6 @@ The model may see the prompt up to three times (~3–5K tokens per extra copy). 
 ## See also
 
 - `docs/MCP.md` — protocol-level MCP server documentation.
-- `docs/openwebui-filter.md` — how the filter consumes Tier 7.
+- `docs/openwebui-filter.md` — how the filter consumes Tier 6.
 - `computer-use-server/system_prompt.py` — the render function + cache.
-- `tests/orchestrator/test_{render_cache,dynamic_instructions,mcp_prompts,mcp_resources,tool_descriptions,readme_in_container,system_prompt_endpoint}.py` — pinning tests for every tier.
+- `tests/orchestrator/test_{render_cache,dynamic_instructions,mcp_resources,tool_descriptions,readme_in_container,system_prompt_endpoint}.py` — pinning tests for every tier.

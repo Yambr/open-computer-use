@@ -278,9 +278,8 @@ def get_tool_detail(name: str, inp: dict) -> Optional[str]:
 _STATIC_INSTRUCTIONS = (
     "Computer Use tools: bash, file edits, browser, sub-agent — in an isolated "
     "Docker sandbox. Full per-session guide is at /home/assistant/README.md "
-    "(call the view tool to read it). You can also call prompts/get('system') "
-    "to fetch the same text via the MCP protocol. Uploaded files are exposed "
-    "via resources/list."
+    "(call the view tool to read it). Uploaded files are exposed via "
+    "resources/list."
 )
 
 mcp = FastMCP(

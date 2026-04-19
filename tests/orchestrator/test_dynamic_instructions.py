@@ -34,7 +34,7 @@ class DynamicInstructionsContract(unittest.TestCase):
         try:
             v = mcp_tools.mcp._mcp_server.instructions
             self.assertIn("README.md", v)
-            self.assertIn("prompts/get", v)
+            self.assertIn("resources/list", v)
         finally:
             current_instructions.reset(tok)
 
