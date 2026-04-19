@@ -77,41 +77,92 @@ class _MCPClient:
         self._last_health: Optional[tuple] = None
 
     def _check_health_sync(self) -> tuple[bool, str]:
-        """Blocking GET /health probe. Returns (ok, err_string).
+        """Blocking probe of BOTH /health AND /mcp. Returns (ok, err_string).
 
-        Cached for _HEALTH_TTL_SECONDS so the AI doesn't pay a network
-        round-trip on every tool call when the server is healthy. On a
-        cache hit we return the cached verdict — including the failure
-        verdict, so a known-bad server short-circuits without hammering."""
+        We hit /mcp too because the failure mode that bit us in production was
+        exactly: /health returns 200 (FastAPI is up), but /mcp returns 500
+        ("Task group is not initialized") because the lifespan swallowed an
+        ImportError and never entered session_manager.run(). A /health-only
+        probe would have called everything green and let the cancel-scope
+        crash propagate as silent empty output.
+
+        Cached for _HEALTH_TTL_SECONDS so the AI doesn't pay two round-trips
+        on every tool call when the server is healthy. Cache stores the
+        failure verdict too, so a known-bad server short-circuits."""
         now = time.monotonic()
         if self._last_health is not None:
             checked_at, ok, err = self._last_health
             if (now - checked_at) < self._HEALTH_TTL_SECONDS:
                 return ok, err
 
+        # 1) GET /health — fastest fail for "container down / wrong URL".
+        ok, err = self._http_probe_get(self.health_url)
+        if not ok:
+            self._last_health = (now, False, f"GET /health -> {err}")
+            return False, self._last_health[2]
+
+        # 2) POST /mcp initialize — catches "FastAPI up but MCP broken".
+        ok, err = self._http_probe_mcp_initialize()
+        if not ok:
+            self._last_health = (now, False, f"POST /mcp -> {err}")
+            return False, self._last_health[2]
+
+        self._last_health = (now, True, "")
+        return True, ""
+
+    def _http_probe_get(self, url: str) -> tuple[bool, str]:
+        """GET probe with the standard error-message normalization."""
         try:
-            req = urllib.request.Request(self.health_url, method="GET")
+            req = urllib.request.Request(url, method="GET")
             if self.api_key:
                 req.add_header("Authorization", f"Bearer {self.api_key}")
             with urllib.request.urlopen(req, timeout=self._HEALTH_TIMEOUT_SECONDS) as resp:
                 if 200 <= resp.status < 300:
-                    self._last_health = (now, True, "")
                     return True, ""
-                err = f"HTTP {resp.status}"
+                return False, f"HTTP {resp.status}"
         except urllib.error.HTTPError as e:
-            err = f"HTTP {e.code}: {e.reason}"
+            return False, f"HTTP {e.code}: {e.reason}"
         except urllib.error.URLError as e:
-            # Wrap the underlying socket error so the AI sees something
-            # actionable ("Could not resolve host: computer-use-server")
-            # rather than the generic "URLError" wrapper.
-            err = f"{type(e).__name__}: {getattr(e, 'reason', e)}"
+            return False, f"{type(e).__name__}: {getattr(e, 'reason', e)}"
         except (TimeoutError, OSError) as e:
-            err = f"{type(e).__name__}: {e}"
+            return False, f"{type(e).__name__}: {e}"
         except Exception as e:
-            err = f"{type(e).__name__}: {e}"
+            return False, f"{type(e).__name__}: {e}"
 
-        self._last_health = (now, False, err)
-        return False, err
+    def _http_probe_mcp_initialize(self) -> tuple[bool, str]:
+        """POST /mcp with a minimal initialize. Verifies session_manager is live."""
+        body = (
+            b'{"jsonrpc":"2.0","id":1,"method":"initialize",'
+            b'"params":{"protocolVersion":"2024-11-05","capabilities":{},'
+            b'"clientInfo":{"name":"preflight","version":"1.0"}}}'
+        )
+        req = urllib.request.Request(
+            self.mcp_url, method="POST", data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+                "X-Chat-Id": "preflight",
+            },
+        )
+        if self.api_key:
+            req.add_header("Authorization", f"Bearer {self.api_key}")
+        try:
+            with urllib.request.urlopen(req, timeout=self._HEALTH_TIMEOUT_SECONDS) as resp:
+                if 200 <= resp.status < 300:
+                    return True, ""
+                return False, f"HTTP {resp.status}"
+        except urllib.error.HTTPError as e:
+            # 401/403 means the endpoint is up — auth is mismatched, not a
+            # broken server. That's surface-able by the actual MCP call later.
+            if e.code in (401, 403):
+                return True, ""
+            return False, f"HTTP {e.code}: {e.reason}"
+        except urllib.error.URLError as e:
+            return False, f"{type(e).__name__}: {getattr(e, 'reason', e)}"
+        except (TimeoutError, OSError) as e:
+            return False, f"{type(e).__name__}: {e}"
+        except Exception as e:
+            return False, f"{type(e).__name__}: {e}"
 
     def _config_error_message(self, err: str) -> str:
         """Build the [CONFIG ERROR] string the AI receives when /health fails.
@@ -121,11 +172,16 @@ class _MCPClient:
         names the URL it tried, the underlying error, the most likely fix,
         and how to verify."""
         return (
-            f"[CONFIG ERROR] Cannot reach computer-use-server at {self.base_url}.\n"
-            f"  Probe: GET {self.health_url} -> {err}\n"
-            f"  Likely fix: the orchestrator container is not running.\n"
-            f"    docker compose -f docker-compose.yml up -d computer-use-server\n"
-            f"  Verify after start: curl -fsS {self.health_url}\n"
+            f"[CONFIG ERROR] Cannot use computer-use-server at {self.base_url}.\n"
+            f"  Pre-flight: {err}\n"
+            f"  Likely causes:\n"
+            f"    1. The orchestrator container is not running:\n"
+            f"         docker compose -f docker-compose.yml up -d computer-use-server\n"
+            f"    2. /health is up but /mcp returns 500 — lifespan failed to start the\n"
+            f"       MCP session manager. Check `docker logs computer-use-server` for ImportError.\n"
+            f"  Verify after fix:\n"
+            f"    curl -fsS {self.health_url}     # should return {{\"status\":\"healthy\"}}\n"
+            f"    ./tests/test-mcp-endpoint-live.sh {self.base_url}\n"
             f"  Tool ORCHESTRATOR_URL Valve currently points at: {self.base_url}\n"
             f"  This URL must be reachable from inside the open-webui container.\n"
             f"  Cached for {int(self._HEALTH_TTL_SECONDS)}s; a server restart will be picked up automatically."

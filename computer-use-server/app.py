@@ -186,21 +186,30 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app):
-    """FastAPI lifespan: start MCP session manager for Streamable HTTP."""
+    """FastAPI lifespan: start MCP session manager for Streamable HTTP.
+
+    Do NOT swallow ImportError here. The previous version did, and a missing
+    `mcp_resources` (e.g. not COPYed in Dockerfile) caused the lifespan to
+    yield WITHOUT calling `session_manager.run()`. The MCP ASGI app then
+    served every /mcp request with HTTP 500 ("Task group is not
+    initialized"), and uvicorn's default error handler hid the traceback —
+    a 100% silent failure mode that took hours of bisecting to find.
+
+    If imports fail, crash loudly so the deploy is obviously broken.
+    """
     warn_if_public_base_url_is_default()
     warn_if_mcp_api_key_missing()
-    try:
-        from mcp_tools import mcp as _mcp_server
-        # Import-for-side-effect: registers @mcp.resource handlers on the
-        # FastMCP singleton. Must happen BEFORE streamable_http_app() so the
-        # resources capability is advertised in InitializeResult.
-        import mcp_resources  # noqa: F401
-        if _mcp_server._session_manager is None:
-            _mcp_server.streamable_http_app()  # triggers lazy init of session_manager
-        async with _mcp_server.session_manager.run():
-            yield
-    except ImportError:
+    from mcp_tools import mcp as _mcp_server
+    # Import-for-side-effect: registers @mcp.resource handlers on the
+    # FastMCP singleton. Must happen BEFORE streamable_http_app() so the
+    # resources capability is advertised in InitializeResult.
+    import mcp_resources  # noqa: F401
+    if _mcp_server._session_manager is None:
+        _mcp_server.streamable_http_app()  # triggers lazy init of session_manager
+    async with _mcp_server.session_manager.run():
+        print("[MCP] session_manager.run() entered — /mcp endpoint is live")
         yield
+        print("[MCP] session_manager.run() exiting")
 
 app = FastAPI(
     title="Computer Use File Server + MCP",
