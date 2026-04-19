@@ -29,7 +29,7 @@ class SystemPromptEndpointContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(app_module.app)
-        cls.file_server_url = app_module.FILE_SERVER_URL
+        cls.public_base_url = app_module.PUBLIC_BASE_URL
 
     def setUp(self):
         # Ensure tests are hermetic: reset skill_manager memory cache so that
@@ -42,8 +42,8 @@ class SystemPromptEndpointContract(unittest.TestCase):
         resp = self.client.get("/system-prompt", params={"chat_id": "abc123"})
         self.assertEqual(resp.status_code, 200)
         body = resp.text
-        self.assertIn(f"{self.file_server_url}/files/abc123", body)
-        self.assertIn(f"{self.file_server_url}/files/abc123/archive", body)
+        self.assertIn(f"{self.public_base_url}/files/abc123", body)
+        self.assertIn(f"{self.public_base_url}/files/abc123/archive", body)
         self.assertIn("abc123", body)
         self.assertNotIn("{file_base_url}", body)
         self.assertNotIn("{archive_url}", body)
@@ -100,6 +100,17 @@ class SystemPromptEndpointContract(unittest.TestCase):
             resp.headers.get("content-type", "").startswith("text/plain"),
             f"Expected text/plain, got {resp.headers.get('content-type')}",
         )
+
+    def test_public_base_url_header_is_returned(self):
+        """The filter needs the public URL to build browser-facing preview/archive
+        links but its ORCHESTRATOR_URL Valve holds the internal URL. Server must
+        expose the public URL (from PUBLIC_BASE_URL env) on every /system-prompt
+        response so the filter can cache and use it in outlet()."""
+        resp = self.client.get("/system-prompt", params={"chat_id": "abc"})
+        self.assertEqual(resp.status_code, 200)
+        header = resp.headers.get("X-Public-Base-URL")
+        self.assertIsNotNone(header, "X-Public-Base-URL header missing")
+        self.assertEqual(header, self.public_base_url)
 
 
 if __name__ == "__main__":

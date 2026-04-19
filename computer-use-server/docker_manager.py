@@ -41,11 +41,21 @@ CONTAINER_CPU_LIMIT = float(os.getenv("CONTAINER_CPU_LIMIT", "1.0"))
 COMMAND_TIMEOUT = int(os.getenv("COMMAND_TIMEOUT", "120"))
 ENABLE_NETWORK = os.getenv("ENABLE_NETWORK", "true").lower() == "true"
 USER_DATA_BASE_PATH = os.getenv("USER_DATA_BASE_PATH", "/tmp/computer-use-data")
-# Internal-DNS default — only reachable from inside the compose network.
-# Users must override with a browser-reachable URL for the Open WebUI preview
-# filter to work end-to-end. See docs/openwebui-filter.md.
-FILE_SERVER_URL_DEFAULT = "http://computer-use-server:8081"
-FILE_SERVER_URL = os.getenv("FILE_SERVER_URL", FILE_SERVER_URL_DEFAULT)
+# Public URL of the orchestrator — the single source of truth for browser-facing
+# preview/archive links. Baked into /system-prompt so the model writes correct
+# clickable URLs, and returned to the Open WebUI filter via the X-Public-Base-URL
+# response header so outlet() decorations also use it.
+#
+# Internal-DNS default is only reachable from inside the compose network. Users
+# must override with a browser-reachable URL (http://localhost:8081 for local
+# dev, https://cu.example.com for prod) for the preview panel to work.
+# See docs/openwebui-filter.md.
+PUBLIC_BASE_URL_DEFAULT = "http://computer-use-server:8081"
+# Normalize: treat empty string as unset (docker-compose's `${VAR:-}` always sets
+# the env var, so os.getenv's default only fires when VAR is truly absent —
+# empty string would otherwise bypass the startup warning). Also strip any
+# trailing slash so downstream concatenations never produce `//files/...`.
+PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or PUBLIC_BASE_URL_DEFAULT).rstrip("/")
 CONTAINER_IDLE_TIMEOUT = int(os.getenv("CONTAINER_IDLE_TIMEOUT", "600"))
 DEBUG_LOGGING = os.getenv("DEBUG_LOGGING", "false").lower() == "true"
 ORCHESTRATOR_CONTAINER_NAME = os.getenv("ORCHESTRATOR_CONTAINER_NAME", "computer-use-server")
@@ -99,28 +109,27 @@ VISION_API_URL = os.getenv("VISION_API_URL", "")
 VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o")
 
 
-def warn_if_file_server_url_is_default() -> bool:
-    """Emit a one-time startup warning when FILE_SERVER_URL is still the
+def warn_if_public_base_url_is_default() -> bool:
+    """Emit a one-time startup warning when PUBLIC_BASE_URL is still the
     hardcoded internal-DNS default.
 
     The default (http://computer-use-server:8081) is only reachable from inside
-    the compose network. If the Open WebUI filter's Valve points at a
-    browser-reachable URL but the server still emits internal-DNS URLs, the
-    filter's regex never matches and the preview panel silently never appears
-    (issue #43 class bug, tracked in #59).
+    the compose network. Since the public URL is now baked into /system-prompt
+    and returned to the filter via response header, a default value means the
+    preview panel will never appear — the browser cannot resolve the internal
+    DNS name.
 
     Returns True if a warning was emitted (useful for tests), False otherwise.
     Called once from FastAPI lifespan startup — do not call per-request.
     """
-    if FILE_SERVER_URL == FILE_SERVER_URL_DEFAULT:
+    if PUBLIC_BASE_URL == PUBLIC_BASE_URL_DEFAULT:
         print(
-            "[computer-use-server] WARNING: FILE_SERVER_URL is still the "
-            f"hardcoded default ({FILE_SERVER_URL_DEFAULT!r}). This URL is only "
+            "[computer-use-server] WARNING: PUBLIC_BASE_URL is still the "
+            f"hardcoded default ({PUBLIC_BASE_URL_DEFAULT!r}). This URL is only "
             "reachable from inside the compose network — the Open WebUI preview "
             "panel will never appear until you set it to a browser-reachable URL.\n"
-            "  Fix: in .env, set FILE_SERVER_URL=http://<browser-reachable-host>:8081 "
-            "and set the Open WebUI filter's FILE_SERVER_URL Valve to the same value.\n"
-            "  Docs: https://github.com/Yambr/open-computer-use/blob/main/docs/openwebui-filter.md#two-file_server_url-settings--they-must-match"
+            "  Fix: in .env, set PUBLIC_BASE_URL=http://<browser-reachable-host>:8081.\n"
+            "  Docs: https://github.com/Yambr/open-computer-use/blob/main/docs/openwebui-filter.md"
         )
         return True
     return False

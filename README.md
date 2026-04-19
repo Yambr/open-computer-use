@@ -160,8 +160,8 @@ All settings via `.env`:
 | `COMMAND_TIMEOUT` | `120` | Bash tool timeout (seconds) |
 | `SUB_AGENT_TIMEOUT` | `3600` | Sub-agent timeout (seconds) |
 | `SINGLE_USER_MODE` | — | `true` = one container, no chat ID needed; `false` = require X-Chat-Id; unset = lenient |
-| `FILE_SERVER_URL` | `http://computer-use-server:8081` | Public URL the browser uses to reach the sandbox file/preview server. Must match the Open WebUI filter's `FILE_SERVER_URL` Valve — [see why](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match). |
-| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `DOCKER_AI_UPLOAD_URL`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, build-arg `COMPUTER_USE_SERVER_URL` | — | Settings on the **`open-webui` container** (not CU-server). Required when embedding — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack). |
+| `PUBLIC_BASE_URL` | `http://computer-use-server:8081` | Browser-reachable URL of the Computer Use server. Baked into `/system-prompt` and returned to the Open WebUI filter in the `X-Public-Base-URL` response header — **single source of truth** for the public URL. [Open WebUI filter URL requirements](docs/openwebui-filter.md#two-url-roles--public-server-env-and-internal-filtertool-valve). |
+| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `ORCHESTRATOR_URL`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, build-arg `COMPUTER_USE_SERVER_URL` | — | Settings on the **`open-webui` container** (not CU-server). Required when embedding — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack). |
 | `POSTGRES_PASSWORD` | `openwebui` | PostgreSQL password |
 | `VISION_API_KEY` | — | Vision API key (for describe-image) |
 | `ANTHROPIC_AUTH_TOKEN` | — | Anthropic key (for Claude Code sub-agent) |
@@ -211,7 +211,7 @@ On first `docker compose up`, the init script automatically:
 1. Creates an admin user (`admin@open-computer-use.dev` / `admin`)
 2. Installs the Computer Use tool via `POST /api/v1/tools/create`
 3. Installs the Computer Use filter via `POST /api/v1/functions/create`
-4. Configures tool valves (`FILE_SERVER_URL=http://computer-use-server:8081`)
+4. Configures tool and filter valves (`ORCHESTRATOR_URL=http://computer-use-server:8081` — internal URL for server↔server, seeded into both Valves)
 5. Marks the tool **public-read** (access grants for both `group:*` and `user:*` wildcards) — so non-admin users see the tool in their workspace
 6. Marks the filter both **active and global** (two separate toggles: `/toggle` and `/toggle/global`) — active-but-not-global is silently inert and a common manual-setup mistake
 7. Merges `{function_calling: "native", stream_response: true}` into `DEFAULT_MODEL_PARAMS` via `POST /api/v1/configs/models` — every model gets the right defaults without per-model Advanced Params clicks
@@ -226,7 +226,7 @@ If you run Open WebUI separately, you need to manually:
 
 1. Go to **Workspace > Tools** → Create new tool → paste contents of `openwebui/tools/computer_use_tools.py`
 2. Set **Tool ID** to `ai_computer_use` (required for filter to work)
-3. Configure **Valves**: `FILE_SERVER_URL` = your Computer Use Server URL
+3. Configure **Valves**: `ORCHESTRATOR_URL` = internal URL of your Computer Use Server (`http://computer-use-server:8081` for Docker compose)
 4. Open the tool's **⋯ → Share** menu and set access to **Public** (grants read to both `group:*` and `user:*` wildcards) — otherwise only your admin account sees the tool and non-admin users get an empty tool list with no error
 5. Go to **Workspace > Functions** → Create new function → paste `openwebui/functions/computer_link_filter.py`
 6. Enable the filter: toggle **Active** *and* toggle **Global** in the Functions list — these are two separate switches, and active-but-not-global means the filter loads but is never applied to chats
@@ -247,7 +247,7 @@ Pulling `ghcr.io/open-webui/open-webui:vX.Y.Z` gives you a stock image **without
 | `fix_artifacts_auto_show` | HTML/iframe renders as raw text in chat body instead of the artifacts panel |
 | `fix_preview_url_detection` | Preview iframe is never auto-inserted after file links |
 | `fix_tool_loop_errors` | Raw exceptions instead of banners; `MCP call failed: Session terminated` appears unwrapped |
-| `fix_large_tool_results` | `TOOL_RESULT_MAX_CHARS` / `DOCKER_AI_UPLOAD_URL` become no-ops; large outputs wreck the model context |
+| `fix_large_tool_results` | `TOOL_RESULT_MAX_CHARS` stops truncating and the large-result upload path (via `ORCHESTRATOR_URL`) becomes a no-op; large outputs wreck the model context |
 
 Only `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES` keeps working on an upstream image (it's a stock Open WebUI env) — which creates a false "everything is configured" feeling.
 
@@ -279,7 +279,7 @@ The `bn.set(!0),Jr.set(!0)` marker is injected by `fix_artifacts_auto_show` into
 
 This is the most confusing trap. `COMPUTER_USE_SERVER_URL` is a **build argument** in `openwebui/Dockerfile:16-17` that — despite the name — is **not** a network endpoint. It is compiled into a regex inside the minified Svelte chunks by `openwebui/patches/fix_preview_url_detection.py:54`. The regex searches assistant messages for links of the form `{COMPUTER_USE_SERVER_URL}/(files|preview)/...` and triggers the preview iframe.
 
-The model writes whatever URL the Computer Use Server injected into the system prompt — i.e. the server's `FILE_SERVER_URL`, which is your **public** domain. So the regex must match that public domain, not the internal Docker service name.
+The model writes whatever URL the Computer Use Server injected into the system prompt — i.e. the server's `PUBLIC_BASE_URL`, which is your **public** domain. So the regex must match that public domain, not the internal Docker service name.
 
 | Environment | Correct value |
 |-------------|---------------|
@@ -296,22 +296,23 @@ docker exec open-webui bash -c \
 # → should contain your public domain (e.g. cu.your-domain.com), NOT computer-use-server:8081
 ```
 
-#### Step 3 — Three `FILE_SERVER_URL` places + one build-arg: four settings, two opposite rules
+#### Step 3 — Three URL settings, two roles (public vs internal)
 
-The same "where is the server" URL is configured in **four places** that each travel over a different network path. Three need the **public** URL, one needs the **internal** Docker DNS. Getting them equal breaks Computer Use in different ways.
+**v4.0.0:** the old "three `FILE_SERVER_URL` places that must match" footgun is gone. There are now only **three** places and **two** distinct roles — public (browser-reachable) vs internal (Docker-local).
 
-| Where | Who reads it | Travels over | Prod (with domain) | Local dev (Docker Desktop) |
-|-------|-------------|-------------|--------------------|----------------------------|
-| `FILE_SERVER_URL` env on the **`computer-use-server`** container (`docker-compose.yml` / `.env`) | The server — injects it into the system prompt so the model writes public links users can click | — | `https://cu.your-domain.com` | `http://localhost:8081` |
-| Filter Valve `FILE_SERVER_URL` (Admin → Functions → `computer_link_filter` → Valves) | The filter outlet — decorates assistant messages so the browser renders preview iframes & archive buttons | Browser → internet | `https://cu.your-domain.com` | `http://localhost:8081` |
-| Build-arg `COMPUTER_USE_SERVER_URL` (docker-compose `build.args`) | Patch `fix_preview_url_detection` — regex that searches assistant text for file URLs | — (text only) | `cu.your-domain.com` (no scheme) | `localhost:8081` |
-| Tool Valve `FILE_SERVER_URL` (Workspace → Tools → `ai_computer_use` → Valves) | The tool — HTTP client forwarding MCP `tools/call` to the server | Docker ↔ Docker | `http://computer-use-server:8081` | `http://host.docker.internal:8081` |
+| Where | Role | Who reads it | Prod (with domain) | Local dev (Docker Desktop) |
+|-------|------|-------------|--------------------|----------------------------|
+| `PUBLIC_BASE_URL` env on the **`computer-use-server`** container (`docker-compose.yml` / `.env`) | **PUBLIC** — baked into `/system-prompt` links + returned to filter via `X-Public-Base-URL` response header | Server (single source of truth for public URL) | `https://cu.your-domain.com` | `http://localhost:8081` |
+| Build-arg `COMPUTER_USE_SERVER_URL` (docker-compose `build.args` for `open-webui`) | **PUBLIC** — compiled into Svelte regex by `fix_preview_url_detection`; must match what the model emits | Open WebUI (text match in assistant messages) | `cu.your-domain.com` (no scheme) | `localhost:8081` |
+| Filter + Tool Valves `ORCHESTRATOR_URL` (seeded by `init.sh` from `ORCHESTRATOR_URL` env on the open-webui container) | **INTERNAL** — server↔server fetch of `/system-prompt`; MCP `tools/call` forwarding | Filter and tool (Docker network) | `http://computer-use-server:8081` | `http://computer-use-server:8081` |
 
-⚠️ **Do NOT set the tool Valve to your public domain.** It technically works, but every MCP request then goes browser→CDN→Traefik→container. Any hiccup in that chain kills the stream mid-tool-call and the user sees `MCP call failed: Session terminated`. The tool is inside the same host as the server — use the internal service name.
+⚠️ **Do NOT point `ORCHESTRATOR_URL` at your public domain.** It technically works, but every MCP request then goes browser→CDN→Traefik→container. Any hiccup in that chain kills the stream mid-tool-call and the user sees `MCP call failed: Session terminated`. Stay inside the Docker network.
 
-⚠️ **Do NOT set the build-arg to the internal service name.** The regex will then look for `computer-use-server:8081/files/...` in assistant text, but the model writes whatever is in the server's `FILE_SERVER_URL` — your public domain. Mismatch → preview never renders, user sees raw `<iframe>` text in chat.
+⚠️ **Do NOT set the build-arg to the internal service name.** The regex will then look for `computer-use-server:8081/files/...` in assistant text, but the model writes whatever is in the server's `PUBLIC_BASE_URL` — your public domain. Mismatch → the patched frontend won't auto-promote the preview link into the artifact panel; the markdown link stays plain clickable text. (Filter v4.1.0 dropped the `artifact`/`both` `PREVIEW_MODE` values so the raw-`<iframe>`-in-chat symptom that #43 described is no longer possible.)
 
-See also [docs/openwebui-filter.md](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match) for the long-form explanation of the first two rows.
+The filter no longer has a public-URL Valve at all — it reads the public URL from the server's `X-Public-Base-URL` response header and caches it alongside the prompt. One public knob, one internal knob.
+
+See also [docs/openwebui-filter.md](docs/openwebui-filter.md#two-url-roles--public-server-env-and-internal-filtertool-valve).
 
 #### Step 4 — Four env vars on the `open-webui` container
 
@@ -325,11 +326,10 @@ services:
       - CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES=200
       - TOOL_RESULT_MAX_CHARS=50000
       - TOOL_RESULT_PREVIEW_CHARS=2000
-      # Pick ONE based on your topology:
-      # - Same Docker network:   http://computer-use-server:8081
-      # - Docker Desktop / host: http://host.docker.internal:8081
-      # - Production w/ domain:  https://cu.your-domain.com
-      - DOCKER_AI_UPLOAD_URL=http://computer-use-server:8081
+      # Internal URL of the Computer Use server — seeded by init.sh into both
+      # Tool and Filter Valves, and read by the fix_large_tool_results patch.
+      # Same Docker network: use the service DNS name.
+      - ORCHESTRATOR_URL=http://computer-use-server:8081
 ```
 
 | Variable | Default if unset | Effect when correctly set |
@@ -337,7 +337,7 @@ services:
 | `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES` | `30` (upstream) | Tool-call cap per turn. `30` cuts Computer Use multi-step tasks short; stock repo uses `200`. |
 | `TOOL_RESULT_MAX_CHARS` | `50000` (patch built-in) | Truncation threshold above which a tool result is truncated or uploaded. `0` disables. |
 | `TOOL_RESULT_PREVIEW_CHARS` | `2000` (patch built-in) | Preview size the model sees after truncation or upload. |
-| `DOCKER_AI_UPLOAD_URL` | empty | Upload target for oversized results. If empty, oversized results are **silently truncated** — the model loses the data. |
+| `ORCHESTRATOR_URL` | empty | Seeded into both Tool and Filter Valves by `init.sh`, and read by `fix_large_tool_results` patch as the upload target. If empty, oversized results are **silently truncated** — the model loses the data. |
 
 > Note: the last three are **no-ops if the image is upstream ghcr.io** — they need `fix_large_tool_results` from Step 1.
 
@@ -377,19 +377,17 @@ docker exec open-webui bash -c \
   'grep -oE "[a-z0-9.:-]+\\\\/\\(files\\|preview" /app/build/_app/immutable/chunks/*.js | head -1'
 
 # 3. Env vars reached the container:
-docker exec open-webui env | grep -E 'CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES|TOOL_RESULT_|DOCKER_AI_UPLOAD_URL'
+docker exec open-webui env | grep -E 'CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES|TOOL_RESULT_|ORCHESTRATOR_URL'
 
-# 4. Tool Valve (Session-terminated trap) — Admin UI is simplest:
-#    Workspace → Tools → ai_computer_use → Valves → FILE_SERVER_URL
-#    → must be http://computer-use-server:8081 (or host.docker.internal), NOT your public domain.
+# 4. Tool+Filter Valve (Session-terminated trap) — Admin UI is simplest:
+#    Workspace → Tools → ai_computer_use → Valves → ORCHESTRATOR_URL
+#    Admin → Functions → computer_link_filter → Valves → ORCHESTRATOR_URL
+#    → both must be http://computer-use-server:8081 (internal URL, Docker service DNS),
+#      NOT your public domain.
 
-# 5. Filter Valve (browser preview):
-#    Admin → Functions → computer_link_filter → Valves → FILE_SERVER_URL
-#    → must be your public URL.
-
-# 6. Server env (baked into system prompt):
-docker exec computer-use-server env | grep ^FILE_SERVER_URL=
-# → must equal #5 and #2.
+# 5. Server env (baked into system prompt AND returned to filter via header):
+docker exec computer-use-server env | grep ^PUBLIC_BASE_URL=
+# → must equal your public URL (matches the build-arg from #2).
 
 # 7. Filter is ACTIVE *and* GLOBAL (see Step 5):
 docker exec <postgres-container> psql -U openwebui -d openwebui -c \
@@ -412,11 +410,11 @@ docker exec <postgres-container> psql -U openwebui -d openwebui -c \
 | Preview iframe auto-insertion doesn't happen for file links | 2 (build-arg mismatched with what model emits) |
 | `MCP call failed: Session terminated` on every tool call | 3 (tool Valve points at public domain) |
 | Tool loop cuts off at ~30 calls; banner *"Model temporarily unavailable"* | 4 (`CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES` not set) |
-| Large tool outputs silently `...(truncated)`; model makes wrong decisions | 4 (`DOCKER_AI_UPLOAD_URL` not set or unreachable) OR 1 (`fix_large_tool_results` missing) |
+| Large tool outputs silently `...(truncated)`; model makes wrong decisions | 4 (`ORCHESTRATOR_URL` not set or unreachable) OR 1 (`fix_large_tool_results` missing) |
 | Tool-loop errors show raw Python exception | 1 (`fix_tool_loop_errors` missing) |
 | Tool list is empty for non-admin users (admin sees it) | 5 (tool missing `access_grant`s — not public-read) |
 | Filter looks "Active" in UI but preview iframe / archive button never appear | 5 (filter `is_global=false` — only `is_active=true` was flipped) |
-| File links in chat go to 404 / white screen | Server env `FILE_SERVER_URL` ≠ filter Valve — see [docs/openwebui-filter.md](docs/openwebui-filter.md#two-file_server_url-settings--they-must-match) |
+| File links in chat go to 404 / white screen | `PUBLIC_BASE_URL` on the server doesn't match what the browser can reach — see [docs/openwebui-filter.md](docs/openwebui-filter.md#two-url-roles--public-server-env-and-internal-filtertool-valve) |
 | New behavior didn't appear even after rebuild | Browser cached old JS — hard reload |
 
 ## Security Notes

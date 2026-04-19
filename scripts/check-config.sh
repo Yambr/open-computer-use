@@ -3,7 +3,7 @@
 # Copyright (c) 2025 Open Computer Use Contributors
 #
 # Pre-flight check for .env before `docker compose up`. Catches the common
-# silent-fail misconfigurations (FILE_SERVER_URL default, half-enabled feature
+# silent-fail misconfigurations (PUBLIC_BASE_URL default, half-enabled feature
 # groups, weak passwords) at invocation time rather than in production.
 #
 # Usage:   ./scripts/check-config.sh [path/to/.env]
@@ -47,13 +47,16 @@ echo "Env file: $ENV_FILE"
 # ----- REQUIRED -----
 section "REQUIRED"
 
-fsu="${FILE_SERVER_URL:-}"
-if [[ -z "$fsu" ]]; then
-    err "FILE_SERVER_URL is unset (browser-reachable URL of the MCP server)"
-elif [[ "$fsu" == "http://computer-use-server:8081" ]]; then
-    err "FILE_SERVER_URL is still the internal-DNS default — browser can't reach it"
+pbu="${PUBLIC_BASE_URL:-}"
+# Strip a single trailing slash so `http://computer-use-server:8081/` still
+# matches the internal default check below.
+pbu="${pbu%/}"
+if [[ -z "$pbu" ]]; then
+    err "PUBLIC_BASE_URL is unset (browser-reachable URL of the Computer Use server)"
+elif [[ "$pbu" == "http://computer-use-server:8081" ]]; then
+    err "PUBLIC_BASE_URL is still the internal-DNS default — browser can't reach it"
 else
-    ok "FILE_SERVER_URL = $fsu"
+    ok "PUBLIC_BASE_URL = $pbu"
 fi
 
 ap="${ADMIN_PASSWORD:-}"

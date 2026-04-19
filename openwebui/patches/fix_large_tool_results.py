@@ -11,8 +11,8 @@ Solution: truncate results in output in-place BEFORE they reach
 serialize_content_blocks (-> DB) and convert_content_blocks_to_messages (-> LLM).
 Single interception point: in tool loop before _saved_output deep copy.
 
-If DOCKER_AI_UPLOAD_URL is set, full result is uploaded as a file
-to docker-ai container, model receives preview + file_path.
+If ORCHESTRATOR_URL is set, full result is uploaded as a file
+to computer-use-server, model receives preview + file_path.
 Otherwise, only preview + truncation notice.
 
 Two intercept points:
@@ -22,7 +22,7 @@ Two intercept points:
 Config env vars:
   TOOL_RESULT_MAX_CHARS (default: 50000) -- truncation threshold (~12.5K tokens). 0 = disable
   TOOL_RESULT_PREVIEW_CHARS (default: 2000) -- preview size
-  DOCKER_AI_UPLOAD_URL -- base URL for upload (optional, used by MCP servers)
+  ORCHESTRATOR_URL -- internal URL of computer-use-server for large-result uploads
 
 Must run AFTER fix_tool_loop_errors.py (Mod 2 targets its marker).
 Target: OpenWebUI v0.8.11-0.8.12
@@ -41,16 +41,16 @@ import os as _os_module
 
 _TOOL_RESULT_MAX_CHARS = int(_os_module.environ.get('TOOL_RESULT_MAX_CHARS', '50000'))
 _TOOL_RESULT_PREVIEW_CHARS = int(_os_module.environ.get('TOOL_RESULT_PREVIEW_CHARS', '2000'))
-_DOCKER_AI_UPLOAD_URL = _os_module.environ.get('DOCKER_AI_UPLOAD_URL', '')
+_ORCHESTRATOR_URL = _os_module.environ.get('ORCHESTRATOR_URL', '').rstrip('/')
 
 
 async def _upload_result_to_docker_ai(content: str, filename: str, chat_id: str) -> str:
     """Upload full tool result to docker-ai container. Returns file_path or empty string."""
-    if not _DOCKER_AI_UPLOAD_URL or not chat_id:
+    if not _ORCHESTRATOR_URL or not chat_id:
         return ''
     try:
         import aiohttp
-        upload_url = f'{_DOCKER_AI_UPLOAD_URL}/api/uploads/{chat_id}/{filename}'
+        upload_url = f'{_ORCHESTRATOR_URL}/api/uploads/{chat_id}/{filename}'
         form = aiohttp.FormData()
         form.add_field('file', content.encode('utf-8'), filename=filename, content_type='text/plain')
         async with aiohttp.ClientSession() as session:
@@ -106,7 +106,7 @@ async def _truncate_large_results_in_output(output: list, chat_id: str) -> None:
                 tool_name = tool_names.get(tc_id, 'tool')
                 preview = content[:_TOOL_RESULT_PREVIEW_CHARS]
                 file_path = ''
-                if _DOCKER_AI_UPLOAD_URL and chat_id:
+                if _ORCHESTRATOR_URL and chat_id:
                     fname = f'tool_result_{tool_name}_{tc_id[:8]}_{int(_time.time())}.txt'
                     file_path = await _upload_result_to_docker_ai(content, fname, chat_id)
                 result['content'] = _trunc_msg(size_kb, preview, file_path)
@@ -124,7 +124,7 @@ async def _truncate_large_results_in_output(output: list, chat_id: str) -> None:
                 preview = text[:_TOOL_RESULT_PREVIEW_CHARS]
                 call_id = block.get('call_id', 'unknown')
                 file_path = ''
-                if _DOCKER_AI_UPLOAD_URL and chat_id:
+                if _ORCHESTRATOR_URL and chat_id:
                     fname = f'tool_result_{call_id[:12]}_{int(_time.time())}.txt'
                     file_path = await _upload_result_to_docker_ai(text, fname, chat_id)
                 part['text'] = _trunc_msg(size_kb, preview, file_path)
@@ -246,9 +246,9 @@ def apply_patch():
         f.write(content)
 
     print(f"  Large tool results patch applied! {changes}/3 modifications.")
-    print(f"  Config: TOOL_RESULT_MAX_CHARS (default 50000), TOOL_RESULT_PREVIEW_CHARS (default 2000)")
-    print(f"  Upload: DOCKER_AI_UPLOAD_URL (optional, for Computer Use)")
-    print(f"  Log markers: TOOL_RESULT_TRUNCATED, TOOL_RESULT_HISTORY_TRUNCATED")
+    print("  Config: TOOL_RESULT_MAX_CHARS (default 50000), TOOL_RESULT_PREVIEW_CHARS (default 2000)")
+    print("  Upload: ORCHESTRATOR_URL (optional, for Computer Use)")
+    print("  Log markers: TOOL_RESULT_TRUNCATED, TOOL_RESULT_HISTORY_TRUNCATED")
     return True
 
 

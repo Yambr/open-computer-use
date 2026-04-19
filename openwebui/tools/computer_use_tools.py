@@ -3,10 +3,10 @@
 """
 title: Computer Use Tools
 author: OpenWebUI Implementation
-version: 3.0.0
+version: 4.0.0
 
 Thin MCP client proxy to computer-use-orchestrator. All config lives server-side.
-Only FILE_SERVER_URL + MCP_API_KEY needed — everything else is auto.
+Only ORCHESTRATOR_URL + MCP_API_KEY needed — everything else is auto.
 
 Container naming: owui-chat-{chat_id}
 
@@ -37,8 +37,8 @@ SUB_AGENT_CLIENT_TIMEOUT = 3660 # 61 min > server's 3600s SUB_AGENT_TIMEOUT
 class _MCPClient:
     """MCP Streamable HTTP client for computer-use-orchestrator."""
 
-    def __init__(self, file_server_url: str, mcp_api_key: str = ""):
-        base = file_server_url.rstrip("/")
+    def __init__(self, orchestrator_url: str, mcp_api_key: str = ""):
+        base = orchestrator_url.rstrip("/")
         self.mcp_url = f"{base}/mcp"
         self.api_key = mcp_api_key
 
@@ -200,9 +200,9 @@ ViewRange = Annotated[
 
 class Tools:
     class Valves(BaseModel):
-        FILE_SERVER_URL: str = Field(
-            default="http://localhost:8081",
-            description="File server URL (hosts MCP endpoint and file uploads)"
+        ORCHESTRATOR_URL: str = Field(
+            default="http://computer-use-server:8081",
+            description="Internal URL of the Computer Use orchestrator (MCP endpoint + file uploads). Must be reachable from inside the Open WebUI container."
         )
         MCP_API_KEY: str = Field(
             default="",
@@ -218,15 +218,19 @@ class Tools:
         self.file_handler = True
         self.citation = True
         self._mcp_client = None
-        self._mcp_client_url = None
+        # Track the (url, api_key) tuple the current client was built for —
+        # invalidate if either changes so edits to MCP_API_KEY in Valves take
+        # effect without a process restart.
+        self._mcp_client_config: tuple[str, str] | None = None
 
     @property
     def mcp_client(self) -> _MCPClient:
         """Lazy MCP client — recreated when valves change."""
-        url = self.valves.FILE_SERVER_URL
-        if self._mcp_client is None or self._mcp_client_url != url:
+        url = self.valves.ORCHESTRATOR_URL
+        config = (url, self.valves.MCP_API_KEY)
+        if self._mcp_client is None or self._mcp_client_config != config:
             self._mcp_client = _MCPClient(url, self.valves.MCP_API_KEY)
-            self._mcp_client_url = url
+            self._mcp_client_config = config
             print(f"[MCP] Client initialized: {self._mcp_client.mcp_url}")
         return self._mcp_client
 
@@ -262,7 +266,7 @@ class Tools:
         if __files__:
             try:
                 sync_result = await asyncio.to_thread(
-                    _sync_uploaded_files, self.valves.FILE_SERVER_URL, chat_id, __files__,
+                    _sync_uploaded_files, self.valves.ORCHESTRATOR_URL, chat_id, __files__,
                     debug=self.valves.DEBUG_LOGGING
                 )
                 if sync_result.get("synced", 0) > 0:
@@ -502,7 +506,7 @@ class Tools:
 # File sync helper (HTTP — no SSH needed)
 # ============================================================================
 
-def _sync_uploaded_files(file_server_url: str, chat_id: str, files: list, debug: bool = False) -> dict:
+def _sync_uploaded_files(orchestrator_url: str, chat_id: str, files: list, debug: bool = False) -> dict:
     """Sync uploaded files from OpenWebUI to computer-use-orchestrator via HTTP."""
     import requests
     import hashlib
@@ -511,7 +515,7 @@ def _sync_uploaded_files(file_server_url: str, chat_id: str, files: list, debug:
         return {"synced": 0, "skipped": 0, "errors": 0}
 
     try:
-        manifest_url = f"{file_server_url}/api/uploads/{chat_id}/manifest"
+        manifest_url = f"{orchestrator_url}/api/uploads/{chat_id}/manifest"
         response = requests.get(manifest_url, timeout=5)
         response.raise_for_status()
         remote_manifest = response.json()
@@ -555,7 +559,7 @@ def _sync_uploaded_files(file_server_url: str, chat_id: str, files: list, debug:
                 skipped += 1
                 continue
 
-            upload_url = f"{file_server_url}/api/uploads/{chat_id}/{filename}"
+            upload_url = f"{orchestrator_url}/api/uploads/{chat_id}/{filename}"
             with open(source_path, "rb") as f:
                 files_data = {"file": (filename, f, "application/octet-stream")}
                 resp = requests.post(upload_url, files=files_data, timeout=30)

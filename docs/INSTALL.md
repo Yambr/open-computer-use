@@ -24,15 +24,17 @@ docker compose up --build
 docker compose -f docker-compose.webui.yml up --build
 ```
 
-`scripts/check-config.sh` reports `[OK]` / `[WARN]` / `[ERR]` for each setting and exits 1 if anything is likely to break end-to-end (e.g. `FILE_SERVER_URL` left at the internal-DNS default, half-configured Vision group). WARNs are fine for local dev.
+`scripts/check-config.sh` reports `[OK]` / `[WARN]` / `[ERR]` for each setting and exits 1 if anything is likely to break end-to-end (e.g. `PUBLIC_BASE_URL` left at the internal-DNS default, half-configured Vision group). WARNs are fine for local dev.
 
-**Re-seeding Valves after editing `.env`.** The init script writes Open WebUI Valves from env **on first start only** — a marker file under `/app/backend/data/` guards re-runs so your admin UI edits are never clobbered. If you change `FILE_SERVER_URL` (or any other env the init script propagates into Valves) and want Open WebUI to pick it up, delete the marker and restart:
+**Re-seeding Valves after editing `.env`.** The `open-webui` container runs an init script that writes Open WebUI Valves from env **on first start only** — a marker file (`/app/backend/data/.computer-use-initialized`) guards re-runs so your admin UI edits are never clobbered. The only env propagated into Valves is `ORCHESTRATOR_URL` (the internal URL, consumed by both the Computer Use tool and filter). To pick up a new value, delete the marker on `open-webui` and restart it:
 
 ```bash
 docker compose -f docker-compose.webui.yml exec open-webui \
     rm /app/backend/data/.computer-use-initialized
 docker compose -f docker-compose.webui.yml restart open-webui
 ```
+
+`PUBLIC_BASE_URL` lives only on the `computer-use-server` container — it is **not** propagated into Open WebUI Valves. If you change it in `.env`, restart the server container instead: `docker compose up -d --force-recreate computer-use-server`.
 
 Open http://localhost:3000 — login with `admin@open-computer-use.dev` / `admin`.
 
@@ -47,7 +49,7 @@ Edit `.env` before starting. Key variables:
 | `MCP_API_KEY` | Recommended | Bearer token for MCP endpoint security |
 | `ANTHROPIC_AUTH_TOKEN` | No | For Claude Code sub-agent |
 | `VISION_API_KEY` | No | For describe-image skill |
-| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, `DOCKER_AI_UPLOAD_URL`, build-arg `COMPUTER_USE_SERVER_URL` | No | Settings on the **`open-webui` container** (not CU-server). Required for multi-step tasks, large tool results, and preview rendering. Full guide: [README.md → Required setup when embedding Open WebUI](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack). |
+| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, `ORCHESTRATOR_URL`, build-arg `COMPUTER_USE_SERVER_URL` | No | Settings on the **`open-webui` container** (not CU-server). Required for multi-step tasks, large tool results, and preview rendering. Full guide: [README.md → Required setup when embedding Open WebUI](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack). |
 
 See `.env.example` for the full list with defaults.
 
@@ -95,9 +97,10 @@ curl -s http://localhost:3000 | head -1
 - Check: `curl http://localhost:8081/api/outputs/{chat_id}`
 
 ### Connection refused from Open WebUI
-- Open WebUI and Computer Use Server are in separate Docker networks
-- `docker-compose.webui.yml` uses `host.docker.internal` — this works on Docker Desktop (Mac/Windows)
-- On Linux, add `extra_hosts: ["host.docker.internal:host-gateway"]` to the service
+- Verify the Computer Use Server stack is up: `docker compose ps`
+- Verify Open WebUI's `ORCHESTRATOR_URL` points at the service DNS URL `http://computer-use-server:8081`. The two compose stacks share the default Docker network because they share the project name (the parent directory `open-computer-use`), so `computer-use-server` resolves directly — no `host.docker.internal` / `extra_hosts` needed.
+- If you override the Compose project name (`-p myproj`) or set a custom `container_name:` on the server, point `ORCHESTRATOR_URL` at the new internal hostname. Then re-seed Valves (see Re-seeding section above).
+- Quick check from inside the `open-webui` container: `docker compose -f docker-compose.webui.yml exec open-webui curl -sf http://computer-use-server:8081/health`.
 
 ## Architecture
 

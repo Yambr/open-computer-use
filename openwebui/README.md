@@ -7,7 +7,7 @@ Everything needed to connect [Open WebUI](https://github.com/open-webui/open-web
 | # | Component | Type | Required | What it does |
 |---|-----------|------|----------|-------------|
 | 1 | [**tools/computer_use_tools.py**](tools/) | Tool | Yes | MCP client proxy — forwards `bash`, `create_file`, `str_replace`, `view`, `sub_agent` calls to the Computer Use Server |
-| 2 | [**functions/computer_link_filter.py**](functions/) | Filter | Yes | Injects skills list + file server URL into system prompt; adds "Download archive" button to responses |
+| 2 | [**functions/computer_link_filter.py**](functions/) | Filter | Yes | Fetches the server-generated system prompt (skills list + file base URL embedded server-side) and the `X-Public-Base-URL` response header; decorates responses with preview/archive links |
 | 3 | [**patches/**](patches/) | Build-time | Recommended | Quality-of-life fixes: auto-open file preview, truncate large tool args, skip unnecessary RAG processing |
 
 **Tool + Filter = minimum working setup.** Patches improve UX but everything works without them.
@@ -27,7 +27,7 @@ Applied at Docker build time. All are idempotent and non-breaking. The 4 patches
 | `fix_artifacts_auto_show` | Active | Auto-opens preview panel for generated files | HTML/iframe renders as raw text in the chat body instead of the artifacts panel |
 | `fix_preview_url_detection` | Active | Detects file URLs in messages and opens iframe preview | Preview iframe is never auto-inserted after file links |
 | `fix_tool_loop_errors` | Active | Better error messages for tool call budget/transport errors | Raw exceptions instead of banners; `MCP call failed: Session terminated` appears unwrapped |
-| `fix_large_tool_results` | Active | Truncates large MCP tool results (>50K chars) and optionally uploads them to the Computer Use server | `TOOL_RESULT_MAX_CHARS` / `DOCKER_AI_UPLOAD_URL` become no-ops; large outputs wreck the model context |
+| `fix_large_tool_results` | Active | Truncates large MCP tool results (>50K chars) and optionally uploads them to the Computer Use server via `ORCHESTRATOR_URL` | `TOOL_RESULT_MAX_CHARS` stops truncating and the large-result upload path is a no-op (large outputs wreck the model context). `ORCHESTRATOR_URL` itself is unaffected — the tool and filter keep using it for MCP/system-prompt traffic. |
 | `fix_large_tool_args` | Optional | Truncates huge tool call args (>10KB) to prevent browser freeze | Browser UI can freeze on "Executing [tool]..." with large str_replace payloads |
 | `fix_attached_files_position` | Optional | Moves file context to end of message (better prompt caching) | Attaching a file invalidates the cached prefix of the message |
 | `fix_skip_embedding_chat_files` | Optional | Skips embedding for large uploads (>1MB) | Large uploads block the chat for minutes on extraction/embedding |

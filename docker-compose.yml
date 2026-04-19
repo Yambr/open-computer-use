@@ -38,14 +38,13 @@ services:
       - DOCKER_IMAGE=${DOCKER_IMAGE:-open-computer-use:latest}
       - USER_DATA_BASE_PATH=/tmp/computer-use-data
       - BASE_DATA_DIR=/tmp/computer-use-data
-      # Public URL where the sandbox file/preview server is reachable from the
-      # user's browser. This value is embedded into every file URL the server
-      # emits to Open WebUI and to the sub-agent prompt. It MUST match the
-      # `FILE_SERVER_URL` Valve in the Open WebUI filter (Admin → Functions →
-      # computer_link_filter → Valves) — if they disagree, the filter silently
-      # skips appending the preview iframe. See
-      # docs/openwebui-filter.md#two-file_server_url-settings--they-must-match
-      - FILE_SERVER_URL=${FILE_SERVER_URL:-http://computer-use-server:8081}
+      # Public URL of this orchestrator, as reachable from the end-user's
+      # browser. The server bakes it into every /system-prompt response (so the
+      # model writes correct links) and returns it to the Open WebUI filter via
+      # the X-Public-Base-URL response header (so outlet() decorates with the
+      # same URL). This is THE single source of truth for the browser-facing
+      # URL — the filter no longer has its own Valve for it.
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://computer-use-server:8081}
       - COMMAND_TIMEOUT=${COMMAND_TIMEOUT:-120}
       - SUB_AGENT_TIMEOUT=${SUB_AGENT_TIMEOUT:-3600}
       - SINGLE_USER_MODE=${SINGLE_USER_MODE:-}

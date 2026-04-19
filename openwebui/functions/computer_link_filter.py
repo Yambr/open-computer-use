@@ -3,9 +3,9 @@
 """
 title: Computer Use Filter
 author: Open Computer Use Contributors
-version: 3.4.0
+version: 4.1.0
 required_open_webui_version: 0.5.17
-description: HTTP-fetches Computer Use system prompt from orchestrator, with LRU cache and stale-cache fallback. outlet() decorates assistant messages with a preview iframe / preview button / archive button based on PREVIEW_MODE and ARCHIVE_BUTTON Valves.
+description: HTTP-fetches Computer Use system prompt from orchestrator, with LRU cache and stale-cache fallback. outlet() decorates assistant messages with a preview button and/or archive button based on PREVIEW_MODE and ARCHIVE_BUTTON Valves. The inline-iframe artifact is no longer emitted — the frontend fix_preview_url_detection patch promotes the preview URL into an artifact on its own.
 
 This filter works in conjunction with Computer Use Tools (computer_use_tools.py).
 
@@ -15,85 +15,85 @@ FUNCTIONALITY:
   substitutes {file_base_url}, {archive_url}, {chat_id} and assembles <available_skills>)
   and injects it into the system message. Cache: 5-minute TTL, max 100 entries,
   O(1) LRU eviction. On fetch failure: serve stale cache if present; else skip injection.
+  The server returns its public URL in the X-Public-Base-URL response header; inlet()
+  caches it alongside the prompt so outlet() can decorate with browser-facing links.
 - outlet(): Decorates assistant messages whose content contains either a file URL for
   the current chat_id OR a <details type="tool_calls"> block that references a browser
   tool (playwright, chromium, screenshot, start-browser). Decoration is driven by two
-  Valves: PREVIEW_MODE ("artifact" | "button" | "both" | "off", default "artifact") and
+  Valves: PREVIEW_MODE ("button" | "off", default "button") and
   ARCHIVE_BUTTON ("on" | "off", default "on"). All decorations are idempotent (substring
   guarded) and scoped to the current chat_id. Archive button also requires a file URL.
+
+CHANGELOG (v4.1.0) — BREAKING:
+- Removed PREVIEW_MODE="artifact" / "both". outlet() no longer emits a fenced
+  ```html <iframe src="..."> block. The frontend fix_preview_url_detection patch
+  already promotes any /preview/ URL in message text into an inline artifact, so
+  the extra html block was redundant and, worse, suppressed the patch (its guard
+  `!htmlGroups.some(o=>o.html)` fails when the block is present, leaving the
+  iframe rendered as a raw code fence in chat). Only "button" and "off" remain;
+  "button" is the new default. Matches Alfa prod behaviour (v3.8.0).
+
+CHANGELOG (v4.0.0) — BREAKING:
+- Removed FILE_SERVER_URL and SYSTEM_PROMPT_URL Valves. Replaced with a single
+  ORCHESTRATOR_URL Valve (internal URL, default "http://computer-use-server:8081").
+  The public URL is now owned by the server (PUBLIC_BASE_URL env) and delivered to
+  the filter via the X-Public-Base-URL response header on /system-prompt, so the
+  filter never needs to know the browser-facing URL.
+- _fetch_system_prompt() signature changed: now returns tuple[public_url, prompt]
+  instead of just prompt. outlet() reads the cached public_url when decorating.
+- Valves seeded via Open WebUI admin UI or init.sh with the new ORCHESTRATOR_URL
+  name; saved FILE_SERVER_URL / SYSTEM_PROMPT_URL values from earlier versions are
+  ignored and the default is used instead — re-seed after upgrade.
 
 CHANGELOG (v3.4.0):
 - Removed legacy v3.2.0 boolean Valves (ENABLE_PREVIEW_ARTIFACT,
   ENABLE_PREVIEW_BUTTON, ENABLE_ARCHIVE_BUTTON) and their @model_validator bridge.
-  PREVIEW_MODE and ARCHIVE_BUTTON (introduced in v3.3.0) are now the only knobs.
-  Users upgrading from v3.2.0 directly to v3.4.0 will revert to defaults — upgrade
-  via v3.3.0 first if you need to preserve saved preferences.
 
 CHANGELOG (v3.3.0):
-- Collapsed three boolean preview/archive Valves (ENABLE_PREVIEW_ARTIFACT,
-  ENABLE_PREVIEW_BUTTON, ENABLE_ARCHIVE_BUTTON) into two Literal Valves
-  (PREVIEW_MODE, ARCHIVE_BUTTON). Fewer, clearer knobs.
-- outlet() rewritten to read PREVIEW_MODE + ARCHIVE_BUTTON only. No behavioural
-  regression — the same four user-facing states (artifact / button / both / off)
-  remain reachable.
+- Collapsed three boolean preview/archive Valves into two Literal Valves
+  (PREVIEW_MODE, ARCHIVE_BUTTON).
 
 CHANGELOG (v3.2.0):
-- Added ENABLE_PREVIEW_ARTIFACT Valve (default True) — outlet() now emits an inline
-  <iframe src="{base}/preview/{chat_id}"> wrapped in a fenced ```html block when the
-  assistant message contains a file URL for the current chat_id. Intended UX for
-  deployments that render HTML artifacts.
-- Added ENABLE_PREVIEW_BUTTON Valve (default False) — opt-in markdown link fallback
-  for stock Open WebUI installations that do not render artifact blocks.
-- Added PREVIEW_BUTTON_TEXT Valve (default "🖥️ Open preview") — button label for
-  the opt-in preview link.
-- outlet() correctness invariants preserved: role=="assistant" guard,
-  isinstance(content, str) guard, chat_id-scoped file_url_pattern,
-  FILE_SERVER_URL.rstrip("/") guard against //preview/, substring-based idempotency.
-- Archive button behaviour unchanged; preview and archive links share the
-  single-blank-line separator style.
+- Added ENABLE_PREVIEW_ARTIFACT Valve — outlet() emits an inline iframe artifact.
+- Added ENABLE_PREVIEW_BUTTON Valve — opt-in markdown button fallback.
 
 CHANGELOG (v3.1.0):
-- Removed hardcoded ~460-line system prompt f-string; server is now the single source of truth.
-- HTTP fetch + OrderedDict LRU cache + stale-cache fallback (ported from internal fork v3.8.0).
-- Added SYSTEM_PROMPT_URL Valve (optional override); falls back to FILE_SERVER_URL/system-prompt.
-- Removed client-side URL substitution — server does it.
-- Dropped unused __files__ parameter from inlet().
+- Removed hardcoded system prompt; server is now the single source of truth.
+- HTTP fetch + OrderedDict LRU cache + stale-cache fallback.
 
 CHANGELOG (v3.0.2):
 - Previous version with hardcoded prompt; see git history for details.
 
     VALVES:
-        FILE_SERVER_URL (str, default "http://localhost:8081"):
-            Orchestrator base URL. The filter derives /system-prompt,
-            /files/{chat_id}/…, /files/{chat_id}/archive, and /preview/{chat_id}
-            from this. Trailing slash is tolerated (stripped internally). Must
-            match the server-side FILE_SERVER_URL env var — see
-            docs/openwebui-filter.md#two-file_server_url-settings--they-must-match.
-        SYSTEM_PROMPT_URL (str, default ""):
-            Advanced: override URL for the /system-prompt endpoint. Empty means
-            derive from FILE_SERVER_URL. Non-http(s) schemes are rejected.
+        ORCHESTRATOR_URL (str, default "http://computer-use-server:8081"):
+            Internal URL of the Computer Use orchestrator — must be reachable
+            from inside the Open WebUI container (server→server fetch for
+            /system-prompt). Never appears in browser-facing URLs. The default
+            works out of the box with the reference docker-compose stack (both
+            services on the same Docker network, service DNS resolves the name).
+            For production deploys, point this at the internal hostname / k8s
+            service DNS of the orchestrator.
+            The browser-facing URL for preview/archive links is owned by the
+            server (PUBLIC_BASE_URL env) and returned via the X-Public-Base-URL
+            response header on /system-prompt.
         INJECT_SYSTEM_PROMPT (bool, default True):
             If False, inlet() skips system-prompt injection entirely (useful when
             another filter owns the prompt).
-        PREVIEW_MODE (Literal["artifact","button","both","off"], default "artifact"):
+        PREVIEW_MODE (Literal["button","off"], default "button"):
             Where the preview link appears on assistant messages.
-            - "artifact": inline fenced ```html <iframe src="{base}/preview/{chat_id}">.
-              Default. Requires an Open WebUI build that renders HTML artifacts
-              (e.g. our docker-compose.webui.yml ships the fix_artifacts_auto_show
-              patch pre-applied).
-            - "button": markdown [{PREVIEW_BUTTON_TEXT}]({base}/preview/{chat_id}).
-              Escape hatch for stock Open WebUI where artifact rendering is off.
-            - "both": both of the above.
-            - "off":  neither.
+            - "button": markdown [{PREVIEW_BUTTON_TEXT}]({public}/preview/{chat_id}).
+              The fix_preview_url_detection frontend patch detects this URL in
+              message text and auto-opens it as an inline artifact — no fenced
+              html block needed. Works on both patched and stock Open WebUI
+              (stock renders a clickable link; patched renders inline artifact).
+            - "off": no preview link.
         ARCHIVE_BUTTON (Literal["on","off"], default "on"):
-            Append a markdown [{ARCHIVE_BUTTON_TEXT}]({base}/files/{chat_id}/archive)
+            Append a markdown [{ARCHIVE_BUTTON_TEXT}]({public}/files/{chat_id}/archive)
             link to assistant messages that contain files for the current chat_id.
         PREVIEW_BUTTON_TEXT (str, default "🖥️ Open preview"):
-            Label for the preview-button markdown link (only used when PREVIEW_MODE
-            is "button" or "both").
+            Label for the preview-button markdown link.
         ARCHIVE_BUTTON_TEXT (str, default "📦 Download all files as archive"):
-            Label for the archive-download markdown link (only used when
-            ARCHIVE_BUTTON is "on").
+            Label for the archive-download markdown link.
 """
 
 import re
@@ -184,21 +184,17 @@ def _content_has_browser_tool(content: str) -> bool:
 
 class Filter:
     class Valves(BaseModel):
-        FILE_SERVER_URL: str = Field(
-            default="http://localhost:8081",
-            description="Orchestrator base URL (without trailing slash). Must be reachable from your browser AND match the server-side FILE_SERVER_URL env var — see docs/openwebui-filter.md#two-file_server_url-settings--they-must-match.",
-        )
-        SYSTEM_PROMPT_URL: str = Field(
-            default="",
-            description="Advanced: override URL for /system-prompt endpoint (empty = derive from FILE_SERVER_URL). Leave blank unless you run the system-prompt endpoint on a different host.",
+        ORCHESTRATOR_URL: str = Field(
+            default="http://computer-use-server:8081",
+            description="Internal URL of the Computer Use orchestrator. Must be reachable from inside the Open WebUI container for server→server /system-prompt fetch. NOT browser-facing — the public URL is owned by the server (PUBLIC_BASE_URL env) and returned via the X-Public-Base-URL response header. Trailing slash is tolerated.",
         )
         INJECT_SYSTEM_PROMPT: bool = Field(
             default=True,
             description="Inject Computer Use system prompt when tools are active. Turn off only if another filter owns the prompt.",
         )
-        PREVIEW_MODE: Literal["artifact", "button", "both", "off"] = Field(
-            default="artifact",
-            description="Where the preview link appears on assistant messages. artifact=inline iframe (default, requires artifact-rendering Open WebUI), button=markdown link (works on stock Open WebUI), both=both, off=neither.",
+        PREVIEW_MODE: Literal["button", "off"] = Field(
+            default="button",
+            description="Where the preview link appears on assistant messages. button=markdown link (the fix_preview_url_detection frontend patch turns it into an inline artifact on patched builds; stock Open WebUI shows it as a clickable link). off=no preview link.",
         )
         ARCHIVE_BUTTON: Literal["on", "off"] = Field(
             default="on",
@@ -206,7 +202,7 @@ class Filter:
         )
         PREVIEW_BUTTON_TEXT: str = Field(
             default="🖥️ Open preview",
-            description="Text for the preview-button markdown link (when PREVIEW_MODE is button or both).",
+            description="Text for the preview-button markdown link (used when PREVIEW_MODE is 'button').",
         )
         ARCHIVE_BUTTON_TEXT: str = Field(
             default="📦 Download all files as archive",
@@ -215,19 +211,30 @@ class Filter:
 
     def __init__(self):
         self.valves = self.Valves()
-        # Per-(chat, user) LRU cache: (chat_id, user_email) -> (monotonic_fetched_at, prompt_text)
-        # Keyed by user identity too because the server bakes a user-specific <available_skills>
-        # block when user_email is supplied — sharing across users would leak skills and
-        # break correctness when two users hit the same chat_id.
-        self._prompt_cache: OrderedDict[tuple[str, str], tuple[float, str]] = OrderedDict()
+        # Per-(chat, user) LRU cache: (chat_id, user_email) -> (fetched_at, (public_url, prompt))
+        # - Keyed by user identity because the server bakes a user-specific <available_skills>
+        #   block — sharing across users would leak skills and break correctness.
+        # - Value is a tuple so outlet() can read the public URL (from the server's
+        #   X-Public-Base-URL response header) without its own URL Valve.
+        self._prompt_cache: OrderedDict[
+            tuple[str, str], tuple[float, tuple[str, str]]
+        ] = OrderedDict()
 
-    def _fetch_system_prompt(self, chat_id: str, user_email: str = "") -> Optional[str]:
+    def _fetch_system_prompt(
+        self, chat_id: str, user_email: str = ""
+    ) -> Optional[tuple[str, str]]:
         """
         Fetch system prompt from the orchestrator with per-(chat, user) caching.
 
-        Returns the prompt string on success, or on stale-cache fallback if the fetch
-        failed but a previous entry exists. Returns None when the cache is cold AND
-        the server is unreachable — caller must skip injection in that case.
+        Returns (public_url, prompt) on success, or the cached value on stale-cache
+        fallback if the fetch failed but a previous entry exists. Returns None when
+        the cache is cold AND the server is unreachable — caller must skip injection.
+
+        The public_url comes from the server's X-Public-Base-URL response header
+        (PUBLIC_BASE_URL env on the server). outlet() uses it to build browser-facing
+        preview/archive links. Fallback: if the header is absent (older server), the
+        ORCHESTRATOR_URL Valve is reused — only correct for bare-metal/co-located
+        deploys where internal == public.
         """
         now = time.time()
         cache_key = (chat_id, user_email)
@@ -239,9 +246,8 @@ class Filter:
             return cached[1]
 
         # Build URL (resolved at request time so Valves updates are honoured)
-        base_url = self.valves.SYSTEM_PROMPT_URL or (
-            self.valves.FILE_SERVER_URL.rstrip("/") + "/system-prompt"
-        )
+        orchestrator = self.valves.ORCHESTRATOR_URL.rstrip("/")
+        base_url = orchestrator + "/system-prompt"
 
         # Only http(s) is a valid orchestrator transport. Reject file://, ftp://,
         # data://, etc. — otherwise a misconfigured Valve could read arbitrary
@@ -249,7 +255,7 @@ class Filter:
         parsed = urllib.parse.urlparse(base_url)
         if parsed.scheme not in ("http", "https"):
             print(
-                f"[ComputerUseFilter] Unsupported system prompt URL scheme: "
+                f"[ComputerUseFilter] Unsupported orchestrator URL scheme: "
                 f"{parsed.scheme!r} (expected http/https)"
             )
             return cached[1] if cached else None
@@ -266,16 +272,26 @@ class Filter:
             req.add_header("Accept", "text/plain")
             with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 — scheme validated above
                 prompt = resp.read().decode("utf-8")
+                # X-Public-Base-URL header tells outlet() which URL to put in
+                # browser-facing iframe/archive links. When the header is
+                # missing (older server), fall back to the internal Valve —
+                # this is only correct when ORCHESTRATOR_URL == public URL
+                # (bare-metal co-located deploy).
+                public_url = (
+                    resp.headers.get("X-Public-Base-URL") or orchestrator
+                )
+                public_url = public_url.rstrip("/")
 
-            # Cache the ready-to-use prompt (server baked everything)
-            self._prompt_cache[cache_key] = (now, prompt)
+            entry = (public_url, prompt)
+            # Cache the ready-to-use (public_url, prompt) pair
+            self._prompt_cache[cache_key] = (now, entry)
             self._prompt_cache.move_to_end(cache_key)
 
             # Evict oldest entry when over capacity (O(1) with OrderedDict)
             while len(self._prompt_cache) > _PROMPT_CACHE_MAX_SIZE:
                 self._prompt_cache.popitem(last=False)
 
-            return prompt
+            return entry
 
         except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as e:
             # Narrow to real transport/decoding failures. Broader Exception
@@ -309,10 +325,11 @@ class Filter:
 
         user_email = __user__.get("email", "") if __user__ else ""
 
-        system_prompt = self._fetch_system_prompt(chat_id, user_email)
-        if not system_prompt:
+        fetched = self._fetch_system_prompt(chat_id, user_email)
+        if not fetched:
             # Cold cache + server down -> skip injection (same no-op path as missing chat_id)
             return body
+        _public_url, system_prompt = fetched
 
         messages = body.get("messages", [])
         if not messages:
@@ -368,34 +385,58 @@ class Filter:
         __user__: Optional[dict] = None,
         __metadata__: Optional[dict] = None,
     ) -> dict:
-        """Append preview iframe artifact, preview button, and/or archive button to assistant messages with file links.
+        """Append preview button and/or archive button to assistant messages with file links.
 
-        - PREVIEW_MODE="artifact" (default): inline ```html <iframe src="…/preview/{chat_id}"> artifact.
-        - PREVIEW_MODE="button":   markdown link to the preview page — escape hatch for stock Open WebUI.
-        - PREVIEW_MODE="both":     both of the above.
-        - PREVIEW_MODE="off":      neither.
+        - PREVIEW_MODE="button" (default): markdown link to the preview page. The
+          frontend fix_preview_url_detection patch rewrites this URL into an inline
+          artifact; stock Open WebUI leaves it as a plain clickable link.
+        - PREVIEW_MODE="off":      no preview link.
         - ARCHIVE_BUTTON="on" (default): markdown link to the archive endpoint (only when files exist).
 
-        Invariants (preserved from v3.1.0):
+        The public URL used in browser-facing links comes from the cached
+        X-Public-Base-URL response header captured by inlet()/_fetch_system_prompt().
+        If no cache entry exists (outlet without prior inlet, e.g. re-render of an
+        old message after server restart), decoration is skipped — broken links are
+        worse than no links.
+
+        Invariants:
         1. Only role=="assistant" messages are touched.
         2. Non-string content is skipped.
         3. file_url_pattern is scoped to the current chat_id (no cross-chat decoration).
-        4. FILE_SERVER_URL is rstripped before URL construction (no //preview/ or //files/).
+        4. public_url is rstripped before URL construction (no //preview/ or //files/).
         5. Substring-based idempotency — repeated outlet() calls do not duplicate.
         """
-        mode = self.valves.PREVIEW_MODE
-        wants_artifact = mode in ("artifact", "both")
-        wants_button = mode in ("button", "both")
+        wants_button = self.valves.PREVIEW_MODE == "button"
         wants_archive = self.valves.ARCHIVE_BUTTON == "on"
 
-        if not (wants_artifact or wants_button or wants_archive):
+        if not (wants_button or wants_archive):
             return body
 
         chat_id = __metadata__.get("chat_id") if __metadata__ else None
         if not chat_id:
             return body
 
-        base = self.valves.FILE_SERVER_URL.rstrip("/")
+        # Pull the public URL from cache (populated by inlet() via the server's
+        # X-Public-Base-URL header). outlet() may run on re-renders where
+        # __user__ isn't passed, so the email-keyed cache entry inlet() wrote
+        # isn't directly reachable. Probe the exact (chat_id, user_email) and
+        # (chat_id, "") keys first, then fall back to ANY same-chat entry —
+        # outlet only needs public_url, not the prompt, so borrowing a URL
+        # from a different user's entry for the same chat is safe (public_url
+        # is chat-independent — it comes from the server's PUBLIC_BASE_URL env).
+        user_email = __user__.get("email", "") if __user__ else ""
+        cached = self._prompt_cache.get((chat_id, user_email)) or self._prompt_cache.get(
+            (chat_id, "")
+        )
+        if not cached:
+            for (cached_chat_id, _), entry in self._prompt_cache.items():
+                if cached_chat_id == chat_id:
+                    cached = entry
+                    break
+        if not cached:
+            return body
+        public_url, _prompt = cached[1]
+        base = public_url.rstrip("/")
         file_url_pattern = re.escape(base) + r"/files/" + re.escape(chat_id) + r"/[^\s\)]+"
         preview_url = f"{base}/preview/{chat_id}"
         archive_url = f"{base}/files/{chat_id}/archive"
@@ -427,15 +468,6 @@ class Filter:
                 links.append(f"[{self.valves.ARCHIVE_BUTTON_TEXT}]({archive_url})")
             if links:
                 content += "\n\n" + "\n".join(links)
-
-            if wants_artifact:
-                iframe = (
-                    f'<iframe src="{preview_url}" '
-                    f'style="width:100%;height:100%;border:none" '
-                    f'allow="clipboard-write; keyboard-map"></iframe>'
-                )
-                if iframe not in content:
-                    content += "\n\n```html\n" + iframe + "\n```"
 
             message["content"] = content
 

@@ -23,7 +23,7 @@ See [main README](../../README.md#open-webui-integration) for full setup. Quick 
 
 1. **Workspace > Tools** → Create → paste `computer_use_tools.py`
 2. Set **Tool ID** to `ai_computer_use` (required for filter integration)
-3. Configure Valves: `FILE_SERVER_URL` = Computer Use Server URL
+3. Configure Valves: `ORCHESTRATOR_URL` = internal URL of Computer Use server (e.g. `http://computer-use-server:8081` in Docker)
 4. Install companion filter: `computer_link_filter.py` (Workspace > Functions)
 
 The `docker-compose.webui.yml` stack does this automatically via `init.sh`.
@@ -32,7 +32,7 @@ The `docker-compose.webui.yml` stack does this automatically via `init.sh`.
 
 | Valve | Default | Description |
 |-------|---------|-------------|
-| `FILE_SERVER_URL` | `http://localhost:8081` | Computer Use Server URL (MCP endpoint + file hosting) |
+| `ORCHESTRATOR_URL` | `http://computer-use-server:8081` | Internal URL of Computer Use server (MCP endpoint + file uploads). Not browser-facing. |
 | `MCP_API_KEY` | _(empty)_ | Bearer token for `/mcp` endpoint authentication |
 | `DEBUG_LOGGING` | `false` | Verbose debug logging |
 
@@ -52,7 +52,7 @@ Each tool call includes HTTP headers with user context (`X-Chat-Id`, `X-User-Ema
 
 ## Key Implementation Details
 
-- **Lazy MCP client**: `_MCPClient` is created on first use and recreated when `FILE_SERVER_URL` changes (valves load after `__init__`)
+- **Lazy MCP client**: `_MCPClient` is created on first use and recreated when `ORCHESTRATOR_URL` changes (valves load after `__init__`)
 - **File sync**: When a command references `/mnt/user-data/uploads`, uploaded files are synced to the server before execution
 - **MCP server discovery**: `_get_user_mcp_server_names()` reads Open WebUI's `TOOL_SERVER_CONNECTIONS` and passes available MCP server names to the orchestrator via `X-Mcp-Servers` header — used for Claude Code sub-agent configuration
 - **SSE progress**: Tool calls stream progress updates via Server-Sent Events
@@ -69,8 +69,8 @@ The `computer_link_filter.py` function is **required** alongside this tool:
 
 | Problem | Solution |
 |---------|----------|
-| "Could not connect to Computer Use Server" | Check `FILE_SERVER_URL` valve. Inside Docker: use `host.docker.internal:8081` |
+| "Could not connect to Computer Use Server" | Check `ORCHESTRATOR_URL` valve. Inside Docker-compose: use `http://computer-use-server:8081` (service DNS). |
 | Tools not showing in chat | Enable tool in chat settings. Set **Function Calling = Native** in model settings |
 | Skills not in system prompt | Install and enable `computer_link_filter.py` globally |
-| File preview not working | Check `MCP_SERVER_EXTERNAL_URL` in filter valves (must be browser-accessible URL) |
+| File preview not working | Check `PUBLIC_BASE_URL` env var on the Computer Use server (it's baked into /system-prompt links and returned to the filter via response header — no separate filter Valve). |
 | Sub-agent not starting | Set `ANTHROPIC_AUTH_TOKEN` in server `.env` |

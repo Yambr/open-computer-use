@@ -17,7 +17,7 @@ Truncates large MCP tool results (>50K chars by default) to prevent context wind
 **Config env vars:**
 - `TOOL_RESULT_MAX_CHARS` (default: 50000) — truncation threshold. Set to 0 to disable.
 - `TOOL_RESULT_PREVIEW_CHARS` (default: 2000) — preview size shown to model.
-- `DOCKER_AI_UPLOAD_URL` (optional) — base URL for uploading full results.
+- `ORCHESTRATOR_URL` (optional) — base URL for uploading full results (same value as the Tool/Filter Valve).
 
 **Requires:** `fix_tool_loop_errors.py` must be applied first.
 
