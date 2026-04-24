@@ -470,21 +470,18 @@ class Tools:
         MCP_SERVERS: str = Field(
             default="",
             description=(
-                "Custom MCP servers passed to the sub-agent. Two formats:\n"
-                "• Comma-separated server names, e.g. confluence,jira — resolved as "
-                "{ANTHROPIC_BASE_URL}/mcp/{name} (LiteLLM MCP proxy pattern).\n"
-                "• Full MCP JSON config — used as-is for custom server definitions. "
-                'Each server accepts an "authToken" shorthand for per-server auth:\n'
-                '  {"confluence":{"type":"http","url":"https://…/mcp","authToken":"tok1"},'
-                '"jira":{"type":"http","url":"https://…/mcp","authToken":"tok2"}}'
-            )
-        )
-        FORWARD_OAUTH_TOKEN: bool = Field(
-            default=False,
-            description=(
-                "Forward the user's OAuth session token (access_token) to all MCP servers "
-                "as Authorization: Bearer header. Ignored for servers that already carry "
-                'an explicit auth token via "authToken" in the JSON config.'
+                "MCP servers passed to the sub-agent. Two formats:\n"
+                "• CSV: confluence,jira — resolved as {ANTHROPIC_BASE_URL}/mcp/{name}. "
+                "All CSV servers authenticate via ANTHROPIC_AUTH_TOKEN (container env).\n"
+                "• JSON config — per-server auth control via \"authToken\" field:\n"
+                '  "$oauth"            → user\'s OAuth session access_token (refreshed per call)\n'
+                '  "$SOME_ENV_VAR"     → resolved from container env at runtime\n'
+                '  "literal-value"     → embedded as-is\n'
+                '  (omit authToken)    → no Authorization header\n'
+                "Example:\n"
+                '  {"office365":{"type":"http","url":"https://…/mcp","authToken":"$oauth"},'
+                '"azure_search":{"type":"http","url":"https://…/mcp","authToken":"$ANTHROPIC_AUTH_TOKEN"},'
+                '"public":{"type":"http","url":"https://…/mcp"}}'
             )
         )
 
@@ -550,11 +547,11 @@ class Tools:
             else:
                 headers["X-Mcp-Servers"] = mcp_servers_valve
 
-        # Forward OAuth session token if enabled
-        if self.valves.FORWARD_OAUTH_TOKEN:
-            token = (__oauth_token__ or {}).get("access_token", "")
-            if token:
-                headers["X-Mcp-OAuth-Token"] = token
+        # Forward OAuth session token — always passed; backend uses it only
+        # for servers with authToken: "$oauth" in the JSON config
+        token = (__oauth_token__ or {}).get("access_token", "")
+        if token:
+            headers["X-Mcp-OAuth-Token"] = token
 
         return headers
 
