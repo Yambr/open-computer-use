@@ -474,23 +474,22 @@ class Tools:
             description=(
                 "Custom MCP servers for the sub-agent. Two formats:\n"
                 "• Comma-separated server names, e.g. confluence,jira — resolved as "
-                "{ANTHROPIC_BASE_URL}/mcp/{name} (LiteLLM MCP proxy pattern). "
-                "Use OAUTH_TOKEN to set per-server auth.\n"
+                "{ANTHROPIC_BASE_URL}/mcp/{name} (LiteLLM MCP proxy pattern).\n"
                 "• Full MCP JSON config — used as-is for custom server definitions. "
-                'Each server accepts an "authToken" shorthand for its own bearer token:\n'
+                'Each server accepts an "authToken" shorthand for per-server auth:\n'
                 '  {"confluence":{"type":"http","url":"https://…/mcp","authToken":"tok1"},'
-                '"jira":{"type":"http","url":"https://…/mcp","authToken":"tok2"}}'
+                '"jira":{"type":"http","url":"https://…/mcp","authToken":"tok2"}}\n'
+                "If left empty, the OAuth session token is used automatically."
             )
         )
         OAUTH_TOKEN: str = Field(
             default="",
             description=(
-                "Bearer token(s) for MCP server authentication. Two formats:\n"
-                '• Plain string, e.g. my-token — applied to every server that has no explicit auth.\n'
-                '• JSON map, e.g. {"confluence":"tok1","jira":"tok2"} — per-server tokens; '
-                "servers not listed fall back to the runtime ANTHROPIC_AUTH_TOKEN.\n"
-                "Ignored for servers that already carry an Authorization header "
-                '(via "authToken" field or explicit headers in the JSON config).'
+                "Optional explicit bearer token override for MCP server auth. "
+                "If empty, the active OAuth session token is used automatically.\n"
+                "Two formats:\n"
+                "• Plain string → applied to every server without explicit auth.\n"
+                '• JSON map {"confluence":"tok1","jira":"tok2"} → per-server tokens.'
             )
         )
 
@@ -519,8 +518,14 @@ class Tools:
     # Helpers
     # =========================================================================
 
-    def _build_mcp_headers(self, chat_id: str, __user__: dict = None, request=None) -> dict:
-        """Build HTTP headers — per-request user context + MCP server names."""
+    def _build_mcp_headers(
+        self,
+        chat_id: str,
+        __user__: dict = None,
+        request=None,
+        __oauth_token__: dict = None,
+    ) -> dict:
+        """Build HTTP headers — per-request user context + MCP server names + auth."""
         import base64 as _base64
         user_email = __user__.get("email", "") if __user__ else ""
         user_name = __user__.get("name", "") if __user__ else ""
@@ -543,7 +548,13 @@ class Tools:
         # UserValves — per-user custom MCP config (takes priority over admin list)
         user_valves = (__user__ or {}).get("valves", {}) if __user__ else {}
         mcp_servers_valve = (user_valves.get("MCP_SERVERS") or "").strip()
-        oauth_token = (user_valves.get("OAUTH_TOKEN") or "").strip()
+
+        # Auth token priority:
+        #   1. OAUTH_TOKEN UserValve (explicit override)
+        #   2. __oauth_token__ from active OAuth session (automatic)
+        valve_token = (user_valves.get("OAUTH_TOKEN") or "").strip()
+        session_token = (__oauth_token__ or {}).get("access_token", "") if __oauth_token__ else ""
+        oauth_token = valve_token or session_token
 
         if mcp_servers_valve:
             if mcp_servers_valve.startswith("{"):
@@ -589,6 +600,7 @@ class Tools:
         ok_desc: str,
         err_desc: str,
         timeout: int = CLIENT_HTTP_TIMEOUT,
+        __oauth_token__: Optional[dict] = None,
     ) -> str:
         """One transport-aware MCP call with consistent SSE status events.
 
@@ -625,7 +637,7 @@ class Tools:
 
         await emit(in_progress_desc, "in_progress", False)
         try:
-            headers = self._build_mcp_headers(chat_id, __user__, request=request)
+            headers = self._build_mcp_headers(chat_id, __user__, request=request, __oauth_token__=__oauth_token__)
             result = await self.mcp_client.call_tool(
                 tool_name, args, headers=headers, timeout=timeout,
                 event_emitter=emitter,
@@ -650,6 +662,7 @@ class Tools:
         __user__: dict = None,
         __files__: Optional[List[dict]] = None,
         __request__=None,
+        __oauth_token__: dict = {},
     ) -> str:
         """
         Run a bash command in the container
@@ -665,6 +678,7 @@ class Tools:
             chat_id, __event_emitter__, __request__, __user__,
             in_progress_desc=description or "Executing bash command...",
             ok_desc="Command completed", err_desc="Command failed",
+            __oauth_token__=__oauth_token__,
         )
 
     async def str_replace(
@@ -678,6 +692,7 @@ class Tools:
         __user__: dict = None,
         __files__: Optional[List[dict]] = None,
         __request__=None,
+        __oauth_token__: dict = {},
     ) -> str:
         """
         Replace a unique string in a file. The string must appear exactly once.
@@ -696,6 +711,7 @@ class Tools:
             chat_id, __event_emitter__, __request__, __user__,
             in_progress_desc=description or f"Editing {path}...",
             ok_desc="File edited", err_desc="Edit failed",
+            __oauth_token__=__oauth_token__,
         )
 
     async def create_file(
@@ -708,6 +724,7 @@ class Tools:
         __user__: dict = None,
         __files__: Optional[List[dict]] = None,
         __request__=None,
+        __oauth_token__: dict = {},
     ) -> str:
         """
         Create a new file with content in the container
@@ -723,6 +740,7 @@ class Tools:
             chat_id, __event_emitter__, __request__, __user__,
             in_progress_desc=description or f"Creating {path}...",
             ok_desc="File created", err_desc="Creation failed",
+            __oauth_token__=__oauth_token__,
         )
 
     async def view(
@@ -735,6 +753,7 @@ class Tools:
         __user__: dict = None,
         __files__: Optional[List[dict]] = None,
         __request__=None,
+        __oauth_token__: dict = {},
     ) -> str:
         """
         View text files, directory listings, or binary file info.
@@ -754,6 +773,7 @@ class Tools:
             chat_id, __event_emitter__, __request__, __user__,
             in_progress_desc=description or f"Reading {path}...",
             ok_desc="Read complete", err_desc="Read failed",
+            __oauth_token__=__oauth_token__,
         )
 
     async def sub_agent(
@@ -770,6 +790,7 @@ class Tools:
         __user__: dict = None,
         __files__: Optional[List[dict]] = None,
         __request__=None,
+        __oauth_token__: dict = {},
     ) -> str:
         """
         Delegate complex, multi-step tasks to an autonomous sub-agent.
@@ -798,6 +819,7 @@ class Tools:
             in_progress_desc=description or f"Starting sub-agent ({model})...",
             ok_desc="Sub-agent completed", err_desc="Sub-agent failed",
             timeout=SUB_AGENT_CLIENT_TIMEOUT,
+            __oauth_token__=__oauth_token__,
         )
 
 
