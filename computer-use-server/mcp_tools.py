@@ -30,7 +30,9 @@ HTTP Headers — all optional except Chat ID. Headers override env var defaults.
 | Anthropic Base URL| X-Anthropic-Base-Url   | X-OpenWebUI-Anthropic-Base-Url | No       | ANTHROPIC_BASE_URL env          |
 | MCP Tokens URL    | X-Mcp-Tokens-Url       | X-OpenWebUI-Mcp-Tokens-Url     | No       | MCP_TOKENS_URL env              |
 | MCP Tokens API Key| X-Mcp-Tokens-Api-Key   | X-OpenWebUI-Mcp-Tokens-Api-Key | No       | MCP_TOKENS_API_KEY env          |
-| MCP Servers       | X-Mcp-Servers          | X-OpenWebUI-Mcp-Servers        | No       | —                               |
+| MCP Servers (CSV) | X-Mcp-Servers          | X-OpenWebUI-Mcp-Servers        | No       | —                               |
+| MCP Config (JSON) | X-Mcp-Config           | X-OpenWebUI-Mcp-Config         | No       | —  (base64-encoded JSON)        |
+| MCP OAuth Token   | X-Mcp-OAuth-Token      | X-OpenWebUI-Mcp-OAuth-Token    | No       | —                               |
 
 Environment Variables (computer-use-orchestrator defaults):
 - MCP_TOKENS_URL: MCP Tokens Wrapper service (optional, for centralized token management)
@@ -84,6 +86,7 @@ from context_vars import (
     current_gitlab_token, current_gitlab_host,
     current_anthropic_auth_token, current_anthropic_base_url,
     current_mcp_tokens_url, current_mcp_tokens_api_key, current_mcp_servers,
+    current_mcp_oauth_token,
     current_instructions,
 )
 from system_prompt import render_system_prompt
@@ -935,6 +938,7 @@ async def sub_agent(
                 mcp_servers_str,
                 current_anthropic_base_url.get(),
                 user_email or "",
+                current_mcp_oauth_token.get() or "",
             )
             if mcp_cfg:
                 write_cmd = build_mcp_config_write_script(mcp_cfg)
@@ -1249,6 +1253,24 @@ def set_context_from_headers(headers: dict):
         current_mcp_servers.set(headers["x-mcp-servers"])
     elif "x-openwebui-mcp-servers" in headers:
         current_mcp_servers.set(headers["x-openwebui-mcp-servers"])
+
+    # MCP config (full JSON, base64-encoded) — takes priority over CSV list
+    import base64 as _base64
+    mcp_config_b64 = (
+        headers.get("x-mcp-config") or headers.get("x-openwebui-mcp-config") or ""
+    )
+    if mcp_config_b64:
+        try:
+            current_mcp_servers.set(_base64.b64decode(mcp_config_b64).decode())
+        except Exception:
+            pass
+
+    # OAuth token for MCP server authentication
+    mcp_oauth = (
+        headers.get("x-mcp-oauth-token") or headers.get("x-openwebui-mcp-oauth-token") or ""
+    )
+    if mcp_oauth:
+        current_mcp_oauth_token.set(mcp_oauth)
 
 
 class MCPAuthMiddleware:

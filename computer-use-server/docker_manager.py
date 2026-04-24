@@ -32,6 +32,7 @@ from context_vars import (
     current_gitlab_token, current_gitlab_host,
     current_anthropic_auth_token, current_anthropic_base_url,
     current_mcp_tokens_url, current_mcp_tokens_api_key, current_mcp_servers,
+    current_mcp_oauth_token,
 )
 from system_prompt import render_system_prompt_sync
 
@@ -231,43 +232,112 @@ _docker_client: Optional[docker.DockerClient] = None
 
 
 
-def build_mcp_config(server_names_csv: str, base_url: Optional[str], user_email: str = "") -> dict | None:
-    """Build Claude Code ~/.mcp.json config from comma-separated server names.
+def build_mcp_config(server_names_or_config: str, base_url: Optional[str], user_email: str = "", oauth_token: str = "") -> dict | None:
+    """Build Claude Code ~/.mcp.json config from a server name list or a raw MCP JSON config.
 
-    URLs are templated as {base_url}/mcp/{server_name} (LiteLLM MCP proxy pattern).
-    Authorization uses ANTHROPIC_AUTH_TOKEN env var (resolved inside container at write time).
+    ``server_names_or_config`` accepts two formats:
+    - CSV (e.g. ``"confluence,jira"``): URLs are templated as
+      ``{base_url}/mcp/{name}`` (LiteLLM MCP proxy pattern).
+    - JSON object (starts with ``{``): parsed directly as
+      ``{"mcpServers": {...}}`` or a bare ``{name: cfg}`` dict.
+      Each http-type server may include an ``"authToken"`` shorthand field
+      that is expanded to ``headers.Authorization: "Bearer <token>"`` and
+      then stripped so the final JSON is valid MCP config.
 
-    Returns dict ready for json.dumps, or None if no servers specified.
+    ``oauth_token`` controls per-server Authorization headers:
+    - Plain string → applied to every server that does not already have an
+      ``Authorization`` header (either from ``authToken`` or ``headers``).
+    - JSON object string ``{"name": "token", ...}`` → per-server tokens;
+      only the named server gets that token; servers not in the map fall back
+      to the runtime ANTHROPIC_AUTH_TOKEN injection.
 
-    ``base_url`` may be None or empty; both fall back to the module-level
-    ANTHROPIC_BASE_URL constant so callers can pass the ContextVar value
-    directly without a manual fallback.
+    In all cases, servers that already carry an explicit ``Authorization``
+    header (via ``authToken`` or ``headers``) are never overwritten by the
+    global fallback — neither ``oauth_token`` (global) nor
+    ANTHROPIC_AUTH_TOKEN (container env, injected by the write script).
+
+    Returns a dict ready for ``json.dumps``, or None if the input is empty /
+    results in no usable servers.
+
+    ``base_url`` may be None or empty; falls back to the module-level
+    ANTHROPIC_BASE_URL so callers can pass the ContextVar value directly.
     """
-    # Blocklist: prevent recursive sub_agent loops
     BLOCKED_SERVERS = {"docker_ai", "docker-ai"}
 
-    names = [s.strip() for s in server_names_csv.split(",") if s.strip() and s.strip() not in BLOCKED_SERVERS]
-    if not names:
+    input_str = (server_names_or_config or "").strip()
+    if not input_str:
         return None
 
+    # Parse oauth_token: either a plain bearer string or a per-server JSON map
+    token_map: dict[str, str] = {}   # name → token (per-server)
+    token_all: str = ""              # single token for all servers
+    oauth_str = (oauth_token or "").strip()
+    if oauth_str.startswith("{"):
+        try:
+            raw_map = json.loads(oauth_str)
+            if isinstance(raw_map, dict):
+                token_map = {k: str(v) for k, v in raw_map.items() if v}
+        except json.JSONDecodeError:
+            pass
+    elif oauth_str:
+        token_all = oauth_str
+
+    def _resolve_token(name: str) -> str:
+        """Return the best token for this server name, or '' for runtime injection."""
+        return token_map.get(name, token_all)
+
+    def _apply_auth(name: str, cfg: dict) -> None:
+        """Expand authToken shorthand and inject per-server auth into cfg in-place."""
+        if not isinstance(cfg, dict):
+            return
+        # authToken shorthand → Authorization header (then remove the field)
+        auth_token_shorthand = cfg.pop("authToken", None)
+        if cfg.get("type") != "http":
+            return
+        hdrs = cfg.setdefault("headers", {})
+        if user_email:
+            hdrs.setdefault("x-openwebui-user-email", user_email)
+        # Priority: authToken shorthand > existing headers.Authorization > per-server map > global
+        if "Authorization" not in hdrs:
+            token = auth_token_shorthand or _resolve_token(name)
+            if token:
+                hdrs["Authorization"] = f"Bearer {token}"
+
+    if input_str.startswith("{"):
+        try:
+            parsed = json.loads(input_str)
+        except json.JSONDecodeError as e:
+            print(f"[MCP] Warning: failed to parse MCP JSON config: {e}")
+            return None
+        if "mcpServers" not in parsed:
+            parsed = {"mcpServers": parsed}
+        servers = {k: v for k, v in parsed.get("mcpServers", {}).items() if k not in BLOCKED_SERVERS}
+        if not servers:
+            return None
+        for name, cfg in servers.items():
+            _apply_auth(name, cfg)
+        return {"mcpServers": servers}
+
+    # CSV path
+    names = [s.strip() for s in input_str.split(",") if s.strip() and s.strip() not in BLOCKED_SERVERS]
+    if not names:
+        return None
     base = (base_url or ANTHROPIC_BASE_URL or "https://api.anthropic.com").rstrip("/")
     servers = {}
     for name in names:
-        servers[name] = {
-            "type": "http",
-            "url": f"{base}/mcp/{name}",
-            "headers": {
-                "x-openwebui-user-email": user_email,
-            },
-        }
+        cfg: dict = {"type": "http", "url": f"{base}/mcp/{name}", "headers": {}}
+        _apply_auth(name, cfg)
+        servers[name] = cfg
     return {"mcpServers": servers}
 
 
 def build_mcp_config_write_script(mcp_config: dict) -> str:
     """Build a shell command that writes ~/.mcp.json inside a container.
 
-    ANTHROPIC_AUTH_TOKEN is resolved from the container's env at runtime,
-    so no secrets are baked into the script itself.
+    For servers that already have an Authorization header (set by
+    build_mcp_config when an oauth_token was supplied), the existing header
+    is preserved. For servers that have a headers dict but no Authorization,
+    ANTHROPIC_AUTH_TOKEN is injected from the container env at runtime.
     Uses base64 to avoid shell/JSON escaping issues.
     """
     import base64
@@ -277,8 +347,10 @@ def build_mcp_config_write_script(mcp_config: dict) -> str:
         f"import json,os,base64;"
         f"c=json.loads(base64.b64decode(\"{config_b64}\"));"
         f"k=os.environ.get(\"ANTHROPIC_AUTH_TOKEN\",\"\");"
+        # Only inject ANTHROPIC_AUTH_TOKEN when Authorization not already present
         f"[s[\"headers\"].__setitem__(\"Authorization\",\"Bearer \"+k)"
-        f" for s in c[\"mcpServers\"].values() if \"headers\" in s];"
+        f" for s in c[\"mcpServers\"].values()"
+        f" if isinstance(s,dict) and \"headers\" in s and \"Authorization\" not in s[\"headers\"]];"
         f"json.dump(c,open(os.path.expanduser(\"~/.mcp.json\"),\"w\"),indent=2);"
         # Auto-approve MCP servers in settings.local.json so Claude Code doesn't ask
         f"p=os.path.expanduser(\"~/.claude/settings.local.json\");"
@@ -592,6 +664,7 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
                 mcp_servers_str,
                 current_anthropic_base_url.get(),
                 current_user_email.get() or "",
+                current_mcp_oauth_token.get() or "",
             )
             if mcp_cfg:
                 write_cmd = build_mcp_config_write_script(mcp_cfg)

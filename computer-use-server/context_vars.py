@@ -15,6 +15,7 @@ current_anthropic_base_url: ContextVar[Optional[str]] = ContextVar("current_anth
 current_mcp_tokens_url: ContextVar[str] = ContextVar("current_mcp_tokens_url", default="")
 current_mcp_tokens_api_key: ContextVar[str] = ContextVar("current_mcp_tokens_api_key", default="")
 current_mcp_servers: ContextVar[str] = ContextVar("current_mcp_servers", default="")
+current_mcp_oauth_token: ContextVar[str] = ContextVar("current_mcp_oauth_token", default="")
 
 # Pre-rendered system prompt for this request. Set by MCPContextMiddleware
 # after awaiting render_system_prompt(); read synchronously by the lowlevel

@@ -468,6 +468,32 @@ class Tools:
             description="Enable verbose debug logging"
         )
 
+    class UserValves(BaseModel):
+        MCP_SERVERS: str = Field(
+            default="",
+            description=(
+                "Custom MCP servers for the sub-agent. Two formats:\n"
+                "• Comma-separated server names, e.g. confluence,jira — resolved as "
+                "{ANTHROPIC_BASE_URL}/mcp/{name} (LiteLLM MCP proxy pattern). "
+                "Use OAUTH_TOKEN to set per-server auth.\n"
+                "• Full MCP JSON config — used as-is for custom server definitions. "
+                'Each server accepts an "authToken" shorthand for its own bearer token:\n'
+                '  {"confluence":{"type":"http","url":"https://…/mcp","authToken":"tok1"},'
+                '"jira":{"type":"http","url":"https://…/mcp","authToken":"tok2"}}'
+            )
+        )
+        OAUTH_TOKEN: str = Field(
+            default="",
+            description=(
+                "Bearer token(s) for MCP server authentication. Two formats:\n"
+                '• Plain string, e.g. my-token — applied to every server that has no explicit auth.\n'
+                '• JSON map, e.g. {"confluence":"tok1","jira":"tok2"} — per-server tokens; '
+                "servers not listed fall back to the runtime ANTHROPIC_AUTH_TOKEN.\n"
+                "Ignored for servers that already carry an Authorization header "
+                '(via "authToken" field or explicit headers in the JSON config).'
+            )
+        )
+
     def __init__(self):
         self.valves = self.Valves()
         self.file_handler = True
@@ -495,6 +521,7 @@ class Tools:
 
     def _build_mcp_headers(self, chat_id: str, __user__: dict = None, request=None) -> dict:
         """Build HTTP headers — per-request user context + MCP server names."""
+        import base64 as _base64
         user_email = __user__.get("email", "") if __user__ else ""
         user_name = __user__.get("name", "") if __user__ else ""
         headers = self.mcp_client.build_headers(
@@ -502,6 +529,8 @@ class Tools:
             user_email=user_email,
             user_name=user_name,
         )
+
+        # OpenWebUI TOOL_SERVER_CONNECTIONS — admin-configured MCP servers
         if request:
             try:
                 user_id = __user__.get("id", "") if __user__ else ""
@@ -510,6 +539,25 @@ class Tools:
                     headers["X-Mcp-Servers"] = ",".join(names)
             except Exception:
                 pass
+
+        # UserValves — per-user custom MCP config (takes priority over admin list)
+        user_valves = (__user__ or {}).get("valves", {}) if __user__ else {}
+        mcp_servers_valve = (user_valves.get("MCP_SERVERS") or "").strip()
+        oauth_token = (user_valves.get("OAUTH_TOKEN") or "").strip()
+
+        if mcp_servers_valve:
+            if mcp_servers_valve.startswith("{"):
+                # JSON config: base64-encode to avoid header encoding issues
+                headers["X-Mcp-Config"] = _base64.b64encode(mcp_servers_valve.encode()).decode()
+                # Clear CSV header so JSON takes priority on the backend
+                headers.pop("X-Mcp-Servers", None)
+            else:
+                # CSV list: merge with or replace admin-configured servers
+                headers["X-Mcp-Servers"] = mcp_servers_valve
+
+        if oauth_token:
+            headers["X-Mcp-OAuth-Token"] = oauth_token
+
         return headers
 
     async def _sync_files_if_needed(self, chat_id: str, command_or_path: str, __files__: list = None):
