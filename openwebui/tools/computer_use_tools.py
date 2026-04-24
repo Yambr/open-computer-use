@@ -467,29 +467,24 @@ class Tools:
             default=False,
             description="Enable verbose debug logging"
         )
-
-    class UserValves(BaseModel):
         MCP_SERVERS: str = Field(
             default="",
             description=(
-                "Custom MCP servers for the sub-agent. Two formats:\n"
+                "Custom MCP servers passed to the sub-agent. Two formats:\n"
                 "• Comma-separated server names, e.g. confluence,jira — resolved as "
                 "{ANTHROPIC_BASE_URL}/mcp/{name} (LiteLLM MCP proxy pattern).\n"
                 "• Full MCP JSON config — used as-is for custom server definitions. "
                 'Each server accepts an "authToken" shorthand for per-server auth:\n'
                 '  {"confluence":{"type":"http","url":"https://…/mcp","authToken":"tok1"},'
-                '"jira":{"type":"http","url":"https://…/mcp","authToken":"tok2"}}\n'
-                "If left empty, the OAuth session token is used automatically."
+                '"jira":{"type":"http","url":"https://…/mcp","authToken":"tok2"}}'
             )
         )
-        OAUTH_TOKEN: str = Field(
-            default="",
+        FORWARD_OAUTH_TOKEN: bool = Field(
+            default=False,
             description=(
-                "Optional explicit bearer token override for MCP server auth. "
-                "If empty, the active OAuth session token is used automatically.\n"
-                "Two formats:\n"
-                "• Plain string → applied to every server without explicit auth.\n"
-                '• JSON map {"confluence":"tok1","jira":"tok2"} → per-server tokens.'
+                "Forward the user's OAuth session token (access_token) to all MCP servers "
+                "as Authorization: Bearer header. Ignored for servers that already carry "
+                'an explicit auth token via "authToken" in the JSON config.'
             )
         )
 
@@ -545,29 +540,21 @@ class Tools:
             except Exception:
                 pass
 
-        # UserValves — per-user custom MCP config (takes priority over admin list)
-        user_valves = (__user__ or {}).get("valves", {}) if __user__ else {}
-        mcp_servers_valve = (user_valves.get("MCP_SERVERS") or "").strip()
-
-        # Auth token priority:
-        #   1. OAUTH_TOKEN UserValve (explicit override)
-        #   2. __oauth_token__ from active OAuth session (automatic)
-        valve_token = (user_valves.get("OAUTH_TOKEN") or "").strip()
-        session_token = (__oauth_token__ or {}).get("access_token", "") if __oauth_token__ else ""
-        oauth_token = valve_token or session_token
-
+        # Valve-configured MCP servers (takes priority over TOOL_SERVER_CONNECTIONS)
+        mcp_servers_valve = (self.valves.MCP_SERVERS or "").strip()
         if mcp_servers_valve:
             if mcp_servers_valve.startswith("{"):
                 # JSON config: base64-encode to avoid header encoding issues
                 headers["X-Mcp-Config"] = _base64.b64encode(mcp_servers_valve.encode()).decode()
-                # Clear CSV header so JSON takes priority on the backend
                 headers.pop("X-Mcp-Servers", None)
             else:
-                # CSV list: merge with or replace admin-configured servers
                 headers["X-Mcp-Servers"] = mcp_servers_valve
 
-        if oauth_token:
-            headers["X-Mcp-OAuth-Token"] = oauth_token
+        # Forward OAuth session token if enabled
+        if self.valves.FORWARD_OAUTH_TOKEN:
+            token = (__oauth_token__ or {}).get("access_token", "")
+            if token:
+                headers["X-Mcp-OAuth-Token"] = token
 
         return headers
 
