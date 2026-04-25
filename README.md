@@ -261,7 +261,6 @@ services:
       dockerfile: Dockerfile
       args:
         OPENWEBUI_VERSION: "0.9.2"
-        COMPUTER_USE_SERVER_URL: "cu.your-domain.com"   # see Step 2 — NOT an internal hostname
     image: open-webui-with-cu-patches:latest   # local tag, do not pull
 ```
 
@@ -269,11 +268,11 @@ Verify the patches are baked into the running container:
 
 ```bash
 docker exec open-webui bash -c \
-  'grep -l "bn.set(!0),Jr.set(!0)" /app/build/_app/immutable/chunks/*.js >/dev/null \
+  'grep -rl "FIX_ARTIFACTS_AUTO_SHOW" /app/build/_app/immutable/chunks/ >/dev/null \
    && echo "patches applied" || echo "MISSING — you are on upstream image"'
 ```
 
-The `bn.set(!0),Jr.set(!0)` marker is injected by `fix_artifacts_auto_show` into the minified Svelte chunks at build time. Empty output = stock upstream image, not ours.
+The `FIX_ARTIFACTS_AUTO_SHOW` JS comment marker is injected by `fix_artifacts_auto_show.py` at build time as a version-stable identifier — it does not depend on minified Svelte variable names, which change with every Open WebUI release.
 
 #### Step 2 — No build-arg required for preview URL detection (host-agnostic since v0.9.2.1)
 
@@ -289,19 +288,16 @@ docker exec open-webui bash -c \
 # → should print filename:1 confirming the patch marker is present
 ```
 
-#### Step 3 — Three URL settings, two roles (public vs internal)
+#### Step 3 — Two URL settings, two roles (public vs internal)
 
-**v4.0.0:** the old "three `FILE_SERVER_URL` places that must match" footgun is gone. There are now only **three** places and **two** distinct roles — public (browser-reachable) vs internal (Docker-local).
+**v4.0.0:** the old "three `FILE_SERVER_URL` places that must match" footgun is gone. There are now only **two** places and **two** distinct roles — public (browser-reachable) vs internal (Docker-local). The `COMPUTER_USE_SERVER_URL` build-arg was removed in v0.9.2.1 — `fix_preview_url_detection` is now host-agnostic (see Step 2).
 
 | Where | Role | Who reads it | Prod (with domain) | Local dev (Docker Desktop) |
 |-------|------|-------------|--------------------|----------------------------|
 | `PUBLIC_BASE_URL` env on the **`computer-use-server`** container (`docker-compose.yml` / `.env`) | **PUBLIC** — baked into `/system-prompt` links + returned to filter via `X-Public-Base-URL` response header | Server (single source of truth for public URL) | `https://cu.your-domain.com` | `http://localhost:8081` |
-| Build-arg `COMPUTER_USE_SERVER_URL` (docker-compose `build.args` for `open-webui`) | **PUBLIC** — compiled into Svelte regex by `fix_preview_url_detection`; must match what the model emits | Open WebUI (text match in assistant messages) | `cu.your-domain.com` (no scheme) | `localhost:8081` |
 | Filter + Tool Valves `ORCHESTRATOR_URL` (seeded by `init.sh` from `ORCHESTRATOR_URL` env on the open-webui container) | **INTERNAL** — server↔server fetch of `/system-prompt`; MCP `tools/call` forwarding | Filter and tool (Docker network) | `http://computer-use-server:8081` | `http://computer-use-server:8081` |
 
 ⚠️ **Do NOT point `ORCHESTRATOR_URL` at your public domain.** It technically works, but every MCP request then goes browser→CDN→Traefik→container. Any hiccup in that chain kills the stream mid-tool-call and the user sees `MCP call failed: Session terminated`. Stay inside the Docker network.
-
-⚠️ **Do NOT set the build-arg to the internal service name.** The regex will then look for `computer-use-server:8081/files/...` in assistant text, but the model writes whatever is in the server's `PUBLIC_BASE_URL` — your public domain. Mismatch → the patched frontend won't auto-promote the preview link into the artifact panel; the markdown link stays plain clickable text. (Filter v4.1.0 dropped the `artifact`/`both` `PREVIEW_MODE` values so the raw-`<iframe>`-in-chat symptom that #43 described is no longer possible.)
 
 The filter no longer has a public-URL Valve at all — it reads the public URL from the server's `X-Public-Base-URL` response header and caches it alongside the prompt. One public knob, one internal knob.
 
@@ -360,14 +356,15 @@ For SQLite-backed Open WebUI deployments, swap `psql` for `sqlite3 /app/backend/
 #### Step 6 — Verify everything at once
 
 ```bash
-# 1. Image has patches:
+# 1. Image has patches (marker-based — version-stable across Open WebUI releases):
 docker exec open-webui bash -c \
-  'grep -l "bn.set(!0),Jr.set(!0)" /app/build/_app/immutable/chunks/*.js >/dev/null \
+  'grep -rl "FIX_ARTIFACTS_AUTO_SHOW" /app/build/_app/immutable/chunks/ >/dev/null \
    && echo OK || echo MISSING'
 
-# 2. Build-arg baked into regex matches your public domain:
+# 2. Preview URL detection is host-agnostic (no build-arg needed since v0.9.2.1):
 docker exec open-webui bash -c \
-  'grep -oE "[a-z0-9.:-]+\\\\/\\(files\\|preview" /app/build/_app/immutable/chunks/*.js | head -1'
+  'grep -c "FIX_PREVIEW_URL_DETECTION" /app/build/_app/immutable/chunks/*.js 2>/dev/null | grep -v ":0" | head -1'
+# → should print filename:1 confirming the patch marker is present
 
 # 3. Env vars reached the container:
 docker exec open-webui env | grep -E 'CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES|TOOL_RESULT_|ORCHESTRATOR_URL'
@@ -380,7 +377,7 @@ docker exec open-webui env | grep -E 'CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES|TOOL_R
 
 # 5. Server env (baked into system prompt AND returned to filter via header):
 docker exec computer-use-server env | grep ^PUBLIC_BASE_URL=
-# → must equal your public URL (matches the build-arg from #2).
+# → must be a URL your browser can reach (e.g. http://localhost:8081 for local dev).
 
 # 7. Filter is ACTIVE *and* GLOBAL (see Step 5):
 docker exec <postgres-container> psql -U openwebui -d openwebui -c \
@@ -399,8 +396,8 @@ docker exec <postgres-container> psql -U openwebui -d openwebui -c \
 
 | Symptom | Step |
 |---------|------|
-| HTML artifact renders as raw `<iframe ...>` text in chat | 1 (upstream image) — **if not** → 2 (build-arg wrong) |
-| Preview iframe auto-insertion doesn't happen for file links | 2 (build-arg mismatched with what model emits) |
+| HTML artifact renders as raw `<iframe ...>` text in chat | 1 (upstream image, `fix_artifacts_auto_show` missing) |
+| Preview iframe auto-insertion doesn't happen for file links | 1 (`fix_preview_url_detection` missing) or `PUBLIC_BASE_URL` unreachable from browser |
 | `MCP call failed: Session terminated` on every tool call | 3 (tool Valve points at public domain) |
 | Tool loop cuts off at ~30 calls; banner *"Model temporarily unavailable"* | 4 (`CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES` not set) |
 | Large tool outputs silently `...(truncated)`; model makes wrong decisions | 4 (`ORCHESTRATOR_URL` not set or unreachable) OR 1 (`fix_large_tool_results` missing) |
