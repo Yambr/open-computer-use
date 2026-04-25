@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright (c) 2025 Open Computer Use Contributors
 """
-Patch for Open WebUI v0.8.11-0.9.1: append <attached_files> instead of prepend.
+Patch for Open WebUI 0.9.2: append <attached_files> instead of prepend.
 
 Problem:
   add_file_context() prepends <attached_files> to the beginning of user message.
@@ -13,11 +13,9 @@ Solution:
   Append <attached_files> to the end of the message -- system prompt cache
   and previous messages are preserved.
 
-Note (v0.8.11-0.9.1):
+Note:
   Zip misalignment (user_messages filter) and format_file_tag() are already
-  fixed upstream (PR #21878). v0.9.1 made the enclosing function async but the
-  inner 5-line block the patch targets is byte-identical. This patch affects
-  ONLY the insertion position.
+  fixed upstream (PR #21878). This patch affects ONLY the insertion position.
 """
 
 import os

@@ -13,8 +13,6 @@ RUN python3 /tmp/patches/fix_artifacts_auto_show.py
 RUN python3 /tmp/patches/fix_tool_loop_errors.py
 
 # Required: Auto-detect file preview URLs in messages and show in artifacts panel
-ARG COMPUTER_USE_SERVER_URL=computer-use-server:8081
-ENV COMPUTER_USE_SERVER_URL=${COMPUTER_USE_SERVER_URL}
 RUN python3 /tmp/patches/fix_preview_url_detection.py
 
 # Optional: Truncate large MCP tool results to prevent context window exhaustion.
@@ -22,7 +20,7 @@ RUN python3 /tmp/patches/fix_preview_url_detection.py
 # Config: TOOL_RESULT_MAX_CHARS (default 50000), TOOL_RESULT_PREVIEW_CHARS (default 2000)
 RUN python3 /tmp/patches/fix_large_tool_results.py
 
-# Enabled backend patches (rewritten for v0.9.1 in Phase 6):
+# Enabled backend patches (rewritten for v0.9.2 in Phase 6):
 #
 # fix_large_tool_args: Truncates oversized tool call arguments in HTML attributes
 # to prevent browser UI freeze on large tool outputs (>10KB).

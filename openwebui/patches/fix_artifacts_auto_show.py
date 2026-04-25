@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright (c) 2025 Open Computer Use Contributors
 """
-Patch for Open WebUI v0.8.11-0.9.1: auto-open Artifacts panel
+Patch for Open WebUI 0.9.2: auto-open Artifacts panel
 
 Problem: If an HTML code block is inside a collapsed <details>, CodeBlock is not mounted ->
 onUpdate does not fire -> Artifacts panel does not open. Artifacts.svelte subscribe
@@ -16,7 +16,7 @@ A 300ms delay ensures that auto-show fires after all initialization resets.
 
 Both components (Chat.svelte and Artifacts.svelte) are compiled into one chunk.
 
-=== v0.8.11-0.9.1 compiled code ===
+=== Compiled-code anchor ===
 
 Subscribe in Artifacts.svelte:
   STORE.subscribe(b=>{const S=b??[];

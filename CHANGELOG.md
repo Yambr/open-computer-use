@@ -5,22 +5,22 @@
 ### Breaking Changes — Open WebUI base bump 0.8.12 → 0.9.2
 
 - **Base image bumped**: `openwebui/Dockerfile` default `ARG OPENWEBUI_VERSION=0.8.12` → `0.9.2`; `docker-compose.webui.yml` default `OPENWEBUI_VERSION:-0.8.12` → `OPENWEBUI_VERSION:-0.9.2`. A plain `docker compose -f docker-compose.webui.yml up --build` on a fresh clone now builds against `ghcr.io/open-webui/open-webui:0.9.2`. No v0.9.1 release was cut — the 0.9.1-era patches were rewritten as the v0.9.2 baseline (Phases 4–6), and only the v0.9.2 re-verification (Phases 7–9) was carried into this release.
-- **Pinning older bases**: set `OPENWEBUI_VERSION=0.8.12` in `.env` to stay on the previous base. All 8 patches still apply to 0.8.12 and 0.9.1 via the backward-compat shim in `fix_tool_loop_errors` (v0.9.1 fixtures remain green in `tests/patches/`).
+- **Strict version pinning**: this build (`v0.9.2.X`) is strictly built and verified against Open WebUI 0.9.2. The first 3 segments of our build version always equal the Open WebUI base version. Operators on Open WebUI 0.8.12 or 0.9.1 must use the corresponding `v0.8.12.Y` / `v0.9.1.Y` build (the latter was never publicly cut — 0.9.1-era fixtures remain green in `tests/patches/` only as regression coverage for the in-memory `V091_SHIM` inside `fix_tool_loop_errors`, not as a supported runtime target).
 
 ### Features — Open WebUI 0.9.2 compatibility (Phases 4–9)
 
 Eight patches re-verified against Open WebUI v0.9.2, zero dropped. Each patch carries a `sys.exit(1)` fail-loud on anchor miss and an idempotency marker so re-running the patch on an already-patched layer is a no-op.
 
-- **fix_artifacts_auto_show** (FE) — still-matches at v0.9.2. Auto-opens the Artifacts panel when an assistant message contains an HTML code block. Marker: `FIX_ARTIFACTS_AUTO_SHOW` baked into the compiled SvelteKit chunks.
-- **fix_preview_url_detection** (FE) — still-matches at v0.9.2. Auto-inserts the preview iframe for `{server}/preview/{chat_id}` and `{server}/files/{chat_id}/...` URLs. Marker: `FIX_PREVIEW_URL_DETECTION`.
-- **fix_tool_loop_errors** (BE) — rewrite-enabled at v0.9.2. SEARCH/REPLACE extended with the new `'metadata': metadata,` key that v0.9.2 upstream added to `new_form_data = {…}` inside the tool-call retry loop. A 10-line in-memory `V091_SHIM → V092_SHIM` keeps v0.9.1 fixtures green for operators who pin the older base. Marker: `FIX_TOOL_LOOP_ERRORS`.
-- **fix_large_tool_results** (BE, cascade on patch 3) — rewrite-enabled at v0.9.2. SEARCH_TOOL_LOOP extended through the full `new_form_data = {…}` closing brace with `'metadata': metadata,` to keep the 3+4 cascade atomic. `tests/patches/test_cascade_v092.py` pins the invariant. Marker: `FIX_LARGE_TOOL_RESULTS`.
-- **fix_large_tool_args** (BE) — still-matches at v0.9.2. Count-assertion `content.count(OLD_ARGS) == 2` still holds. Truncates oversized tool-call arguments in HTML attributes to prevent browser freeze on large tool outputs. Marker: `FIX_LARGE_TOOL_ARGS`.
-- **fix_attached_files_position** (BE) — still-matches at v0.9.2. Moves file context to the end of messages to improve prompt-cache hit rates with large file attachments. Marker: `FIX_ATTACHED_FILES_POSITION`.
-- **fix_skip_embedding_chat_files** (BE) — still-matches at v0.9.2. Both retrieval.py anchors byte-identical; skips expensive text extraction + embedding for >1MB chat uploads, using the knowledge-base fallback instead. Marker: `FIX_SKIP_EMBEDDING_CHAT_FILES`.
-- **fix_skip_rag_files_native_fc** (BE) — still-matches at v0.9.2. Skips the RAG pipeline for chat files when the Computer Use tool is enabled, avoiding unnecessary processing for native-function-calling models. Marker: `FIX_SKIP_RAG_FILES_NATIVE_FC` (filename / marker-name mismatch is deliberate — documented in Phase 6 verdict).
+- **fix_artifacts_auto_show** (FE) — matches at v0.9.2. Auto-opens the Artifacts panel when an assistant message contains an HTML code block. Marker: `FIX_ARTIFACTS_AUTO_SHOW` baked into the compiled SvelteKit chunks.
+- **fix_preview_url_detection** (FE) — matches at v0.9.2. Auto-inserts the preview iframe for `{server}/preview/{chat_id}` and `{server}/files/{chat_id}/...` URLs. Host-agnostic: iframe src reconstructed at runtime from the matched URL's own origin. Marker: `FIX_PREVIEW_URL_DETECTION`.
+- **fix_tool_loop_errors** (BE) — rewritten for v0.9.2. SEARCH/REPLACE extended with the new `'metadata': metadata,` key that v0.9.2 upstream added to `new_form_data = {…}` inside the tool-call retry loop. A 10-line in-memory `V091_SHIM → V092_SHIM` keeps v0.9.1 fixtures green as regression coverage only. Marker: `FIX_TOOL_LOOP_ERRORS`.
+- **fix_large_tool_results** (BE, cascade on patch 3) — rewritten for v0.9.2. SEARCH_TOOL_LOOP extended through the full `new_form_data = {…}` closing brace with `'metadata': metadata,` to keep the 3+4 cascade atomic. `tests/patches/test_fix_large_tool_results.py::test_cascade_with_patch_3_on_v092` pins the invariant. Marker: `FIX_LARGE_TOOL_RESULTS`.
+- **fix_large_tool_args** (BE) — matches at v0.9.2. Count-assertion `content.count(OLD_ARGS) == 2` still holds. Truncates oversized tool-call arguments in HTML attributes to prevent browser freeze on large tool outputs. Marker: `FIX_LARGE_TOOL_ARGS`.
+- **fix_attached_files_position** (BE) — matches at v0.9.2. Moves file context to the end of messages to improve prompt-cache hit rates with large file attachments. Marker: `FIX_ATTACHED_FILES_POSITION`.
+- **fix_skip_embedding_chat_files** (BE) — matches at v0.9.2. Both retrieval.py anchors byte-identical; skips expensive text extraction + embedding for >1MB chat uploads, using the knowledge-base fallback instead. Marker: `FIX_SKIP_EMBEDDING_CHAT_FILES`.
+- **fix_skip_rag_files_native_fc** (BE) — matches at v0.9.2. Skips the RAG pipeline for chat files when the Computer Use tool is enabled, avoiding unnecessary processing for native-function-calling models. Marker: `FIX_SKIP_RAG_FILES_NATIVE_FC` (filename / marker-name mismatch is deliberate — documented in Phase 6 verdict).
 
-Build proof: `open-computer-use:0.9.2-test` built from the full production `openwebui/Dockerfile` with `--build-arg OPENWEBUI_VERSION=0.9.2` emits 8 `PATCHED: fix_* applied successfully.` lines and 0 `ERROR:` lines. Test proof: `python -m pytest tests/` green in `python:3.13-slim` — 248 passed, 0 failed (+19 v0.9.2 cases on top of the 229-test v0.9.1 baseline).
+Build proof: `open-computer-use:0.9.2-test` built from the full production `openwebui/Dockerfile` with `--build-arg OPENWEBUI_VERSION=0.9.2` emits 8 `PATCHED: fix_* applied successfully.` lines and 0 `ERROR:` lines. Test proof: `python -m pytest tests/` green in `python:3.13-slim` — 248 passed, 0 failed.
 
 ### Features — Claude Code gateway compatibility rollup (Phase 3, GATEWAY-01..12)
 
@@ -38,7 +38,7 @@ Phase 3 code shipped on `main` on 2026-04-12 (commit `38347fd`) but never had it
 
 ### Known Limitations
 
-- **Live UI UAT for v0.9.2 deferred to the user**: Phase 5's Artifacts-panel + preview-iframe screenshots were captured against a v0.9.1-era image. For v0.9.2 the automation proves (a) patch markers are baked into `/app/build/_app/immutable/chunks/*.js` of the built `open-computer-use:0.9.2-test` image, (b) the patched middleware and retrieval modules parse as valid Python AST, (c) cascade 3+4 on v0.9.2 fixtures is atomic — but end-to-end localhost UX verification (open a chat, request an HTML artifact, request a file preview) is the user's post-release UAT step. It does not block the release; the mechanical proof that the v0.9.2 patched chunks behave the same as v0.9.1 is in place.
+- **Live UI UAT for v0.9.2 deferred to the user**: Phase 5's Artifacts-panel + preview-iframe screenshots were captured against a v0.9.1-era image. For v0.9.2 the automation proves (a) patch markers are baked into `/app/build/_app/immutable/chunks/*.js` of the built `open-computer-use:0.9.2-test` image, (b) the patched middleware and retrieval modules parse as valid Python AST, (c) cascade 3+4 on v0.9.2 fixtures is atomic — but end-to-end localhost UX verification (open a chat, request an HTML artifact, request a file preview) is the user's post-release UAT step. It does not block the release; the mechanical proof that the v0.9.2 patched chunks carry their fail-loud markers and parse cleanly is in place.
 
 ## v0.8.12.8 (2026-04-19)
 

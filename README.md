@@ -161,7 +161,7 @@ All settings via `.env`:
 | `SUB_AGENT_TIMEOUT` | `3600` | Sub-agent timeout (seconds) |
 | `SINGLE_USER_MODE` | — | `true` = one container, no chat ID needed; `false` = require X-Chat-Id; unset = lenient |
 | `PUBLIC_BASE_URL` | `http://computer-use-server:8081` | Browser-reachable URL of the Computer Use server. Baked into `/system-prompt` and returned to the Open WebUI filter in the `X-Public-Base-URL` response header — **single source of truth** for the public URL. [Open WebUI filter URL requirements](docs/openwebui-filter.md#two-url-roles--public-server-env-and-internal-filtertool-valve). |
-| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `ORCHESTRATOR_URL`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, build-arg `COMPUTER_USE_SERVER_URL` | — | Settings on the **`open-webui` container** (not CU-server). Required when embedding — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack). |
+| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `ORCHESTRATOR_URL`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS` | — | Settings on the **`open-webui` container** (not CU-server). Required when embedding — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack). |
 | `POSTGRES_PASSWORD` | `openwebui` | PostgreSQL password |
 | `VISION_API_KEY` | — | Vision API key (for describe-image) |
 | `ANTHROPIC_AUTH_TOKEN` | — | Anthropic key (for Claude Code sub-agent) |
@@ -190,9 +190,9 @@ The Computer Use Server speaks standard **MCP over Streamable HTTP** — any MCP
 
 > **[Open WebUI](https://github.com/open-webui/open-webui)** is an extensible, self-hosted AI interface. We use it as the primary frontend because it supports tool calling, function filters, and artifacts — everything needed for Computer Use.
 
-**Compatibility:** Tested with Open WebUI v0.9.2 (current default). Prior base v0.8.11–0.8.12 still works via `OPENWEBUI_VERSION=0.8.12` in `.env`. Set `OPENWEBUI_VERSION` in `.env` to pin a specific version.
+**Compatibility:** This build is strictly built and verified against Open WebUI 0.9.2. The first 3 segments of our build version (`v0.9.2.X`) always match the Open WebUI base version it targets. If you run a different Open WebUI version, pick the Open Computer Use build whose first 3 version segments match yours — e.g., for Open WebUI 0.8.12 use a `v0.8.12.Y` build.
 
-**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use stock [Open WebUI](https://github.com/open-webui/open-webui) versions v0.8.11–0.9.2 (tested, 0.9.2 is the default) — just install the tool and filter. Patches are applied at Docker build time; strongly recommended — 4 of them affect user-visible UX (artifacts panel, preview iframe, error banners, large tool-result handling). Pulling `ghcr.io/open-webui/open-webui` directly skips all of them — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack) for the full checklist.
+**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use stock [Open WebUI](https://github.com/open-webui/open-webui) 0.9.2 with this build (the version that the first 3 segments of our build version `v0.9.2.X` match) — just install the tool and filter. Patches are applied at Docker build time; strongly recommended — 4 of them affect user-visible UX (artifacts panel, preview iframe, error banners, large tool-result handling). Pulling `ghcr.io/open-webui/open-webui` directly skips all of them — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack) for the full checklist.
 
 Running Claude Code through a corporate gateway (LiteLLM, Azure, Bedrock)? See [docs/claude-code-gateway.md](docs/claude-code-gateway.md) for the three-path operator recipe.
 
@@ -275,25 +275,18 @@ docker exec open-webui bash -c \
 
 The `bn.set(!0),Jr.set(!0)` marker is injected by `fix_artifacts_auto_show` into the minified Svelte chunks at build time. Empty output = stock upstream image, not ours.
 
-#### Step 2 — Set `COMPUTER_USE_SERVER_URL` build-arg to the PUBLIC domain (counterintuitive)
+#### Step 2 — No build-arg required for preview URL detection (host-agnostic since v0.9.2.1)
 
-This is the most confusing trap. `COMPUTER_USE_SERVER_URL` is a **build argument** in `openwebui/Dockerfile:16-17` that — despite the name — is **not** a network endpoint. It is compiled into a regex inside the minified Svelte chunks by `openwebui/patches/fix_preview_url_detection.py:54`. The regex searches assistant messages for links of the form `{COMPUTER_USE_SERVER_URL}/(files|preview)/...` and triggers the preview iframe.
+`fix_preview_url_detection` is now fully host-agnostic. The injected JS reads the origin directly from the matched URL at runtime (`_pm[1]` captures the full `https://host:port` prefix), so the patch requires no build-time host configuration. The `COMPUTER_USE_SERVER_URL` build-arg has been removed from `openwebui/Dockerfile`.
 
-The model writes whatever URL the Computer Use Server injected into the system prompt — i.e. the server's `PUBLIC_BASE_URL`, which is your **public** domain. So the regex must match that public domain, not the internal Docker service name.
+**No action needed** — the patch works automatically regardless of whether you use `localhost:8081`, a public domain, or Docker internal DNS. The preview iframe src is always reconstructed from the URL the model wrote into the message, which in turn comes from the server's `PUBLIC_BASE_URL` env var.
 
-| Environment | Correct value |
-|-------------|---------------|
-| Production with domain | `cu.your-domain.com` (no scheme — the regex wraps it) |
-| Local dev (Docker Desktop) | `localhost:8081` (the default) |
-
-⚠️ If you change this after an initial build, you **must rebuild the image** (`docker compose up -d --build open-webui`) — the value is compiled into chunks, not read at runtime.
-
-Verify:
+Verify the patch is applied:
 
 ```bash
 docker exec open-webui bash -c \
-  'grep -oE "[a-z0-9.:-]+\\\\/\\(files\\|preview" /app/build/_app/immutable/chunks/*.js | head -1'
-# → should contain your public domain (e.g. cu.your-domain.com), NOT computer-use-server:8081
+  'grep -c "FIX_PREVIEW_URL_DETECTION" /app/build/_app/immutable/chunks/*.js 2>/dev/null | grep -v ":0" | head -1'
+# → should print filename:1 confirming the patch marker is present
 ```
 
 #### Step 3 — Three URL settings, two roles (public vs internal)

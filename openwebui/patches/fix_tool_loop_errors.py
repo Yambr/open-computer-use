@@ -17,7 +17,7 @@ Problems solved:
 6. SSE parse errors logged at debug level only
 
 Applied at Docker build time. Works on ORIGINAL middleware.py (no dependencies).
-Target: OpenWebUI v0.8.11-0.9.1 (output-based architecture, serialize_output, prior_output).
+Target: Open WebUI 0.9.2 (output-based architecture, serialize_output, prior_output).
 
 Fail-loud: ANY sub-anchor miss triggers sys.exit(1) with stderr ERROR — refuses
 to ship a partially-patched middleware.py. Idempotent: re-run prints ALREADY PATCHED.
@@ -30,7 +30,7 @@ _PATCH_TARGET_OVERRIDE = os.environ.get("_PATCH_TARGET_OVERRIDE", "")
 MIDDLEWARE_PATH = _PATCH_TARGET_OVERRIDE or "/app/backend/open_webui/utils/middleware.py"
 
 PATCH_MARKER = "TOOL_LOOP_ERRORS_UNIFIED"   # legacy marker — retained
-NEW_PATCH_MARKER = "FIX_TOOL_LOOP_ERRORS"   # v0.9.1.0 marker (appears in injected comments)
+NEW_PATCH_MARKER = "FIX_TOOL_LOOP_ERRORS"   # v0.9.2.0 marker (appears in injected comments)
 
 _BUDGET_MSG = (
     "Model temporarily unavailable. "

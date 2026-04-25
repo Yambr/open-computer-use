@@ -449,6 +449,9 @@ class TestFixLargeToolResultsV091(unittest.TestCase):
         content = self.target.read_text()
         self.assertIn("FIX_TOOL_LOOP_ERRORS", content)
         self.assertIn("FIX_LARGE_TOOL_RESULTS", content)
+        # V091_SHIM injects 'metadata': metadata, before SEARCH_TOOL_LOOP runs,
+        # so the post-cascade content must carry the key (mirrors v0.9.2 assertion).
+        self.assertIn("'metadata': metadata,", content)
         ast.parse(content)
 
     def test_patch_4_fails_loud_without_patch_3(self):

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright (c) 2025 Open Computer Use Contributors
 """
-Patch for Open WebUI v0.8.11-0.9.1: automatic detection of file URLs in messages
+Patch for Open WebUI 0.9.2 (host-agnostic): automatic detection of file URLs in messages
 
 Problem: To show file preview in the Artifacts panel, we need to detect
 Computer Use Server file links in assistant messages and auto-open the
@@ -13,10 +13,10 @@ Push an iframe into htmlGroups array (e): if no code blocks found but content ha
 a link to /files/{chat_id}/... or /preview/{chat_id} -- push iframe artifact.
 The existing chain (getContents -> artifactContents -> auto-show) handles the rest.
 
-The server URL is configurable via COMPUTER_USE_SERVER_URL env var
-(defaults to computer-use-server:8081).
+Host-agnostic: the iframe src is reconstructed at runtime from the matched URL's own
+origin, so no build-time host configuration is needed.
 
-=== v0.8.11-0.9.1 compiled code ===
+=== Compiled-code anchor ===
 
   Wn=r=>{r=Ce(r);const t=r.match(/```[\\s\\S]*?```/g);let n=[],e=[];
   ... // code block parsing fills e[] with {html, css, js} groups
@@ -29,7 +29,7 @@ picks it up. No const reassignment needed.
 
   // INJECTED:
   /* FIX_PREVIEW_URL_DETECTION */
-  if(!e.some(o=>o.html)&&r&&/localhost:8081\\/(files|preview)\\//.test(r)){
+  if(!e.some(o=>o.html)&&r&&/\\/(files|preview)\\//.test(r)){
     var _pm=r.match(/regex/); if(_pm) e.push({html:'<iframe...>',css:'...',js:''});
   }
   const i=e.map(o=>o.html).join(""); // now includes our iframe
@@ -55,12 +55,10 @@ CONST_DECL_PATTERN = re.compile(
 # Context marker: the backtick regex (confirms we're in getCodeBlockContents)
 BACKTICK_REGEX_MARKER = r'[\s\S]*?'  # part of /```[\s\S]*?```/g
 
-# Preview server URL -- configurable via COMPUTER_USE_SERVER_URL env var
-# Defaults to computer-use-server:8081 (docker-compose service name)
-PREVIEW_HOST = os.getenv("COMPUTER_USE_SERVER_URL", "localhost:8081")
-# Strip protocol for regex, keep for iframe URL
-PREVIEW_HOST_BARE = re.sub(r'^https?://', '', PREVIEW_HOST).rstrip('/')
-PREVIEW_BASE_URL = PREVIEW_HOST if '://' in PREVIEW_HOST else f'http://{PREVIEW_HOST}'
+# This patch is host-agnostic. The iframe `src` is reconstructed at runtime
+# from the matched URL's own origin (_pm[1] in the injected JS), so no
+# build-time host configuration is consumed here. COMPUTER_USE_SERVER_URL
+# is intentionally not read by this patch.
 
 # Idempotency marker -- injected as a JS comment at the patch site.
 # Presence of this marker indicates the chunk has already been patched by this script.
