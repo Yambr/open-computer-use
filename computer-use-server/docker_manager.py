@@ -14,6 +14,7 @@ Extracted from mcp_tools.py to reduce file size and separate concerns.
 """
 
 import os
+import sys
 import re
 import json
 import shlex
@@ -103,6 +104,22 @@ CLAUDE_CODE_PASSTHROUGH_ENVS = (
     ("DISABLE_PROMPT_CACHING_OPUS", DISABLE_PROMPT_CACHING_OPUS),
     ("DISABLE_PROMPT_CACHING_HAIKU", DISABLE_PROMPT_CACHING_HAIKU),
 )
+
+# Sub-agent CLI runtime selector (CLI-01, CLI-02). Read once at module load
+# and propagated to every spawned container via extra_env (D5 shape a).
+# Empty/unset → "claude" (backwards-compat invariant). Invalid value → hard
+# fail at module load (D1) so a typo in .env is visible in the very first
+# `docker compose up` log line, never silently runs the wrong CLI.
+_ALLOWED_CLIS = {"claude", "codex", "opencode"}
+_raw_subagent_cli = os.getenv("SUBAGENT_CLI", "").strip().lower()
+if _raw_subagent_cli and _raw_subagent_cli not in _ALLOWED_CLIS:
+    print(
+        f"[computer-use-server] FATAL: SUBAGENT_CLI={_raw_subagent_cli!r} "
+        f"is not one of {{claude, codex, opencode}}.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+SUBAGENT_CLI = _raw_subagent_cli or "claude"
 
 # Vision API for describe-image / upd-processing skills
 VISION_API_KEY = os.getenv("VISION_API_KEY", "")
@@ -461,6 +478,11 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
     for _name, _value in CLAUDE_CODE_PASSTHROUGH_ENVS:
         if _value:
             extra_env[_name] = _value
+
+    # Sub-agent runtime selector (CLI-01) — propagated to every container so
+    # the Phase 7 .bashrc autostart `exec "${SUBAGENT_CLI:-claude}"` can read it
+    # and `docker inspect <sandbox>` shows the chosen runtime in Env.
+    extra_env["SUBAGENT_CLI"] = SUBAGENT_CLI
 
     # Vision API for describe-image / upd-processing skills
     if VISION_API_KEY:
