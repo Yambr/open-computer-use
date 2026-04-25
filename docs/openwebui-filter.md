@@ -39,7 +39,7 @@ Do nothing — the filter already emits the markdown link. The user clicks `🖥
 If you want the preview to pop open automatically inside the artifact panel like in the screenshot above, use our patched Open WebUI build:
 
 - **Easiest:** use `docker-compose.webui.yml` from the repo root. It builds Open WebUI with `fix_artifacts_auto_show` and `fix_preview_url_detection` pre-applied.
-- **Custom image:** if you maintain your own Open WebUI image, copy the two patch scripts (`openwebui/patches/fix_artifacts_auto_show.py` and `openwebui/patches/fix_preview_url_detection.py`) and run them against `/app/build/_app/immutable/chunks/*.js` at build time — see [`openwebui/Dockerfile`](../openwebui/Dockerfile) lines 10–16 for the exact invocation. Both patches are idempotent and tested against Open WebUI 0.9.2 (this build's strict target).
+- **Custom image:** if you maintain your own Open WebUI image, copy the two patch scripts (`openwebui/patches/fix_artifacts_auto_show.py` and `openwebui/patches/fix_preview_url_detection.py`) and run them against `/app/build/_app/immutable/chunks/*.js` at build time — see [`openwebui/Dockerfile`](../openwebui/Dockerfile) for the exact `RUN python3 /tmp/patches/...` invocations. Both patches are idempotent and tested against Open WebUI 0.9.2 (this build's strict target).
 
 ### Also check: `PUBLIC_BASE_URL` must be reachable from the user's browser
 

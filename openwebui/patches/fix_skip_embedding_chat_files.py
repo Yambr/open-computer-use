@@ -30,7 +30,7 @@ PATCH_MARKER = "skip_processing_chat_files"
 NEW_PATCH_MARKER = "FIX_SKIP_EMBEDDING_CHAT_FILES"
 
 # === Patch 1: early return for regular uploads ===
-# v0.8.11-0.9.1 uses single quotes: f'file-{file.id}'
+# v0.8.11-0.9.2 uses single quotes: f'file-{file.id}'
 
 SEARCH_PATTERN_1 = """            if collection_name is None:
                 collection_name = f'file-{file.id}'
@@ -63,7 +63,7 @@ REPLACE_PATTERN_1 = """            if collection_name is None:
 # === Patch 2: KB fallback -- extract from file when content is empty ===
 # When a file was uploaded without extraction (Patch 1) and then added to a KB,
 # there are no embeddings and no content. Need to extract from the file.
-# v0.8.11-0.9.1: single quotes, text_content = file.data.get('content', '')
+# v0.8.11-0.9.2: single quotes, text_content = file.data.get('content', '')
 
 SEARCH_PATTERN_2 = """                else:
                     docs = [

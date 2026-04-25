@@ -274,7 +274,7 @@ docker exec open-webui bash -c \
 
 The `FIX_ARTIFACTS_AUTO_SHOW` JS comment marker is injected by `fix_artifacts_auto_show.py` at build time as a version-stable identifier — it does not depend on minified Svelte variable names, which change with every Open WebUI release.
 
-#### Step 2 — No build-arg required for preview URL detection (host-agnostic since v0.9.2.1)
+#### Step 2 — No build-arg required for preview URL detection (host-agnostic since v0.9.2.0)
 
 `fix_preview_url_detection` is now fully host-agnostic. The injected JS reads the origin directly from the matched URL at runtime (`_pm[1]` captures the full `https://host:port` prefix), so the patch requires no build-time host configuration. The `COMPUTER_USE_SERVER_URL` build-arg has been removed from `openwebui/Dockerfile`.
 
@@ -290,7 +290,7 @@ docker exec open-webui bash -c \
 
 #### Step 3 — Two URL settings, two roles (public vs internal)
 
-**v4.0.0:** the old "three `FILE_SERVER_URL` places that must match" footgun is gone. There are now only **two** places and **two** distinct roles — public (browser-reachable) vs internal (Docker-local). The `COMPUTER_USE_SERVER_URL` build-arg was removed in v0.9.2.1 — `fix_preview_url_detection` is now host-agnostic (see Step 2).
+**v4.0.0:** the old "three `FILE_SERVER_URL` places that must match" footgun is gone. There are now only **two** places and **two** distinct roles — public (browser-reachable) vs internal (Docker-local). The `COMPUTER_USE_SERVER_URL` build-arg was removed in v0.9.2.0 — `fix_preview_url_detection` is now host-agnostic (see Step 2).
 
 | Where | Role | Who reads it | Prod (with domain) | Local dev (Docker Desktop) |
 |-------|------|-------------|--------------------|----------------------------|
@@ -361,7 +361,7 @@ docker exec open-webui bash -c \
   'grep -rl "FIX_ARTIFACTS_AUTO_SHOW" /app/build/_app/immutable/chunks/ >/dev/null \
    && echo OK || echo MISSING'
 
-# 2. Preview URL detection is host-agnostic (no build-arg needed since v0.9.2.1):
+# 2. Preview URL detection is host-agnostic (no build-arg needed since v0.9.2.0):
 docker exec open-webui bash -c \
   'grep -c "FIX_PREVIEW_URL_DETECTION" /app/build/_app/immutable/chunks/*.js 2>/dev/null | grep -v ":0" | head -1'
 # → should print filename:1 confirming the patch marker is present
