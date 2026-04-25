@@ -27,7 +27,7 @@ MIDDLEWARE_PATH = _PATCH_TARGET_OVERRIDE or "/app/backend/open_webui/utils/middl
 PATCH_MARKER = "attached_files_append"
 NEW_PATCH_MARKER = "FIX_ATTACHED_FILES_POSITION"
 
-# Exact v0.8.11-0.9.1 code — prepend file_context before content
+# Exact v0.8.11-0.9.2 code — prepend file_context before content
 SEARCH_PATTERN = """\
         content = message.get('content', '')
         if isinstance(content, list):
@@ -58,7 +58,8 @@ def apply_patch():
         content = f.read()
 
     if PATCH_MARKER in content or NEW_PATCH_MARKER in content:
-        print(f"ALREADY PATCHED: {MIDDLEWARE_PATH} contains {PATCH_MARKER}")
+        which = NEW_PATCH_MARKER if NEW_PATCH_MARKER in content else PATCH_MARKER
+        print(f"ALREADY PATCHED: {MIDDLEWARE_PATH} contains {which}")
         return True
 
     if SEARCH_PATTERN not in content:

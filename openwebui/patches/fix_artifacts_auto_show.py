@@ -294,6 +294,27 @@ def apply_patch():
     show_art = stores['show_artifacts'] if stores else None
     show_ctrl = stores['show_controls'] if stores else None
 
+    # If subscribe was already patched (legacy marker) but store extraction returned
+    # None (legacy-wrapped shape doesn't match _find_subscribe_pattern), attempt a
+    # fallback to derive art_store from the getContents context.  Without this,
+    # Patch 2 would be silently skipped while the script still exits success.
+    if subscribe_already and art_store is None:
+        # Fallback: look for STORE.set(VAR)}, immediately after type:"iframe"
+        fallback_pat = re.compile(
+            r'type:"iframe"[^}]{0,400}?(\w+)\.set\(\w+\)\},'
+        )
+        fb_match = fallback_pat.search(content)
+        if fb_match:
+            art_store = fb_match.group(1)
+            print(f"  Fallback store extraction succeeded: art_store={art_store}")
+        else:
+            print(
+                "ERROR: legacy chunk patched but artifact store name could not be "
+                "derived for Patch 2 verification",
+                file=sys.stderr,
+            )
+            return False
+
     if not art_store:
         print("  WARNING: Could not determine artifact store name, skipping patch 2")
     else:
@@ -389,7 +410,7 @@ if __name__ == "__main__":
         print(
             "ERROR: fix_artifacts_auto_show anchor not found in "
             f"{BUILD_CHUNKS_DIR}/*.js -- upstream may have refactored. "
-            "Check v0.9.1 source + update regex. "
+            "Check v0.9.2 source + update regex. "
             "Refusing to produce a silently-broken image.",
             file=sys.stderr,
         )

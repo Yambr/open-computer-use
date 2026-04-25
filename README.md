@@ -284,8 +284,9 @@ Verify the patch is applied:
 
 ```bash
 docker exec open-webui bash -c \
-  'grep -c "FIX_PREVIEW_URL_DETECTION" /app/build/_app/immutable/chunks/*.js 2>/dev/null | grep -v ":0" | head -1'
-# → should print filename:1 confirming the patch marker is present
+  'grep -rl "FIX_PREVIEW_URL_DETECTION" /app/build/_app/immutable/chunks/ >/dev/null \
+   && echo "patches applied" || echo "MISSING — fix_preview_url_detection not baked in"'
+# → should print "patches applied"
 ```
 
 #### Step 3 — Two URL settings, two roles (public vs internal)
@@ -363,8 +364,9 @@ docker exec open-webui bash -c \
 
 # 2. Preview URL detection is host-agnostic (no build-arg needed since v0.9.2.0):
 docker exec open-webui bash -c \
-  'grep -c "FIX_PREVIEW_URL_DETECTION" /app/build/_app/immutable/chunks/*.js 2>/dev/null | grep -v ":0" | head -1'
-# → should print filename:1 confirming the patch marker is present
+  'grep -rl "FIX_PREVIEW_URL_DETECTION" /app/build/_app/immutable/chunks/ >/dev/null \
+   && echo "patches applied" || echo "MISSING — fix_preview_url_detection not baked in"'
+# → should print "patches applied"
 
 # 3. Env vars reached the container:
 docker exec open-webui env | grep -E 'CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES|TOOL_RESULT_|ORCHESTRATOR_URL'

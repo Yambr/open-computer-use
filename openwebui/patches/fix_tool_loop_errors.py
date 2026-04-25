@@ -229,7 +229,6 @@ REPLACE_TOOL_LOOP = (
     "                            if _err_detail:\n"
     "                                log.error('NON_STREAM_ERROR: chat=%s iter=%d error=%s',\n"
     "                                    metadata.get('chat_id', '')[:8], tool_call_retries, _err_detail)\n"
-    "                                output[:] = _saved_output\n"
     "                                if 'Model not found' in _err_detail:\n"
     "                                    _err_detail = '" + _BUDGET_MSG + "'\n"
     "                                # Keep only message items (text the user already saw)\n"

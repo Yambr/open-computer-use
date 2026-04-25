@@ -221,7 +221,7 @@ if __name__ == "__main__":
         print(
             "ERROR: fix_preview_url_detection anchor not found in "
             f"{BUILD_CHUNKS_DIR}/*.js -- getCodeBlockContents compiled shape changed. "
-            "Check v0.9.1 source + update CONST_DECL_PATTERN. "
+            "Check v0.9.2 source + update CONST_DECL_PATTERN. "
             "Refusing to produce a silently-broken image.",
             file=sys.stderr,
         )

@@ -134,7 +134,7 @@ def apply_patch():
     if occurrences != 2:
         print(
             f"ERROR: fix_large_tool_args expected 2 occurrences of OLD_ARGS f-string in "
-            f"serialize_output, found {occurrences}. v0.9.1 upstream may have restructured. "
+            f"serialize_output, found {occurrences}. v0.9.2 upstream may have restructured. "
             "Refusing to produce a silently-broken image.",
             file=sys.stderr,
         )
