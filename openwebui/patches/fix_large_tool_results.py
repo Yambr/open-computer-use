@@ -25,18 +25,21 @@ Config env vars:
   ORCHESTRATOR_URL -- internal URL of computer-use-server for large-result uploads
 
 Must run AFTER fix_tool_loop_errors.py (Mod 2 targets its marker).
-Target: OpenWebUI v0.8.11-0.8.12
+Target: OpenWebUI v0.8.11-0.9.1
 """
 
 import os
+import sys
 
 _PATCH_TARGET_OVERRIDE = os.environ.get("_PATCH_TARGET_OVERRIDE", "")
 MIDDLEWARE_PATH = _PATCH_TARGET_OVERRIDE or "/app/backend/open_webui/utils/middleware.py"
 
 PATCH_MARKER = "_truncate_large_results_in_output"
+NEW_PATCH_MARKER = "FIX_LARGE_TOOL_RESULTS"
 
 FUNCTION_CODE = '''
 # === PATCH: _truncate_large_results_in_output -- truncate large MCP tool results (DB + LLM) ===
+# FIX_LARGE_TOOL_RESULTS
 import os as _os_module
 
 _TOOL_RESULT_MAX_CHARS = int(_os_module.environ.get('TOOL_RESULT_MAX_CHARS', '50000'))
@@ -158,12 +161,20 @@ def _truncate_tool_messages_in_history(messages: list) -> None:
 # === END PATCH: _truncate_large_results_in_output ===
 '''
 
-# Search pattern: targets code AFTER fix_tool_loop_errors.py (TOOL_LOOP_ERRORS_UNIFIED marker)
+# Search pattern: targets code AFTER fix_tool_loop_errors.py (TOOL_LOOP_ERRORS_UNIFIED marker).
+# v0.9.2: Patch 3's REPLACE now emits `'metadata': metadata,` inside new_form_data — include it
+# in the SEARCH so the cascade region is fully covered and any upstream drift of the metadata
+# key fails loud here rather than silently producing a broken middleware.
 SEARCH_TOOL_LOOP = (
     "                    _saved_output = json.loads(json.dumps(output))"
     "  # TOOL_LOOP_ERRORS_UNIFIED: save for restore on error\n"
     "                    try:\n"
     "                        new_form_data = {\n"
+    "                            **form_data,\n"
+    "                            'model': model_id,\n"
+    "                            'stream': True,\n"
+    "                            'metadata': metadata,\n"
+    "                        }\n"
 )
 
 REPLACE_TOOL_LOOP = (
@@ -173,6 +184,11 @@ REPLACE_TOOL_LOOP = (
     "  # TOOL_LOOP_ERRORS_UNIFIED: save for restore on error\n"
     "                    try:\n"
     "                        new_form_data = {\n"
+    "                            **form_data,\n"
+    "                            'model': model_id,\n"
+    "                            'stream': True,\n"
+    "                            'metadata': metadata,\n"
+    "                        }\n"
 )
 
 
@@ -195,57 +211,66 @@ def apply_patch():
     """Apply large tool results truncation patch to middleware.py."""
 
     if not os.path.exists(MIDDLEWARE_PATH):
-        print(f"  ERROR: File not found: {MIDDLEWARE_PATH}")
-        return False
+        print(
+            f"ERROR: fix_large_tool_results target file {MIDDLEWARE_PATH} not found. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     with open(MIDDLEWARE_PATH, "r", encoding="utf-8") as f:
         content = f.read()
 
     # Check if already applied
-    if PATCH_MARKER in content:
-        print("  Patch already applied, skipping...")
+    if PATCH_MARKER in content or NEW_PATCH_MARKER in content:
+        print(f"ALREADY PATCHED: {MIDDLEWARE_PATH} contains {PATCH_MARKER}")
         return True
-
-    original = content
-    changes = 0
 
     # Mod 1: Inject functions after imports
     import_marker = "from open_webui.models.chats import Chats"
     marker_idx = content.find(import_marker)
     if marker_idx < 0:
-        print("  ERROR: Could not find import marker in middleware.py")
-        return False
+        print(
+            f"ERROR: fix_large_tool_results Mod 1 anchor (import marker "
+            f"'from open_webui.models.chats import Chats') not found in {MIDDLEWARE_PATH} "
+            "— upstream may have restructured imports. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     eol_idx = content.index("\n", marker_idx) + 1
     content = content[:eol_idx] + FUNCTION_CODE + content[eol_idx:]
     print("  [1/3] Injected functions: _truncate_large_results_in_output, _truncate_tool_messages_in_history, _upload_result_to_docker_ai")
-    changes += 1
 
     # Mod 2: Add truncation call before _saved_output in tool loop
-    if SEARCH_TOOL_LOOP in content:
-        content = content.replace(SEARCH_TOOL_LOOP, REPLACE_TOOL_LOOP, 1)
-        print("  [2/3] Tool loop: truncate current results before _saved_output")
-        changes += 1
-    else:
-        print("  WARNING: Tool loop pattern not found (TOOL_LOOP_ERRORS_UNIFIED marker)")
-        print("  This patch requires fix_tool_loop_errors.py to be applied first")
+    if SEARCH_TOOL_LOOP not in content:
+        print(
+            "ERROR: fix_large_tool_results Mod 2 anchor (TOOL_LOOP_ERRORS_UNIFIED marker) "
+            "not found. Run fix_tool_loop_errors.py first, or upstream tool-loop structure "
+            "changed. Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    content = content.replace(SEARCH_TOOL_LOOP, REPLACE_TOOL_LOOP, 1)
+    print("  [2/3] Tool loop: truncate current results before _saved_output")
 
     # Mod 3: Truncate historical tool messages from DB
-    if SEARCH_HISTORY in content:
-        content = content.replace(SEARCH_HISTORY, REPLACE_HISTORY, 1)
-        print("  [3/3] History: truncate old tool results from DB")
-        changes += 1
-    else:
-        print("  WARNING: History pattern not found (process_messages_with_output)")
-
-    if content == original:
-        print("  ERROR: No changes made!")
-        return False
+    if SEARCH_HISTORY not in content:
+        print(
+            "ERROR: fix_large_tool_results Mod 3 anchor (process_messages_with_output / "
+            "get_system_message block) not found in middleware.py — upstream may have "
+            "restructured. Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    content = content.replace(SEARCH_HISTORY, REPLACE_HISTORY, 1)
+    print("  [3/3] History: truncate old tool results from DB")
 
     with open(MIDDLEWARE_PATH, "w", encoding="utf-8") as f:
         f.write(content)
 
-    print(f"  Large tool results patch applied! {changes}/3 modifications.")
+    print("PATCHED: fix_large_tool_results applied successfully.")
     print("  Config: TOOL_RESULT_MAX_CHARS (default 50000), TOOL_RESULT_PREVIEW_CHARS (default 2000)")
     print("  Upload: ORCHESTRATOR_URL (optional, for Computer Use)")
     print("  Log markers: TOOL_RESULT_TRUNCATED, TOOL_RESULT_HISTORY_TRUNCATED")
@@ -255,5 +280,4 @@ def apply_patch():
 if __name__ == "__main__":
     print("Applying large tool results truncation patch to middleware.py...")
     success = apply_patch()
-    print("  Done!" if success else "  FAILED!")
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

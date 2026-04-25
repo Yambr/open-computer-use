@@ -17,17 +17,20 @@ Solution:
 
 When adding a file to a knowledge base (collection_name is set), full processing works.
 
-Target: Open WebUI v0.8.11–0.8.12
+Target: Open WebUI v0.8.11-0.9.1
 """
 
 import os
+import sys
 
-RETRIEVAL_PATH = "/app/backend/open_webui/routers/retrieval.py"
+_PATCH_TARGET_OVERRIDE = os.environ.get("_PATCH_TARGET_OVERRIDE", "")
+RETRIEVAL_PATH = _PATCH_TARGET_OVERRIDE or "/app/backend/open_webui/routers/retrieval.py"
 
 PATCH_MARKER = "skip_processing_chat_files"
+NEW_PATCH_MARKER = "FIX_SKIP_EMBEDDING_CHAT_FILES"
 
 # === Patch 1: early return for regular uploads ===
-# v0.8.11–0.8.12 uses single quotes: f'file-{file.id}'
+# v0.8.11-0.9.1 uses single quotes: f'file-{file.id}'
 
 SEARCH_PATTERN_1 = """            if collection_name is None:
                 collection_name = f'file-{file.id}'
@@ -37,7 +40,7 @@ SEARCH_PATTERN_1 = """            if collection_name is None:
 REPLACE_PATTERN_1 = """            if collection_name is None:
                 collection_name = f'file-{file.id}'
 
-            # PATCH: skip_processing_chat_files -- skip extraction + embedding
+            # PATCH: skip_processing_chat_files -- skip extraction + embedding; FIX_SKIP_EMBEDDING_CHAT_FILES
             # for large files (> 1 MB) during regular uploads (not KB).
             # Small files are processed as before (full context, RAG work).
             # When adding to KB (collection_name is set), processing works normally.
@@ -60,7 +63,7 @@ REPLACE_PATTERN_1 = """            if collection_name is None:
 # === Patch 2: KB fallback -- extract from file when content is empty ===
 # When a file was uploaded without extraction (Patch 1) and then added to a KB,
 # there are no embeddings and no content. Need to extract from the file.
-# v0.8.11–0.8.12: single quotes, text_content = file.data.get('content', '')
+# v0.8.11-0.9.1: single quotes, text_content = file.data.get('content', '')
 
 SEARCH_PATTERN_2 = """                else:
                     docs = [
@@ -79,7 +82,7 @@ SEARCH_PATTERN_2 = """                else:
                 text_content = file.data.get('content', '')"""
 
 REPLACE_PATTERN_2 = """                else:
-                    # PATCH: skip_processing_chat_files — KB fallback
+                    # PATCH: skip_processing_chat_files — KB fallback; FIX_SKIP_EMBEDDING_CHAT_FILES
                     # If file was uploaded without extraction (content empty),
                     # do extraction from file instead of using empty content.
                     _fb_content = file.data.get('content', '')
@@ -154,37 +157,50 @@ REPLACE_PATTERN_2 = """                else:
 
 def apply_patch():
     if not os.path.exists(RETRIEVAL_PATH):
-        print(f"ERROR: File not found: {RETRIEVAL_PATH}")
-        return False
+        print(
+            f"ERROR: fix_skip_embedding_chat_files target file {RETRIEVAL_PATH} not found. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     with open(RETRIEVAL_PATH, "r", encoding="utf-8") as f:
         content = f.read()
 
-    if PATCH_MARKER in content:
-        print("  Patch already applied, skipping...")
+    if PATCH_MARKER in content or NEW_PATCH_MARKER in content:
+        print(f"ALREADY PATCHED: {RETRIEVAL_PATH} contains {PATCH_MARKER}")
         return True
 
     # Patch 1: early return for regular uploads
     if SEARCH_PATTERN_1 not in content:
-        print("ERROR: Could not find target code block (patch 1) in retrieval.py")
-        print("  Looking for: if collection_name is None ... if form_data.content:")
-        return False
+        print(
+            f"ERROR: fix_skip_embedding_chat_files anchor 1 (collection_name / form_data.content "
+            f"block) not found in {RETRIEVAL_PATH} — upstream may have refactored process_file. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     content = content.replace(SEARCH_PATTERN_1, REPLACE_PATTERN_1, 1)
     print("  Patch 1 applied: early return for standalone uploads")
 
-    # Patch 2: KB fallback -- extract from file when content is empty
+    # Patch 2: KB fallback -- extract from file when content is empty (hard-fail on miss at v0.9.1+)
     if SEARCH_PATTERN_2 not in content:
-        print("WARNING: Could not find KB fallback code block (patch 2)")
-        print("  KB file additions may fail for files uploaded without extraction")
-    else:
-        content = content.replace(SEARCH_PATTERN_2, REPLACE_PATTERN_2, 1)
-        print("  Patch 2 applied: KB fallback extracts from file when content is empty")
+        print(
+            f"ERROR: fix_skip_embedding_chat_files anchor 2 (KB fallback else-branch) not found "
+            f"in {RETRIEVAL_PATH} — without this, files uploaded via anchor 1 cannot be added "
+            "to knowledge bases (data-corruption risk). Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    content = content.replace(SEARCH_PATTERN_2, REPLACE_PATTERN_2, 1)
+    print("  Patch 2 applied: KB fallback extracts from file when content is empty")
 
     with open(RETRIEVAL_PATH, "w", encoding="utf-8") as f:
         f.write(content)
 
-    print("  Patch applied successfully!")
+    print("PATCHED: fix_skip_embedding_chat_files applied successfully.")
     print("  Large files (> 1 MB) in chat will skip processing (extraction + embedding)")
     print("  Small files (< 1 MB) in chat are processed normally")
     print("  KB file additions: always processed, fallback extraction if needed")
@@ -194,4 +210,4 @@ def apply_patch():
 if __name__ == "__main__":
     print("Applying skip-processing-for-chat-files patch to Open WebUI...")
     success = apply_patch()
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright (c) 2025 Open Computer Use Contributors
 """
-Patch for Open WebUI v0.8.11–0.8.12: append <attached_files> instead of prepend.
+Patch for Open WebUI v0.8.11-0.9.1: append <attached_files> instead of prepend.
 
 Problem:
   add_file_context() prepends <attached_files> to the beginning of user message.
@@ -13,21 +13,23 @@ Solution:
   Append <attached_files> to the end of the message -- system prompt cache
   and previous messages are preserved.
 
-Note (v0.8.11–0.8.12):
+Note (v0.8.11-0.9.1):
   Zip misalignment (user_messages filter) and format_file_tag() are already
-  fixed upstream (PR #21878). This patch affects ONLY the insertion position.
+  fixed upstream (PR #21878). v0.9.1 made the enclosing function async but the
+  inner 5-line block the patch targets is byte-identical. This patch affects
+  ONLY the insertion position.
 """
 
 import os
+import sys
 
-MIDDLEWARE_PATH = os.environ.get(
-    "_PATCH_TARGET_OVERRIDE",
-    "/app/backend/open_webui/utils/middleware.py",
-)
+_PATCH_TARGET_OVERRIDE = os.environ.get("_PATCH_TARGET_OVERRIDE", "")
+MIDDLEWARE_PATH = _PATCH_TARGET_OVERRIDE or "/app/backend/open_webui/utils/middleware.py"
 
 PATCH_MARKER = "attached_files_append"
+NEW_PATCH_MARKER = "FIX_ATTACHED_FILES_POSITION"
 
-# Exact v0.8.11–0.8.12 code — prepend file_context before content
+# Exact v0.8.11-0.9.1 code — prepend file_context before content
 SEARCH_PATTERN = """\
         content = message.get('content', '')
         if isinstance(content, list):
@@ -37,7 +39,7 @@ SEARCH_PATTERN = """\
 
 # Replace with append — file_context goes AFTER content (prompt cache friendly)
 REPLACE_PATTERN = """\
-        # PATCH: attached_files_append — append to end, not prepend (prompt cache friendly)
+        # PATCH: attached_files_append — append to end, not prepend (prompt cache friendly); FIX_ATTACHED_FILES_POSITION
         content = message.get('content', '')
         if isinstance(content, list):
             message['content'] = content + [{'type': 'text', 'text': file_context}]
@@ -47,27 +49,35 @@ REPLACE_PATTERN = """\
 
 def apply_patch():
     if not os.path.exists(MIDDLEWARE_PATH):
-        print(f"ERROR: File not found: {MIDDLEWARE_PATH}")
-        return False
+        print(
+            f"ERROR: fix_attached_files_position target file {MIDDLEWARE_PATH} not found. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     with open(MIDDLEWARE_PATH, "r", encoding="utf-8") as f:
         content = f.read()
 
-    if PATCH_MARKER in content:
-        print("  Patch already applied, skipping...")
+    if PATCH_MARKER in content or NEW_PATCH_MARKER in content:
+        print(f"ALREADY PATCHED: {MIDDLEWARE_PATH} contains {PATCH_MARKER}")
         return True
 
     if SEARCH_PATTERN not in content:
-        print("ERROR: Could not find target code block in middleware.py")
-        print("  Looking for: add_file_context prepend pattern (v0.8.11–0.8.12)")
-        return False
+        print(
+            f"ERROR: fix_attached_files_position anchor (add_file_context prepend block) "
+            f"not found in {MIDDLEWARE_PATH} — upstream may have refactored add_file_context. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     content = content.replace(SEARCH_PATTERN, REPLACE_PATTERN, 1)
 
     with open(MIDDLEWARE_PATH, "w", encoding="utf-8") as f:
         f.write(content)
 
-    print("  Patch applied successfully!")
+    print("PATCHED: fix_attached_files_position applied successfully.")
     print("  <attached_files> appended to end of message (prompt cache friendly)")
     return True
 
@@ -75,4 +85,4 @@ def apply_patch():
 if __name__ == "__main__":
     print("Applying attached-files-position patch to Open WebUI...")
     success = apply_patch()
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

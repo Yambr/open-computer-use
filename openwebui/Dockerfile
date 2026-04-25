@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright (c) 2025 Open Computer Use Contributors
-ARG OPENWEBUI_VERSION=0.8.12
+ARG OPENWEBUI_VERSION=0.9.2
 FROM ghcr.io/open-webui/open-webui:${OPENWEBUI_VERSION}
 
 # Copy all patches into the image
@@ -22,23 +22,23 @@ RUN python3 /tmp/patches/fix_preview_url_detection.py
 # Config: TOOL_RESULT_MAX_CHARS (default 50000), TOOL_RESULT_PREVIEW_CHARS (default 2000)
 RUN python3 /tmp/patches/fix_large_tool_results.py
 
-# Optional patches below - uncomment if needed:
+# Enabled backend patches (rewritten for v0.9.1 in Phase 6):
 #
 # fix_large_tool_args: Truncates oversized tool call arguments in HTML attributes
 # to prevent browser UI freeze on large tool outputs (>10KB).
-# RUN python3 /tmp/patches/fix_large_tool_args.py
+RUN python3 /tmp/patches/fix_large_tool_args.py
 #
 # fix_attached_files_position: Moves file context to end of messages instead of
 # prepend, improving prompt cache hit rates with large file attachments.
-# RUN python3 /tmp/patches/fix_attached_files_position.py
+RUN python3 /tmp/patches/fix_attached_files_position.py
 #
 # fix_skip_embedding_chat_files: Skips expensive text extraction and embedding
 # for large chat file uploads (>1MB), using knowledge base fallback instead.
-# RUN python3 /tmp/patches/fix_skip_embedding_chat_files.py
+RUN python3 /tmp/patches/fix_skip_embedding_chat_files.py
 #
 # fix_skip_rag_files_native_fc: Skips RAG pipeline for chat files when
 # computer_use tool is enabled, avoiding unnecessary processing.
-# RUN python3 /tmp/patches/fix_skip_rag_files_native_fc.py
+RUN python3 /tmp/patches/fix_skip_rag_files_native_fc.py
 
 RUN rm -rf /tmp/patches/
 

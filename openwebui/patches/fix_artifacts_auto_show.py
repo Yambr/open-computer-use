@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright (c) 2025 Open Computer Use Contributors
 """
-Patch for Open WebUI v0.8.11–0.8.12: auto-open Artifacts panel
+Patch for Open WebUI v0.8.11-0.9.1: auto-open Artifacts panel
 
 Problem: If an HTML code block is inside a collapsed <details>, CodeBlock is not mounted ->
 onUpdate does not fire -> Artifacts panel does not open. Artifacts.svelte subscribe
@@ -16,34 +16,45 @@ A 300ms delay ensures that auto-show fires after all initialization resets.
 
 Both components (Chat.svelte and Artifacts.svelte) are compiled into one chunk.
 
-=== v0.8.11–0.8.12 compiled code ===
+=== v0.8.11-0.9.1 compiled code ===
 
 Subscribe in Artifacts.svelte:
-  da.subscribe(b=>{const S=b??[];
-    S.length===0?(Jr.set(!1),bn.set(!1),h(f,0)):S.length>s(u).length&&h(f,S.length-1),h(u,S)
+  STORE.subscribe(b=>{const S=b??[];
+    S.length===0?(S1.set(!1),S2.set(!1),h(f,0)):S.length>s(u).length&&h(f,S.length-1),h(u,S)
   })
 
 Patch subscribe -- add auto-show to else branch:
-  Before: S.length===0?(Jr.set(!1),bn.set(!1),h(f,0)):S.length>s(u).length&&h(f,S.length-1),h(u,S)
-  After:  S.length===0?(Jr.set(!1),bn.set(!1),h(f,0)):(S.length>s(u).length&&h(f,S.length-1),bn.set(!0),Jr.set(!0)),h(u,S)
+  Before: S.length===0?(S1.set(!1),S2.set(!1),h(f,0)):S.length>s(u).length&&h(f,S.length-1),h(u,S)
+  After:  S.length===0?(S1.set(!1),S2.set(!1),h(f,0)):/* FIX_ARTIFACTS_AUTO_SHOW */(S.length>s(u).length&&h(f,S.length-1),S2.set(!0),S1.set(!0)),h(u,S)
 
 getContents in Chat.svelte:
-  Before: da.set(q)},
-  After:  da.set(q),q.length>0&&setTimeout(()=>(bn.set(!0),Jr.set(!0)),300)},
+  Before: STORE.set(q)},
+  After:  STORE.set(q),/* FIX_ARTIFACTS_AUTO_SHOW */q.length>0&&setTimeout(()=>(S2.set(!0),S1.set(!0)),300)},
+
+Fail-loud contract: if the anchor regex does not match any chunk, the script
+exits with sys.exit(1) and prints "ERROR: ..." on stderr. This intentionally
+fails the Docker build rather than producing a silently-broken image.
 """
 
 import os
+import sys
 import glob
 import re
 
 BUILD_CHUNKS_DIR = "/app/build/_app/immutable/chunks"
 
-# --- Pattern 1: Artifacts.svelte subscribe (v0.8.11–0.8.12) ---
+# Idempotency marker -- injected as a JS comment at the subscribe patch site
+# AND the getContents patch site. Presence of this marker indicates the chunk
+# has already been patched by this script; a single substring check covers
+# both injection sites.
+IDEMPOTENCY_MARKER = "/* FIX_ARTIFACTS_AUTO_SHOW */"
+
+# --- Pattern 1: Artifacts.svelte subscribe (v0.8.11-0.9.1) ---
 # Compiled: VAR.length===0?(STORE1.set(!1),STORE2.set(!1),h(SIG,0)):VAR.length>s(SIG2).length&&h(SIG,VAR.length-1),h(SIG3,VAR)
 # The subscribe handler: STORE.subscribe(PARAM=>{const VAR=PARAM??[];VAR.length===0?(...):...})
 SUBSCRIBE_PATTERN = re.compile(
     r'(\w+)\.length===0\?\((\w+)\.set\(!1\),(\w+)\.set\(!1\),(\w+)\)'
-    r':(\1)\.length>\w+\(\w+\)\.length&&(\w+)'  # :VAR.length>s(u).length&&h(f,VAR.length-1)
+    r':(\1)\.length>\w+\(\w+\)\.length&&(\w+)'
 )
 # Context: h(u,S) after the ternary (unconditional update)
 SUBSCRIBE_CONTEXT = "h("
@@ -52,8 +63,8 @@ SUBSCRIBE_CONTEXT = "h("
 # After type:"iframe" content, find STORE.set(VAR)},
 GETCONTENTS_CONTEXT = 'type:"iframe"'
 
-# --- Already-patched markers ---
-# Subscribe patched: wraps else branch in parens with .set(!0) calls
+# --- Legacy already-patched marker (for chunks patched by pre-v0.9.1.0 runs) ---
+# Subscribe patched (pre-marker builds): wraps else branch in parens with .set(!0) calls
 SUBSCRIBE_PATCHED_MARKER = re.compile(
     r'\.length===0\?\(\w+\.set\(!1\),\w+\.set\(!1\),.+?\):'
     r'\(.+?\.set\(!0\),.+?\.set\(!0\)\),'
@@ -110,9 +121,12 @@ def find_chunk_file():
     Detection: chunk must contain BOTH:
       - 'showArtifacts' or the subscribe hide pattern (STORE.set(!1),STORE.set(!1))
       - 'type:"iframe"' (getContents context)
+
+    Also recognise already-patched chunks (carrying IDEMPOTENCY_MARKER) so the
+    idempotent early-exit in apply_patch() can fire.
     """
     if not os.path.isdir(BUILD_CHUNKS_DIR):
-        print(f"ERROR: Directory not found: {BUILD_CHUNKS_DIR}")
+        print(f"ERROR: Directory not found: {BUILD_CHUNKS_DIR}", file=sys.stderr)
         return None
 
     for filepath in sorted(glob.glob(os.path.join(BUILD_CHUNKS_DIR, "*.js"))):
@@ -121,6 +135,9 @@ def find_chunk_file():
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
+            # Already-patched chunk (idempotent path)
+            if IDEMPOTENCY_MARKER in content and GETCONTENTS_CONTEXT in content:
+                return filepath
             has_subscribe = _find_subscribe_pattern(content) is not None
             has_getcontents = GETCONTENTS_CONTEXT in content
             if has_subscribe and has_getcontents:
@@ -135,13 +152,11 @@ def find_chunk_file():
 def _find_subscribe_pattern(content):
     """Find the subscribe hide pattern in Artifacts.svelte.
 
-    v0.8.11–0.8.12 pattern:
+    Pattern:
       VAR.length===0?(STORE1.set(!1),STORE2.set(!1),h(SIG1,0)):VAR.length>s(SIG2).length&&h(SIG1,VAR.length-1),h(SIG3,VAR)
 
     Returns match dict or None.
     """
-    # Generic pattern: match the ternary with two .set(!1) in the if-branch
-    # and .length> comparison in the else-branch
     pattern = re.compile(
         r'(\w+)\.length===0\?'                          # VAR.length===0?
         r'\((\w+)\.set\(!1\),(\w+)\.set\(!1\),'         # (STORE1.set(!1),STORE2.set(!1),
@@ -155,7 +170,7 @@ def _find_subscribe_pattern(content):
     for m in pattern.finditer(content):
         # Verify it's inside a .subscribe() callback
         before = content[max(0, m.start() - 300):m.start()]
-        if '.subscribe(' in before and '??[]' in before:
+        if '.subscribe(' in before and ('??[]' in before or '||[]' in before):
             return {
                 'var': m.group(1),         # S (the array variable)
                 'store1': m.group(2),      # Jr (showControls)
@@ -201,8 +216,8 @@ def apply_patch():
     """Apply both patches: subscribe + getContents auto-show"""
     chunk_file = find_chunk_file()
     if not chunk_file:
-        print("ERROR: Could not find JS chunk with Artifacts patterns")
-        print(f"  Searched in: {BUILD_CHUNKS_DIR}/*.js")
+        print("ERROR: Could not find JS chunk with Artifacts patterns", file=sys.stderr)
+        print(f"  Searched in: {BUILD_CHUNKS_DIR}/*.js", file=sys.stderr)
         return False
 
     print(f"  Found chunk: {os.path.basename(chunk_file)}")
@@ -210,33 +225,44 @@ def apply_patch():
     with open(chunk_file, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # Extract store variable names
+    # --- Idempotency short-circuit ---
+    # If the marker is already present anywhere in the chunk, the patch has
+    # been applied by a previous run (or by a previous image build layer).
+    # Declare success without mutating the file.
+    if IDEMPOTENCY_MARKER in content:
+        print(f"ALREADY PATCHED: {os.path.basename(chunk_file)} contains {IDEMPOTENCY_MARKER}")
+        return True
+
+    # Legacy marker fallback: pre-v0.9.1.0 runs injected wrapped-else-branch
+    # shape without a comment marker. Recognise those as already-patched too
+    # so rebuilds of 0.8.12 images continue to succeed.
+    legacy_subscribe = bool(SUBSCRIBE_PATCHED_MARKER.search(content))
+
+    # Extract store variable names (required for both patch sites)
     stores = extract_store_names(content)
-    if not stores:
-        print("ERROR: Could not extract store variable names")
+    if not stores and not legacy_subscribe:
+        print("ERROR: Could not extract store variable names", file=sys.stderr)
         return False
 
-    print(f"  Stores: artifact={stores['artifact_store']}, "
-          f"controls={stores['show_controls']}, "
-          f"artifacts={stores['show_artifacts']}")
+    if stores:
+        print(f"  Stores: artifact={stores['artifact_store']}, "
+              f"controls={stores['show_controls']}, "
+              f"artifacts={stores['show_artifacts']}")
 
     patched = False
 
     # --- Patch 1: Subscribe in Artifacts.svelte ---
-    # Check if already patched (else branch has .set(!0) calls)
-    subscribe_already = bool(SUBSCRIBE_PATCHED_MARKER.search(content))
-    if subscribe_already:
-        print("  Patch 1 (subscribe): already applied")
+    if legacy_subscribe:
+        print("  Patch 1 (subscribe): already applied (legacy marker)")
+        subscribe_already = True
     else:
+        subscribe_already = False
         info = _find_subscribe_pattern(content)
         if info:
             store1 = info['store1']  # showControls
             store2 = info['store2']  # showArtifacts
             old = info['full_match']
 
-            # Build patched version: wrap else-branch in parens, add auto-show
-            # Old: VAR.length===0?(S1.set(!1),S2.set(!1),h(f,0)):VAR.length>s(u).length&&h(f,VAR.length-1),h(u,VAR)
-            # New: VAR.length===0?(S1.set(!1),S2.set(!1),h(f,0)):(VAR.length>s(u).length&&h(f,VAR.length-1),S2.set(!0),S1.set(!0)),h(u,VAR)
             var_name = info['var']
             hide_tail = info['hide_tail']
             getter = info['getter']
@@ -246,7 +272,7 @@ def apply_patch():
             new = (
                 f'{var_name}.length===0?'
                 f'({store1}.set(!1),{store2}.set(!1),{hide_tail})'
-                f':({var_name}.length>{getter}.length&&{show_tail},'
+                f':{IDEMPOTENCY_MARKER}({var_name}.length>{getter}.length&&{show_tail},'
                 f'{store2}.set(!0),{store1}.set(!0))'
                 f',{update}'
             )
@@ -263,10 +289,10 @@ def apply_patch():
     # Handles 3 cases:
     #   a) Original:   da.set(q)},
     #   b) Old patch:  da.set(q),q.length>0&&(bn.set(!0),Jr.set(!0))},
-    #   c) New patch:  da.set(q),q.length>0&&setTimeout(...)},  (already applied)
-    art_store = stores['artifact_store']
-    show_art = stores['show_artifacts']
-    show_ctrl = stores['show_controls']
+    #   c) New patch:  da.set(q),/* MARKER */q.length>0&&setTimeout(...)},
+    art_store = stores['artifact_store'] if stores else None
+    show_art = stores['show_artifacts'] if stores else None
+    show_ctrl = stores['show_controls'] if stores else None
 
     if not art_store:
         print("  WARNING: Could not determine artifact store name, skipping patch 2")
@@ -277,6 +303,7 @@ def apply_patch():
         def _build_new_patch(var_name):
             return (
                 f'{art_store}.set({var_name}),'
+                f'{IDEMPOTENCY_MARKER}'
                 f'{var_name}.length>0&&'
                 f'setTimeout(()=>({show_art}.set(!0),{show_ctrl}.set(!0)),300)'
                 f'}},'
@@ -284,7 +311,7 @@ def apply_patch():
 
         # Case c: Check if already patched with setTimeout
         setTimeout_pattern = re.compile(
-            re.escape(art_store) + r'\.set\((\w+)\),\1\.length>0&&setTimeout'
+            re.escape(art_store) + r'\.set\((\w+)\),(?:/\*[^*]*\*/)?\1\.length>0&&setTimeout'
         )
         for match in setTimeout_pattern.finditer(content):
             before = content[max(0, match.start() - 500):match.start()]
@@ -294,7 +321,7 @@ def apply_patch():
                 break
 
         if not getcontents_already:
-            # Case b: Old patch without setTimeout — upgrade it
+            # Case b: Old patch without setTimeout -- upgrade it
             old_patch_pattern = re.compile(
                 re.escape(art_store) + r'\.set\((\w+)\),'
                 r'\1\.length>0&&'
@@ -317,7 +344,7 @@ def apply_patch():
                 break
 
         if not getcontents_already and not replaced_gc:
-            # Case a: Original unpatched — STORE.set(VAR)},
+            # Case a: Original unpatched -- STORE.set(VAR)},
             getcontents_pattern = re.compile(
                 re.escape(art_store) + r'\.set\((\w+)\)\},'
             )
@@ -340,7 +367,7 @@ def apply_patch():
             print("  WARNING: Could not find getContents pattern for patch 2")
 
     if not patched and not subscribe_already and not getcontents_already:
-        print("ERROR: No patches applied")
+        print("ERROR: No patches applied", file=sys.stderr)
         return False
 
     # Write patched content
@@ -359,6 +386,13 @@ if __name__ == "__main__":
     print("Applying Artifacts auto-show patch to Open WebUI frontend...")
     success = apply_patch()
     if not success:
-        print("WARNING: Artifacts auto-show patch SKIPPED (JS chunks changed in new version)")
-        print("  This is expected after a major version upgrade. Patch needs rewriting.")
-    exit(0)  # never fail build — frontend patches are non-critical
+        print(
+            "ERROR: fix_artifacts_auto_show anchor not found in "
+            f"{BUILD_CHUNKS_DIR}/*.js -- upstream may have refactored. "
+            "Check v0.9.1 source + update regex. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print("PATCHED: fix_artifacts_auto_show applied successfully.")
+    sys.exit(0)

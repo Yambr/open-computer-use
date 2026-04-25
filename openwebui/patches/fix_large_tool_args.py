@@ -26,13 +26,17 @@ See https://github.com/open-webui/open-webui/issues/18743
 """
 
 import os
+import sys
 
-MIDDLEWARE_PATH = "/app/backend/open_webui/utils/middleware.py"
+_PATCH_TARGET_OVERRIDE = os.environ.get("_PATCH_TARGET_OVERRIDE", "")
+MIDDLEWARE_PATH = _PATCH_TARGET_OVERRIDE or "/app/backend/open_webui/utils/middleware.py"
 
 PATCH_MARKER = "_truncate_for_attr"
+NEW_PATCH_MARKER = "FIX_LARGE_TOOL_ARGS"
 
 FUNCTION_CODE = '''
 # === PATCH: _truncate_for_attr + _b64_encode_args — fix UI freeze + preserve args for model ===
+# FIX_LARGE_TOOL_ARGS
 import base64 as _b64_module
 
 _MAX_TOOL_ATTR_LEN = 2_000  # ~2KB before html.escape — tool panel is small, no point showing more
@@ -95,48 +99,58 @@ def apply_patch():
     """Apply patch to middleware.py"""
 
     if not os.path.exists(MIDDLEWARE_PATH):
-        print(f"ERROR: File not found: {MIDDLEWARE_PATH}")
-        return False
+        print(
+            f"ERROR: fix_large_tool_args target file {MIDDLEWARE_PATH} not found. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     with open(MIDDLEWARE_PATH, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # Check that the patch has not been applied yet
-    if PATCH_MARKER in content:
-        print("  Patch already applied, skipping...")
+    if PATCH_MARKER in content or NEW_PATCH_MARKER in content:
+        print(f"ALREADY PATCHED: {MIDDLEWARE_PATH} contains {PATCH_MARKER}")
         return True
 
     # 1. Insert functions after imports
     import_marker = "from open_webui.models.chats import Chats"
     marker_idx = content.find(import_marker)
     if marker_idx < 0:
-        print("ERROR: Could not find import marker in middleware.py")
-        return False
+        print(
+            f"ERROR: fix_large_tool_args import anchor 'from open_webui.models.chats "
+            f"import Chats' not found in {MIDDLEWARE_PATH} — upstream may have "
+            "restructured imports. Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     eol_idx = content.index("\n", marker_idx) + 1
     content = content[:eol_idx] + FUNCTION_CODE + content[eol_idx:]
     print("  Inserted _truncate_for_attr() + _b64_encode_args() functions after imports")
 
-    # 2. Replace arguments attribute pattern (2 occurrences in serialize_output)
-    args_count = content.count(OLD_ARGS)
-    if args_count == 0:
-        print(f"WARNING: Pattern not found: {OLD_ARGS}")
-        print("  This may indicate a different OpenWebUI version")
-        print("ERROR: No replacements made — patch cannot be applied")
-        return False
+    # 2. Replace arguments attribute pattern — expected EXACTLY 2 occurrences in serialize_output
+    occurrences = content.count(OLD_ARGS)
+    if occurrences != 2:
+        print(
+            f"ERROR: fix_large_tool_args expected 2 occurrences of OLD_ARGS f-string in "
+            f"serialize_output, found {occurrences}. v0.9.1 upstream may have restructured. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     content = content.replace(OLD_ARGS, NEW_ARGS)
-    print(f"  Replaced {args_count} occurrence(s): arguments + arguments-raw")
+    print(f"  Replaced {occurrences} occurrence(s): arguments + arguments-raw")
 
-    # Save
     with open(MIDDLEWARE_PATH, "w", encoding="utf-8") as f:
         f.write(content)
 
-    print("  Large tool args patch applied successfully (truncate display + base64 raw)!")
+    print("PATCHED: fix_large_tool_args applied successfully.")
     return True
 
 
 if __name__ == "__main__":
     print("Applying large tool arguments patch to Open WebUI...")
     success = apply_patch()
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

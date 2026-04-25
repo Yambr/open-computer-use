@@ -17,13 +17,20 @@ Problems solved:
 6. SSE parse errors logged at debug level only
 
 Applied at Docker build time. Works on ORIGINAL middleware.py (no dependencies).
-Target: OpenWebUI v0.8.11–0.8.12 (output-based architecture, serialize_output, prior_output).
+Target: OpenWebUI v0.8.11-0.9.1 (output-based architecture, serialize_output, prior_output).
+
+Fail-loud: ANY sub-anchor miss triggers sys.exit(1) with stderr ERROR — refuses
+to ship a partially-patched middleware.py. Idempotent: re-run prints ALREADY PATCHED.
 """
 
 import os
+import sys
 
-MIDDLEWARE_PATH = "/app/backend/open_webui/utils/middleware.py"
-PATCH_MARKER = "TOOL_LOOP_ERRORS_UNIFIED"
+_PATCH_TARGET_OVERRIDE = os.environ.get("_PATCH_TARGET_OVERRIDE", "")
+MIDDLEWARE_PATH = _PATCH_TARGET_OVERRIDE or "/app/backend/open_webui/utils/middleware.py"
+
+PATCH_MARKER = "TOOL_LOOP_ERRORS_UNIFIED"   # legacy marker — retained
+NEW_PATCH_MARKER = "FIX_TOOL_LOOP_ERRORS"   # v0.9.1.0 marker (appears in injected comments)
 
 _BUDGET_MSG = (
     "Model temporarily unavailable. "
@@ -38,13 +45,6 @@ _ERROR_LABEL = "Error"
 
 # ============================================================
 # Mod 1: Tool loop — full error handling
-# Replaces the entire try/except block with:
-#   - output save/restore
-#   - non-streaming error response parsing (ContextWindowExceeded etc)
-#   - transport error detection + user-friendly message
-#   - "Model not found" -> user-friendly budget message
-#   - chat:message:error event for frontend red banner
-#   - log.error with traceback
 # ============================================================
 SEARCH_TOOL_LOOP = """\
                     try:
@@ -52,6 +52,7 @@ SEARCH_TOOL_LOOP = """\
                             **form_data,
                             'model': model_id,
                             'stream': True,
+                            'metadata': metadata,
                         }
 
                         if ENABLE_RESPONSES_API_STATEFUL and last_response_id:
@@ -140,6 +141,7 @@ REPLACE_TOOL_LOOP = (
     "                            **form_data,\n"
     "                            'model': model_id,\n"
     "                            'stream': True,\n"
+    "                            'metadata': metadata,\n"
     "                        }\n"
     "\n"
     "                        if ENABLE_RESPONSES_API_STATEFUL and last_response_id:\n"
@@ -241,7 +243,7 @@ REPLACE_TOOL_LOOP = (
     "                                    pass\n"
     "                            break\n"
     "                    except Exception as e:\n"
-    "                        # TOOL_LOOP_ERRORS_UNIFIED: restore clean output + show error\n"
+    "                        # TOOL_LOOP_ERRORS_UNIFIED: restore clean output + show error; FIX_TOOL_LOOP_ERRORS\n"
     "                        import traceback as _tb\n"
     "                        _msg_items = [item for item in _saved_output if item.get('type') == 'message']\n"
     "                        _err_mod = getattr(type(e), '__module__', '') or ''\n"
@@ -270,6 +272,7 @@ REPLACE_TOOL_LOOP = (
 
 # ============================================================
 # Mod 2: Code interpreter catch -> log.error + UI error display
+# v0.9.1: `title = await Chats.get_chat_title_by_id(...)` — async-ified
 # ============================================================
 SEARCH_CODE_INTERP = """\
                         except Exception as e:
@@ -281,11 +284,11 @@ SEARCH_CODE_INTERP = """\
                     if item.get('status') == 'in_progress':
                         item['status'] = 'completed'
 
-                title = Chats.get_chat_title_by_id(metadata['chat_id'])"""
+                title = await Chats.get_chat_title_by_id(metadata['chat_id'])"""
 
 REPLACE_CODE_INTERP = (
     "                        except Exception as e:\n"
-    "                            import traceback as _tb  # TOOL_LOOP_ERRORS_UNIFIED\n"
+    "                            import traceback as _tb  # TOOL_LOOP_ERRORS_UNIFIED; FIX_TOOL_LOOP_ERRORS\n"
     "                            log.error('CODE_INTERP_ERROR: chat=%s iter=%d error=%s\\n%s',\n"
     "                                metadata.get('chat_id', '')[:8], retries, e, _tb.format_exc())\n"
     "                            try:\n"
@@ -300,7 +303,7 @@ REPLACE_CODE_INTERP = (
     "                    if item.get('status') == 'in_progress':\n"
     "                        item['status'] = 'completed'\n"
     "\n"
-    "                title = Chats.get_chat_title_by_id(metadata['chat_id'])"
+    "                title = await Chats.get_chat_title_by_id(metadata['chat_id'])"
 )
 
 # ============================================================
@@ -321,12 +324,15 @@ REPLACE_SSE = """\
                             if done:
                                 pass
                             else:
-                                log.error('SSE_PARSE_ERROR: chat=%s line=%.200s error=%s',  # TOOL_LOOP_ERRORS_UNIFIED
+                                log.error('SSE_PARSE_ERROR: chat=%s line=%.200s error=%s',  # TOOL_LOOP_ERRORS_UNIFIED; FIX_TOOL_LOOP_ERRORS
                                     metadata.get('chat_id', '')[:8], str(line)[:200], e)
                                 continue"""
 
 # ============================================================
 # Mod 4: Done emit try/except + background_tasks_handler wrapper
+# v0.9.1: two new lines inserted between `await background_tasks_handler(ctx)`
+# and `except asyncio.CancelledError:` — `ctx['assistant_message'] = {...}` +
+# `await outlet_filter_handler(ctx)`. Both must be preserved inside the wrap.
 # ============================================================
 SEARCH_DONE_BG = """\
                 await event_emitter(
@@ -337,10 +343,16 @@ SEARCH_DONE_BG = """\
                 )
 
                 await background_tasks_handler(ctx)
+                ctx['assistant_message'] = {
+                    'content': serialize_output(output),
+                    'output': output,
+                    **({'usage': usage} if usage else {}),
+                }
+                await outlet_filter_handler(ctx)
             except asyncio.CancelledError:"""
 
 REPLACE_DONE_BG = """\
-                try:  # TOOL_LOOP_ERRORS_UNIFIED: wrap done emit
+                try:  # TOOL_LOOP_ERRORS_UNIFIED: wrap done emit; FIX_TOOL_LOOP_ERRORS
                     await event_emitter(
                         {
                             'type': 'chat:completion',
@@ -353,6 +365,12 @@ REPLACE_DONE_BG = """\
 
                 try:
                     await background_tasks_handler(ctx)
+                    ctx['assistant_message'] = {
+                        'content': serialize_output(output),
+                        'output': output,
+                        **({'usage': usage} if usage else {}),
+                    }
+                    await outlet_filter_handler(ctx)
                 except Exception as _bg_err:
                     log.error('BACKGROUND_TASK_ERROR: chat=%s error=%s',  # TOOL_LOOP_ERRORS_UNIFIED
                         metadata.get('chat_id', '')[:8], _bg_err)
@@ -368,73 +386,102 @@ SEARCH_ITER = """\
 REPLACE_ITER = """\
                 while len(tool_calls) > 0 and tool_call_retries < CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES:
                     tool_call_retries += 1
-                    log.debug('TOOL_LOOP_ITER: chat=%s iter=%d pending_tc=%d',  # TOOL_LOOP_ERRORS_UNIFIED
+                    log.debug('TOOL_LOOP_ITER: chat=%s iter=%d pending_tc=%d',  # TOOL_LOOP_ERRORS_UNIFIED; FIX_TOOL_LOOP_ERRORS
                         metadata.get('chat_id', '')[:8], tool_call_retries, len(tool_calls))"""
 
 
 def apply_patch():
     if not os.path.exists(MIDDLEWARE_PATH):
-        print(f"  ERROR: {MIDDLEWARE_PATH} not found")
-        return False
+        print(
+            f"ERROR: fix_tool_loop_errors target file {MIDDLEWARE_PATH} not found. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-    with open(MIDDLEWARE_PATH, "r") as f:
+    with open(MIDDLEWARE_PATH, "r", encoding="utf-8") as f:
         content = f.read()
 
-    if PATCH_MARKER in content:
-        print("  Patch already applied, skipping...")
+    if PATCH_MARKER in content or NEW_PATCH_MARKER in content:
+        print(f"ALREADY PATCHED: {MIDDLEWARE_PATH} contains {PATCH_MARKER}")
         return True
 
-    original = content
-    changes = 0
+    # v0.9.1 -> v0.9.2 backward-compat shim: v0.9.2 upstream inserted a new
+    # `'metadata': metadata,` key into the first `new_form_data = {` block. The
+    # SEARCH_TOOL_LOOP anchor targets the v0.9.2 shape; for v0.9.1 input we
+    # inject the missing key in-memory so the single SEARCH matches both
+    # upstream versions. No-op on v0.9.2 (V091_SHIM does not match there).
+    V091_SHIM = "                            'stream': True,\n                        }\n\n                        if ENABLE_RESPONSES_API_STATEFUL"
+    V092_SHIM = "                            'stream': True,\n                            'metadata': metadata,\n                        }\n\n                        if ENABLE_RESPONSES_API_STATEFUL"
+    if V091_SHIM in content and V092_SHIM not in content:
+        content = content.replace(V091_SHIM, V092_SHIM, 1)
 
-    # Mod 1: Tool loop — full error handling
-    if SEARCH_TOOL_LOOP in content:
-        content = content.replace(SEARCH_TOOL_LOOP, REPLACE_TOOL_LOOP, 1)
-        print("  [1/5] Tool loop: save/restore + transport + non-stream + Model not found + chat:message:error")
-        changes += 1
-    else:
-        print("  WARNING: tool loop try/except pattern not found")
+    # Mod 1/5: tool_loop
+    if SEARCH_TOOL_LOOP not in content:
+        print(
+            f"ERROR: fix_tool_loop_errors anchor 1/5 (tool_loop) not found in {MIDDLEWARE_PATH} "
+            "— upstream may have refactored the tool-retry try/except. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    content = content.replace(SEARCH_TOOL_LOOP, REPLACE_TOOL_LOOP, 1)
+    print("  [1/5] Tool loop: save/restore + transport + non-stream + Model not found + chat:message:error")
 
-    # Mod 2: Code interpreter catch
-    if SEARCH_CODE_INTERP in content:
-        content = content.replace(SEARCH_CODE_INTERP, REPLACE_CODE_INTERP, 1)
-        print("  [2/5] Code interpreter: log.error + UI error display")
-        changes += 1
-    else:
-        print("  WARNING: code interpreter except pattern not found")
+    # Mod 2/5: code_interp (v0.9.1: await-ified Chats.get_chat_title_by_id)
+    if SEARCH_CODE_INTERP not in content:
+        print(
+            f"ERROR: fix_tool_loop_errors anchor 2/5 (code_interp) not found in {MIDDLEWARE_PATH} "
+            "— upstream may have refactored the code-interpreter except block or the "
+            "await Chats.get_chat_title_by_id call. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    content = content.replace(SEARCH_CODE_INTERP, REPLACE_CODE_INTERP, 1)
+    print("  [2/5] Code interpreter: log.error + UI error display")
 
-    # Mod 3: SSE parse error
-    if SEARCH_SSE in content:
-        content = content.replace(SEARCH_SSE, REPLACE_SSE, 1)
-        print("  [3/5] SSE parse: log.error with context")
-        changes += 1
-    else:
-        print("  WARNING: SSE parse catch pattern not found")
+    # Mod 3/5: sse
+    if SEARCH_SSE not in content:
+        print(
+            f"ERROR: fix_tool_loop_errors anchor 3/5 (sse) not found in {MIDDLEWARE_PATH} "
+            "— upstream may have refactored the SSE parse except block. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    content = content.replace(SEARCH_SSE, REPLACE_SSE, 1)
+    print("  [3/5] SSE parse: log.error with context")
 
-    # Mod 4: Done emit + background tasks
-    if SEARCH_DONE_BG in content:
-        content = content.replace(SEARCH_DONE_BG, REPLACE_DONE_BG, 1)
-        print("  [4/5] Done emit wrapped + background_tasks_handler wrapped")
-        changes += 1
-    else:
-        print("  WARNING: done emit + background tasks pattern not found")
+    # Mod 4/5: done_bg
+    if SEARCH_DONE_BG not in content:
+        print(
+            f"ERROR: fix_tool_loop_errors anchor 4/5 (done_bg) not found in {MIDDLEWARE_PATH} "
+            "— upstream may have refactored the background_tasks_handler block "
+            "(v0.9.1 inserted assistant_message + outlet_filter_handler). "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    content = content.replace(SEARCH_DONE_BG, REPLACE_DONE_BG, 1)
+    print("  [4/5] Done emit wrapped + background_tasks_handler wrapped")
 
-    # Mod 5: TOOL_LOOP_ITER
-    if SEARCH_ITER in content:
-        content = content.replace(SEARCH_ITER, REPLACE_ITER, 1)
-        print("  [5/5] TOOL_LOOP_ITER lifecycle logging")
-        changes += 1
-    else:
-        print("  WARNING: tool loop start pattern not found")
+    # Mod 5/5: iter
+    if SEARCH_ITER not in content:
+        print(
+            f"ERROR: fix_tool_loop_errors anchor 5/5 (iter) not found in {MIDDLEWARE_PATH} "
+            "— upstream may have refactored the tool-retry while-loop start. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    content = content.replace(SEARCH_ITER, REPLACE_ITER, 1)
+    print("  [5/5] TOOL_LOOP_ITER lifecycle logging")
 
-    if content == original:
-        print("  ERROR: No changes made!")
-        return False
-
-    with open(MIDDLEWARE_PATH, "w") as f:
+    with open(MIDDLEWARE_PATH, "w", encoding="utf-8") as f:
         f.write(content)
 
-    print(f"  Unified tool loop errors patch applied! {changes}/5 replacements.")
+    print("PATCHED: fix_tool_loop_errors applied successfully.")
     print("  Log markers: TOOL_LOOP_ERROR, TRANSPORT_ERROR, NON_STREAM_ERROR,")
     print("               CODE_INTERP_ERROR, SSE_PARSE_ERROR, DONE_EMIT_ERROR,")
     print("               BACKGROUND_TASK_ERROR, TOOL_LOOP_ITER")
@@ -444,5 +491,4 @@ def apply_patch():
 if __name__ == "__main__":
     print("Applying unified tool loop errors patch to middleware.py...")
     success = apply_patch()
-    print("  Done!" if success else "  FAILED!")
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

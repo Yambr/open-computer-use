@@ -10,8 +10,6 @@
 
 MCP server that gives any LLM its own computer — managed Docker workspaces with live browser, terminal, code execution, document skills, and autonomous sub-agents. Self-hosted, open-source, pluggable into any model.
 
-> **Online demo:** **[chat.yambr.com](https://chat.yambr.com)** — Open WebUI with Computer Use already set up, sign in with GitHub or Google. ([More ways to try it](#ways-to-try-it) below.)
-
 ![Demo: AI reads GitHub README and creates a landing page](docs/demo-landing-page.gif)
 
 ## What is this?
@@ -63,16 +61,6 @@ See [docs/FEATURES.md](docs/FEATURES.md) for architecture details and [docs/SCRE
 ## Architecture
 
 ![Architecture](docs/architecture.svg)
-
-## Ways to try it
-
-| Path | URL | What you need | Best for |
-|------|-----|---------------|----------|
-| **Free online demo** — Open WebUI + Computer Use, models included | **[chat.yambr.com](https://chat.yambr.com)** | GitHub or Google sign-in | Trying it end-to-end in 30 seconds |
-| **Hosted MCP endpoint** — tools only, bring your own LLM | Key at [app.yambr.com](https://app.yambr.com) → connect to `https://api.yambr.com/mcp/computer_use` | GitHub/Google sign-in; your own OpenAI / Anthropic / OpenRouter key | Plugging Computer Use into Claude Desktop, n8n, OpenAI Agents SDK |
-| **Self-host** | [Quick Start](#quick-start) below | Docker, ~15 min first build | Full control, air-gapped, heavy use |
-
-OAuth only — no email/password, no SMS. On `chat.yambr.com` models are bundled as a free convenience; the hosted API is tools-only. Canonical cloud docs: [docs.yambr.com](https://docs.yambr.com). Repo-side orientation: [docs/CLOUD.md](docs/CLOUD.md).
 
 ## Quick Start
 
@@ -147,19 +135,17 @@ See [docs/SKILLS.md](docs/SKILLS.md) for details.
 
 ## MCP Integration
 
-The server speaks standard MCP over Streamable HTTP. Point any MCP client at it — hosted or self-hosted.
+The server speaks standard MCP over Streamable HTTP. Connect it to anything:
 
-- **Hosted**: `https://api.yambr.com/mcp/computer_use` with `Authorization: Bearer <key from app.yambr.com>`. Client configs and full reference live on [docs.yambr.com](https://docs.yambr.com).
-- **Self-hosted**: `http://localhost:8081/mcp`. Quick sanity check:
+```bash
+# Test with curl
+curl -X POST http://localhost:8081/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-Chat-Id: test" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
 
-  ```bash
-  curl -X POST http://localhost:8081/mcp \
-    -H "Content-Type: application/json" \
-    -H "X-Chat-Id: test" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
-  ```
-
-  Full self-host integration guide (LiteLLM, Claude Desktop, custom clients): [docs/MCP.md](docs/MCP.md). The per-chat system prompt rides **six redundant MCP-native channels** (tool descriptions, `/home/assistant/README.md` in the sandbox, `InitializeResult.instructions`, `resources/list` for uploaded files, plus an HTTP `/system-prompt` endpoint for legacy integrations) — full map in [docs/system-prompt.md](docs/system-prompt.md).
+See [docs/MCP.md](docs/MCP.md) for full integration guide (LiteLLM, Claude Desktop, custom clients). The per-chat system prompt rides **six redundant MCP-native channels** (tool descriptions, `/home/assistant/README.md` in the sandbox, `InitializeResult.instructions`, `resources/list` for uploaded files, plus an HTTP `/system-prompt` endpoint for legacy integrations) — full map in [docs/system-prompt.md](docs/system-prompt.md).
 
 ## Configuration
 
@@ -192,21 +178,21 @@ By default, all 13 built-in skills are available to everyone. For per-user skill
 
 The Computer Use Server speaks standard **MCP over Streamable HTTP** — any MCP-compatible client can connect. Open WebUI is the primary tested frontend, but not the only option.
 
-| Client | Self-hosted URL | Hosted URL | Status |
-|--------|-----------------|------------|--------|
-| [**Open WebUI**](https://github.com/open-webui/open-webui) | Docker Compose stack included, auto-configured | n/a — use [chat.yambr.com](https://chat.yambr.com) directly (pointing your own Open WebUI at the hosted API isn't a documented path) | Tested in production |
-| [**Claude Desktop**](https://claude.ai/download) | `http://localhost:8081/mcp` — see [docs/MCP.md](docs/MCP.md) | `https://api.yambr.com/mcp/computer_use` — see [docs/CLOUD.md](docs/CLOUD.md) | Works |
-| [**n8n**](https://n8n.io) | MCP Tool node → `http://computer-use-server:8081/mcp` | MCP Tool node → `https://api.yambr.com/mcp/computer_use` | Works |
-| [**LiteLLM**](https://github.com/BerriAI/litellm) | MCP proxy config — see [docs/MCP.md](docs/MCP.md) | MCP proxy → `https://api.yambr.com/mcp/computer_use` | Works |
-| **Custom client** | Any HTTP client with MCP JSON-RPC — see curl examples in [docs/MCP.md](docs/MCP.md) | Same, with `Authorization: Bearer sk-...` (key from [app.yambr.com](https://app.yambr.com)) | Works |
+| Client | How to connect | Status |
+|--------|---------------|--------|
+| [**Open WebUI**](https://github.com/open-webui/open-webui) | Docker Compose stack included, auto-configured | Tested in production |
+| [**Claude Desktop**](https://claude.ai/download) | Add to `claude_desktop_config.json` — see [docs/MCP.md](docs/MCP.md) | Works |
+| [**n8n**](https://n8n.io) | MCP Tool node → `http://computer-use-server:8081/mcp` | Works |
+| [**LiteLLM**](https://github.com/BerriAI/litellm) | MCP proxy config — see [docs/MCP.md](docs/MCP.md) | Works |
+| **Custom client** | Any HTTP client with MCP JSON-RPC — see curl examples in [docs/MCP.md](docs/MCP.md) | Works |
 
 ## Open WebUI Integration
 
 > **[Open WebUI](https://github.com/open-webui/open-webui)** is an extensible, self-hosted AI interface. We use it as the primary frontend because it supports tool calling, function filters, and artifacts — everything needed for Computer Use.
 
-**Compatibility:** Tested with Open WebUI v0.8.11–0.8.12. Set `OPENWEBUI_VERSION` in `.env` to pin a specific version.
+**Compatibility:** Tested with Open WebUI v0.9.2 (current default). Prior base v0.8.11–0.8.12 still works via `OPENWEBUI_VERSION=0.8.12` in `.env`. Set `OPENWEBUI_VERSION` in `.env` to pin a specific version.
 
-**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use stock [Open WebUI](https://github.com/open-webui/open-webui) versions v0.8.11–0.8.12 (tested) — just install the tool and filter. Patches are applied at Docker build time; strongly recommended — 4 of them affect user-visible UX (artifacts panel, preview iframe, error banners, large tool-result handling). Pulling `ghcr.io/open-webui/open-webui` directly skips all of them — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack) for the full checklist.
+**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use stock [Open WebUI](https://github.com/open-webui/open-webui) versions v0.8.11–0.9.2 (tested, 0.9.2 is the default) — just install the tool and filter. Patches are applied at Docker build time; strongly recommended — 4 of them affect user-visible UX (artifacts panel, preview iframe, error banners, large tool-result handling). Pulling `ghcr.io/open-webui/open-webui` directly skips all of them — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack) for the full checklist.
 
 Running Claude Code through a corporate gateway (LiteLLM, Azure, Bedrock)? See [docs/claude-code-gateway.md](docs/claude-code-gateway.md) for the three-path operator recipe.
 
@@ -274,7 +260,7 @@ services:
       context: ./openwebui   # path into this repo
       dockerfile: Dockerfile
       args:
-        OPENWEBUI_VERSION: "0.8.12"
+        OPENWEBUI_VERSION: "0.9.2"
         COMPUTER_USE_SERVER_URL: "cu.your-domain.com"   # see Step 2 — NOT an internal hostname
     image: open-webui-with-cu-patches:latest   # local tag, do not pull
 ```
@@ -484,7 +470,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome!
 
 ## Community
 
-- **Managed hosting**: [yambr.com](https://yambr.com) — cloud version by the maintainers ([chat.yambr.com](https://chat.yambr.com) for the free demo, [app.yambr.com](https://app.yambr.com) for API keys, [docs.yambr.com](https://docs.yambr.com) for the cloud docs)
 - **Issues & Ideas**: [GitHub Issues](https://github.com/Yambr/open-computer-use/issues)
 - **Telegram**: [@yambrcom](https://t.me/yambrcom)
 
