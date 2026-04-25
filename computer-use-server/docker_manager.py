@@ -177,6 +177,22 @@ def warn_if_mcp_api_key_missing() -> bool:
     return False
 
 
+def warn_subagent_cli() -> bool:
+    """Emit a one-line banner naming the active sub-agent CLI runtime.
+
+    Always prints (informational, not gated on a default) so operators have
+    visible confirmation that SUBAGENT_CLI took effect after a docker compose
+    restart. Mirrors warn_if_public_base_url_is_default's bool-return
+    contract so app.py lifespan can collect emission flags for future
+    telemetry. Closes the UX gap from PITFALLS.md UX table row 1.
+
+    Returns True (always emitted, kept for symmetry with sibling warn_*).
+    Called once from FastAPI lifespan startup — do not call per-request.
+    """
+    print(f"[MCP] Sub-agent runtime: {SUBAGENT_CLI}")
+    return True
+
+
 async def _fetch_gitlab_token(email: str, mcp_tokens_url: str, mcp_tokens_api_key: str) -> Optional[str]:
     """
     Fetch decrypted GitLab token from MCP Tokens Wrapper service.
