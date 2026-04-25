@@ -36,6 +36,7 @@ from docker_manager import (
     PUBLIC_BASE_URL,
     warn_if_public_base_url_is_default,
     warn_if_mcp_api_key_missing,
+    warn_subagent_cli,
 )
 from security import sanitize_chat_id, safe_path
 import skill_manager
@@ -199,6 +200,7 @@ async def lifespan(app):
     """
     warn_if_public_base_url_is_default()
     warn_if_mcp_api_key_missing()
+    warn_subagent_cli()
     from mcp_tools import mcp as _mcp_server
     # Import-for-side-effect: registers @mcp.resource handlers on the
     # FastMCP singleton. Must happen BEFORE streamable_http_app() so the
