@@ -51,7 +51,7 @@ Edit `.env` before starting. Key variables:
 | `MCP_API_KEY` | Recommended | Bearer token for MCP endpoint security |
 | `ANTHROPIC_AUTH_TOKEN` | No | For Claude Code sub-agent |
 | `VISION_API_KEY` | No | For describe-image skill |
-| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, `ORCHESTRATOR_URL`, build-arg `COMPUTER_USE_SERVER_URL` | No | Settings on the **`open-webui` container** (not CU-server). Required for multi-step tasks, large tool results, and preview rendering. Full guide: [README.md → Required setup when embedding Open WebUI](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack). |
+| `CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES`, `TOOL_RESULT_MAX_CHARS`, `TOOL_RESULT_PREVIEW_CHARS`, `ORCHESTRATOR_URL` | No | Settings on the **`open-webui` container** (not CU-server). Required for multi-step tasks, large tool results, and preview rendering. Full guide: [README.md → Required setup when embedding Open WebUI](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack). |
 
 See `.env.example` for the full list with defaults.
 

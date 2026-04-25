@@ -14,12 +14,15 @@ Knowledge bases are not affected.
 """
 
 import os
+import sys
 
-MIDDLEWARE_PATH = "/app/backend/open_webui/utils/middleware.py"
+_PATCH_TARGET_OVERRIDE = os.environ.get("_PATCH_TARGET_OVERRIDE", "")
+MIDDLEWARE_PATH = _PATCH_TARGET_OVERRIDE or "/app/backend/open_webui/utils/middleware.py"
 
 PATCH_MARKER = "skip_rag_files_ai_computer_use"
+NEW_PATCH_MARKER = "FIX_SKIP_RAG_FILES_NATIVE_FC"
 
-# Search pattern (original v0.8.11–0.8.12 code)
+# Search pattern (original v0.8.11-0.9.1 code)
 SEARCH_PATTERN = """    if file_context_enabled:
         try:
             form_data, flags = await chat_completion_files_handler(request, form_data, extra_params, user)
@@ -29,7 +32,7 @@ SEARCH_PATTERN = """    if file_context_enabled:
 
 # Replacement
 REPLACE_PATTERN = """    if file_context_enabled:
-        # PATCH: skip_rag_files_ai_computer_use
+        # PATCH: skip_rag_files_ai_computer_use; FIX_SKIP_RAG_FILES_NATIVE_FC
         # When ai_computer_use is enabled, skip RAG for regular files.
         # Full-context files (context == "full") are processed normally.
         # NB: tools_dict keys are function names from tool specs,
@@ -58,35 +61,35 @@ REPLACE_PATTERN = """    if file_context_enabled:
 
 def apply_patch():
     if not os.path.exists(MIDDLEWARE_PATH):
-        print(f"ERROR: File not found: {MIDDLEWARE_PATH}")
-        return False
+        print(
+            f"ERROR: fix_skip_rag_files_native_fc target file {MIDDLEWARE_PATH} not found. "
+            "Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     with open(MIDDLEWARE_PATH, "r", encoding="utf-8") as f:
         content = f.read()
 
-    if PATCH_MARKER in content:
-        print("  Patch already applied, skipping...")
+    if PATCH_MARKER in content or NEW_PATCH_MARKER in content:
+        print(f"ALREADY PATCHED: {MIDDLEWARE_PATH} contains {PATCH_MARKER}")
         return True
 
-    # Remove old patch (skip_rag_files_native_fc) if it was applied
-    OLD_MARKER = "skip_rag_files_native_fc"
-    if OLD_MARKER in content:
-        # Old patch used a different condition -- needs rollback
-        # Find the old REPLACE and revert to original, then apply the new one
-        print("  WARNING: Old patch (native_fc) detected, will be replaced")
-        # Applying on top since Docker build starts from a clean image
-
     if SEARCH_PATTERN not in content:
-        print("ERROR: Could not find target code block in middleware.py")
-        print("  Looking for: if file_context_enabled: ... chat_completion_files_handler ...")
-        return False
+        print(
+            f"ERROR: fix_skip_rag_files_native_fc anchor (file_context_enabled try/except "
+            f"around chat_completion_files_handler) not found in {MIDDLEWARE_PATH} — upstream "
+            "may have refactored. Refusing to produce a silently-broken image.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     content = content.replace(SEARCH_PATTERN, REPLACE_PATTERN, 1)
 
     with open(MIDDLEWARE_PATH, "w", encoding="utf-8") as f:
         f.write(content)
 
-    print("  Patch applied successfully!")
+    print("PATCHED: fix_skip_rag_files_native_fc applied successfully.")
     print("  When ai_computer_use is enabled: full-context files still work, RAG for others is skipped")
     return True
 
@@ -94,4 +97,4 @@ def apply_patch():
 if __name__ == "__main__":
     print("Applying skip-RAG-for-files (ai_computer_use) patch to Open WebUI...")
     success = apply_patch()
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

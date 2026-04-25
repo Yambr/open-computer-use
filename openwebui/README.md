@@ -35,4 +35,4 @@ Applied at Docker build time. All are idempotent and non-breaking. The 4 patches
 | `fix_skip_embedding_chat_files` | Optional | Skips embedding for large uploads (>1MB) | Large uploads block the chat for minutes on extraction/embedding |
 | `fix_skip_rag_files_native_fc` | Optional | Skips RAG when `ai_computer_use` handles files directly | Extra RAG pipeline runs on every message even when unnecessary |
 
-Tested with Open WebUI v0.8.11–0.8.12.
+Built strictly for Open WebUI 0.9.2 (this image's first 3 version segments match its target Open WebUI base).

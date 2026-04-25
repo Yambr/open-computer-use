@@ -39,7 +39,7 @@ Do nothing — the filter already emits the markdown link. The user clicks `🖥
 If you want the preview to pop open automatically inside the artifact panel like in the screenshot above, use our patched Open WebUI build:
 
 - **Easiest:** use `docker-compose.webui.yml` from the repo root. It builds Open WebUI with `fix_artifacts_auto_show` and `fix_preview_url_detection` pre-applied.
-- **Custom image:** if you maintain your own Open WebUI image, copy the two patch scripts (`openwebui/patches/fix_artifacts_auto_show.py` and `openwebui/patches/fix_preview_url_detection.py`) and run them against `/app/build/_app/immutable/chunks/*.js` at build time — see [`openwebui/Dockerfile`](../openwebui/Dockerfile) lines 10–18 for the exact invocation. Both patches are idempotent and tested against Open WebUI v0.8.11–0.8.12.
+- **Custom image:** if you maintain your own Open WebUI image, copy the two patch scripts (`openwebui/patches/fix_artifacts_auto_show.py` and `openwebui/patches/fix_preview_url_detection.py`) and run them against `/app/build/_app/immutable/chunks/*.js` at build time — see [`openwebui/Dockerfile`](../openwebui/Dockerfile) for the exact `RUN python3 /tmp/patches/...` invocations. Both patches are idempotent and tested against Open WebUI 0.9.2 (this build's strict target).
 
 ### Also check: `PUBLIC_BASE_URL` must be reachable from the user's browser
 
@@ -52,9 +52,8 @@ The iframe/button `src` comes from the server's `PUBLIC_BASE_URL` env var. It mu
 
 | Role | Where | Default | Notes |
 |------|-------|---------|-------|
-| **Public URL** — baked into /system-prompt, returned to filter in header, model writes it in links | `computer-use-server` env `PUBLIC_BASE_URL` (set in `.env`) | `http://computer-use-server:8081` (internal Docker DNS — *the browser cannot resolve it*; override to a browser-reachable URL such as `http://localhost:8081` for local dev, `https://cu.example.com` in prod) | Single source of truth. The filter reads it from the response header; no filter Valve for it. The value here must match the `COMPUTER_USE_SERVER_URL` build-arg below so the `fix_preview_url_detection` regex catches the same host the model writes into links. |
+| **Public URL** — baked into /system-prompt, returned to filter in header, model writes it in links | `computer-use-server` env `PUBLIC_BASE_URL` (set in `.env`) | `http://computer-use-server:8081` (internal Docker DNS — *the browser cannot resolve it*; override to a browser-reachable URL such as `http://localhost:8081` for local dev, `https://cu.example.com` in prod) | Single source of truth. The filter reads it from the response header; no filter Valve for it. `fix_preview_url_detection` is host-agnostic — the iframe src is reconstructed at runtime from the matched URL's own origin, so no build-arg is needed. |
 | **Internal URL** — server→server fetch from inside the open-webui container | Filter Valve `ORCHESTRATOR_URL` and Tool Valve `ORCHESTRATOR_URL` (both seeded by `init.sh`) | `http://computer-use-server:8081` (Docker service DNS) | Only reachable inside the compose network. Browsers never see it. `init.sh` seeds both Valves from the `ORCHESTRATOR_URL` env on the open-webui container. |
-| **Build-arg `COMPUTER_USE_SERVER_URL`** — compiled into a regex inside minified Svelte chunks by `openwebui/patches/fix_preview_url_detection.py`. | `docker-compose.webui.yml` → `services.open-webui.build.args` | `localhost:${MCP_PORT:-8081}` | Public URL, **no scheme** — the regex wraps it. Must match what `PUBLIC_BASE_URL` emits into file links. |
 
 **Custom project/network layouts.** The stock `docker-compose.yml` pins `container_name: computer-use-server`, so `docker compose -p myproject up` by itself does not rename the container — the internal hostname stays `computer-use-server`. If you remove/change that pin, set `ORCHESTRATOR_URL` on the open-webui container to the new hostname and `init.sh` will seed both Valves correctly.
 

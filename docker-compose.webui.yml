@@ -15,8 +15,7 @@ services:
       context: ./openwebui
       dockerfile: Dockerfile
       args:
-        OPENWEBUI_VERSION: ${OPENWEBUI_VERSION:-0.8.12}
-        COMPUTER_USE_SERVER_URL: localhost:${MCP_PORT:-8081}
+        OPENWEBUI_VERSION: ${OPENWEBUI_VERSION:-0.9.2}
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
     depends_on:
