@@ -60,6 +60,8 @@ See [docs/FEATURES.md](docs/FEATURES.md) for architecture details and [docs/SCRE
 
 > **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
 
+> **Multi-CLI sub-agent runtime (v0.9.2.1+)**: The sub-agent dispatch supports Claude Code (default), OpenAI Codex, and OpenCode (with OpenRouter / qwen / DeepSeek / 75+ providers). Flip `SUBAGENT_CLI=claude|codex|opencode` in `.env` — see [docs/multi-cli.md](docs/multi-cli.md) for the worked OpenCode + qwen3-coder + OpenRouter recipe.
+
 ## Architecture
 
 ![Architecture](docs/architecture.svg)

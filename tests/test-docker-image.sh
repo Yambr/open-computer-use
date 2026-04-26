@@ -165,7 +165,7 @@ echo "$RESULT" | grep -q "owner=assistant" && pass "files owned by assistant" ||
 # root here matches production parity. /tmp is world-readable so the marker
 # check works regardless.
 echo ""
-echo "[11/12] Per-CLI dispatch smoke + marker gating"
+echo "[11/13] Per-CLI dispatch smoke + marker gating"
 for cli in claude codex opencode; do
     SMOKE_CONTAINER="ocu-smoke-${cli}-$$"
     # Start a long-running container (so we can exec the entrypoint twice).
@@ -210,17 +210,69 @@ for cli in claude codex opencode; do
         fi
     fi
 
+    # Phase 7 verification: autostart line in .bashrc references the chosen CLI.
+    # The literal exec line is the same for every $cli (the SUBAGENT_CLI value
+    # is resolved at session-start time, not at .bashrc-write time), so we just
+    # assert the new shape exists once per loop iteration.
+    AUTOSTART_LINE_BASHRC=$(docker exec "$SMOKE_CONTAINER" cat /home/assistant/.bashrc 2>/dev/null | grep -F 'SUBAGENT_AUTOSTARTED' || true)
+    if echo "$AUTOSTART_LINE_BASHRC" | grep -qF 'exec "${SUBAGENT_CLI:-claude}"'; then
+        pass "SUBAGENT_CLI=$cli — .bashrc autostart line wires to \${SUBAGENT_CLI:-claude}"
+    else
+        fail "SUBAGENT_CLI=$cli — .bashrc autostart line missing or malformed (got: $AUTOSTART_LINE_BASHRC)"
+    fi
+    if echo "$AUTOSTART_LINE_BASHRC" | grep -qF 'NO_AUTOSTART' && echo "$AUTOSTART_LINE_BASHRC" | grep -qF '/tmp/.no_autostart'; then
+        pass "SUBAGENT_CLI=$cli — .bashrc autostart honours NO_AUTOSTART env + /tmp/.no_autostart sentinel"
+    else
+        fail "SUBAGENT_CLI=$cli — .bashrc autostart missing escape hatches (got: $AUTOSTART_LINE_BASHRC)"
+    fi
+    # Backwards-compat regression guard: old marker name must NOT appear.
+    if docker exec "$SMOKE_CONTAINER" grep -q 'CLAUDE_AUTOSTARTED' /home/assistant/.bashrc 2>/dev/null; then
+        fail "SUBAGENT_CLI=$cli — orphan CLAUDE_AUTOSTARTED reference in .bashrc (rename incomplete)"
+    else
+        pass "SUBAGENT_CLI=$cli — old CLAUDE_AUTOSTARTED marker fully purged from .bashrc"
+    fi
+
     docker rm -f "$SMOKE_CONTAINER" >/dev/null 2>&1 || true
 done
 
-# 12. Entrypoint executes cleanly with the real ENTRYPOINT path.
+# 12. NO_AUTOSTART escape hatch smoke (Phase 7 / TERM-02).
+# Exercises the .bashrc autostart guards by sourcing .bashrc with PS1 set
+# (the [ -n "$PS1" ] guard would otherwise short-circuit and falsely pass).
+# Two variants: env var NO_AUTOSTART=1 and sentinel file /tmp/.no_autostart.
+echo ""
+echo "[12/13] NO_AUTOSTART escape hatch"
+NOAUTOSTART_OUT=$(docker run --rm --platform linux/amd64 \
+    -e SUBAGENT_CLI=claude \
+    -e NO_AUTOSTART=1 \
+    --entrypoint=bash \
+    "$IMAGE" \
+    -c 'PS1="t> " && source /home/assistant/.bashrc 2>&1 && echo BASH_REACHED' 2>&1) || true
+if echo "$NOAUTOSTART_OUT" | grep -q 'BASH_REACHED'; then
+    pass "NO_AUTOSTART=1 — autostart skipped, plain bash reached"
+else
+    fail "NO_AUTOSTART=1 — autostart still fired (output: $(echo "$NOAUTOSTART_OUT" | head -c 200))"
+fi
+
+# Sentinel-file escape hatch: same shape, but use /tmp/.no_autostart instead.
+SENTINEL_OUT=$(docker run --rm --platform linux/amd64 \
+    -e SUBAGENT_CLI=claude \
+    --entrypoint=bash \
+    "$IMAGE" \
+    -c 'touch /tmp/.no_autostart && PS1="t> " && source /home/assistant/.bashrc 2>&1 && echo BASH_REACHED' 2>&1) || true
+if echo "$SENTINEL_OUT" | grep -q 'BASH_REACHED'; then
+    pass "/tmp/.no_autostart sentinel — autostart skipped, plain bash reached"
+else
+    fail "/tmp/.no_autostart sentinel — autostart still fired (output: $(echo "$SENTINEL_OUT" | head -c 200))"
+fi
+
+# 13. Entrypoint executes cleanly with the real ENTRYPOINT path.
 # All other tests bypass /home/assistant/.entrypoint.sh via --entrypoint=bash
 # so stdout parsing works. That leaves no coverage for the entrypoint script
 # itself — a shell syntax error there would ship unnoticed. This step runs
 # the image with its declared entrypoint and checks that (a) the process
 # exits 0, and (b) the expected status banner is printed.
 echo ""
-echo "[12/12] Entrypoint execution"
+echo "[13/13] Entrypoint execution"
 # Wrap the command substitution in `if` so `set -e` does not abort the
 # whole test script on a non-zero docker exit — we need to reach fail()
 # with the captured output for structured reporting.
@@ -236,6 +288,12 @@ if echo "$ENTRYPOINT_OUT" | grep -qE "(GITLAB_TOKEN|ANTHROPIC_AUTH_TOKEN|Claude 
     pass "entrypoint printed expected status banner"
 else
     fail "entrypoint ran but produced no recognisable banner: $ENTRYPOINT_OUT"
+fi
+# Phase 7 / TERM-03: entrypoint MOTD must include the autostart escape hint.
+if echo "$ENTRYPOINT_OUT" | grep -qF "NO_AUTOSTART=1 bash"; then
+    pass "entrypoint printed sub-agent autostart escape hint"
+else
+    fail "entrypoint missing escape-hint line (NO_AUTOSTART=1 bash / touch /tmp/.no_autostart): $ENTRYPOINT_OUT"
 fi
 
 # Summary
