@@ -111,6 +111,27 @@ CLAUDE_CODE_PASSTHROUGH_ENVS = (
     ("DISABLE_PROMPT_CACHING_HAIKU", DISABLE_PROMPT_CACHING_HAIKU),
 )
 
+# Codex passthrough envs (Phase 6 — only injected when SUBAGENT_CLI=codex).
+# Per AUTH-01 — closes Pitfall 1 (auth bleed across CLIs).
+CODEX_PASSTHROUGH_ENVS = (
+    ("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+    ("OPENAI_BASE_URL", os.getenv("OPENAI_BASE_URL", "")),
+    ("CODEX_MODEL", os.getenv("CODEX_MODEL", "")),
+    ("AZURE_OPENAI_API_KEY", os.getenv("AZURE_OPENAI_API_KEY", "")),
+    ("AZURE_OPENAI_ENDPOINT", os.getenv("AZURE_OPENAI_ENDPOINT", "")),
+    ("AZURE_OPENAI_API_VERSION", os.getenv("AZURE_OPENAI_API_VERSION", "")),
+)
+
+# OpenCode passthrough envs (Phase 6 — only injected when SUBAGENT_CLI=opencode).
+# Includes OPENAI_API_KEY and ANTHROPIC_API_KEY because OpenCode itself supports
+# multiple providers; the allowlist is per-CLI, not per-provider.
+OPENCODE_PASSTHROUGH_ENVS = (
+    ("OPENROUTER_API_KEY", os.getenv("OPENROUTER_API_KEY", "")),
+    ("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+    ("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY", "")),
+    ("OPENCODE_MODEL", os.getenv("OPENCODE_MODEL", "")),
+)
+
 # Sub-agent CLI runtime selector (CLI-01, CLI-02). Read once at module load
 # and propagated to every spawned container via extra_env (D5 shape a).
 # Empty/unset → "claude" (backwards-compat invariant). Invalid value → hard
@@ -126,6 +147,15 @@ if _raw_subagent_cli and _raw_subagent_cli not in _ALLOWED_CLIS:
     )
     sys.exit(1)
 SUBAGENT_CLI = _raw_subagent_cli or "claude"
+
+# Active passthrough set selected by SUBAGENT_CLI — AUTH-01 / Pitfall 1.
+# Single source of truth for "which auth env vars cross the orchestrator->sandbox
+# boundary for this runtime". `_create_container` reads this once per container.
+_PASSTHROUGH_BY_CLI = {
+    "claude": CLAUDE_CODE_PASSTHROUGH_ENVS,
+    "codex": CODEX_PASSTHROUGH_ENVS,
+    "opencode": OPENCODE_PASSTHROUGH_ENVS,
+}
 
 # Vision API for describe-image / upd-processing skills
 VISION_API_KEY = os.getenv("VISION_API_KEY", "")
