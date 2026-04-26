@@ -1,13 +1,15 @@
 # Corporate reference patterns (one per line)
-# Format: grep_pattern|description
-# Lines starting with # are comments
-alfaleasing\|alfa-leasing\|alfa_leasing|Internal domain references
-nexus\.yc\.|Internal package registry
-llm-api\.yc\.\|llm-keys\.yc\.|Internal LLM API endpoints
-sk-A82_\|sk--Mo5\|mcp-internal-\|dockerai-mcp-|Hardcoded API keys
-gitlab\.alfaleasing\.\|nexus\.yc\.alfaleasing|Internal container registry
-cdp\.alfaleasing\.\|alfaleasing-rca|Internal CA certificates
-svc-alfaai\|dockerai\.inner|Internal service accounts
-files-claude\|files_claude|Internal fork slug (private repo reference)
-openwebui-computer-use-community-1|Author's private workstation project directory
-/Users/ngyambroskin/\|/home/ngyambroskin/|Author's private workstation home path
+# Format: <grep_pattern>\t<description>     (TAB-separated, NOT '|')
+# Lines starting with # are comments.
+# CR PR#76 finding #5: separator is TAB. Previous '|' separator collided with
+# grep BRE alternation `\|`, silently truncating multi-token patterns.
+alfaleasing\|alfa-leasing\|alfa_leasing	Internal domain references
+nexus\.yc\.	Internal package registry
+llm-api\.yc\.\|llm-keys\.yc\.	Internal LLM API endpoints
+sk-A82_\|sk--Mo5\|mcp-internal-\|dockerai-mcp-	Hardcoded API keys
+gitlab\.alfaleasing\.\|nexus\.yc\.alfaleasing	Internal container registry
+cdp\.alfaleasing\.\|alfaleasing-rca	Internal CA certificates
+svc-alfaai\|dockerai\.inner	Internal service accounts
+files-claude\|files_claude	Internal fork slug (private repo reference)
+openwebui-computer-use-community-1	Author's private workstation project directory
+/Users/ngyambroskin/\|/home/ngyambroskin/	Author's private workstation home path

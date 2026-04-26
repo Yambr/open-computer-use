@@ -158,6 +158,7 @@ from docker_manager import (
     ANTHROPIC_DEFAULT_OPUS_MODEL,
     ANTHROPIC_DEFAULT_HAIKU_MODEL,
 )
+from cli_runtime import dispatch as cli_dispatch, Cli, resolve_cli
 
 
 
@@ -809,54 +810,6 @@ fi
         return f"Error: {str(e)}"
 
 
-async def _format_sub_agent_result(
-    output: str,
-    model: str,
-    max_turns: int,
-    duration: float
-) -> str:
-    """Parse Claude JSON output and format result with session_id for resume."""
-    response_text = ""
-    cost = 0.0
-    turns = 0
-    is_error = False
-    session_id = ""
-
-    try:
-        # Find the result JSON line in output
-        for line in output.strip().split('\n'):
-            line = line.strip()
-            if '"type"' in line and '"result"' in line:
-                try:
-                    parsed = json.loads(line)
-                    if parsed.get("type") == "result":
-                        response_text = parsed.get("result", "")
-                        cost = parsed.get("total_cost_usd", 0.0)
-                        turns = parsed.get("num_turns", 0)
-                        is_error = parsed.get("is_error", False)
-                        session_id = parsed.get("session_id", "")
-                        break
-                except json.JSONDecodeError:
-                    continue
-    except Exception as e:
-        print(f"[SUB-AGENT] Failed to parse JSON output: {e}")
-
-    if not response_text:
-        response_text = output
-
-    status = "error" if is_error else "success"
-
-    result = f"""**Sub-Agent Completed** ({status})
-**Model:** {model} | **Turns:** {turns}/{max_turns} | **Cost:** ${cost:.4f} | **Duration:** {duration:.1f}s
-
-{response_text}"""
-
-    if session_id:
-        result += f"\n\n**Session ID:** `{session_id}` (use resume_session_id to continue)"
-
-    return result
-
-
 @mcp.tool()
 async def sub_agent(
     task: str,
@@ -905,30 +858,14 @@ async def sub_agent(
         model = SUB_AGENT_DEFAULT_MODEL
     if max_turns <= 0:
         max_turns = SUB_AGENT_MAX_TURNS
-    DEFAULT_FALLBACK_MODEL = "claude-sonnet-4-6"
-    ALIAS_MAP = {
-        "sonnet": ANTHROPIC_DEFAULT_SONNET_MODEL or "claude-sonnet-4-6",
-        "opus": ANTHROPIC_DEFAULT_OPUS_MODEL or "claude-opus-4-6",
-        "haiku": ANTHROPIC_DEFAULT_HAIKU_MODEL or "claude-haiku-4-5",
-    }
-    requested = (model or "").strip()
-    key = requested.lower()
-    if key in ALIAS_MAP:
-        model_id = ALIAS_MAP[key]
-        model_display = key
-    elif requested:
-        model_id = requested
-        model_display = requested
-    else:
-        model_id = ANTHROPIC_DEFAULT_SONNET_MODEL or DEFAULT_FALLBACK_MODEL
-        model_display = "sonnet"
-    model = model_id
+    # Resolve the active CLI runtime — single source of truth.
+    cli = resolve_cli()
 
     try:
         await _ensure_gitlab_token()
         container = await asyncio.to_thread(_get_or_create_container, chat_id)
 
-        # Write ~/.mcp.json if MCP server names provided via header
+        # Write ~/.mcp.json if MCP server names provided via header.
         mcp_servers_str = current_mcp_servers.get()
         if mcp_servers_str:
             mcp_cfg = build_mcp_config(
@@ -940,41 +877,51 @@ async def sub_agent(
                 write_cmd = build_mcp_config_write_script(mcp_cfg)
                 await asyncio.to_thread(_execute_bash, container, write_cmd, 15)
 
-        # Build the sub-agent system prompt with dynamic skills
+        # Build the sub-agent system prompt with dynamic skills.
         file_base_url = f"{PUBLIC_BASE_URL}/files/{chat_id}"
         plan_file = "/home/assistant/task_plan.md"
-        skills = skill_manager.get_user_skills_sync(user_email) if user_email else skill_manager.get_user_skills_sync(None)
+        skills = (
+            skill_manager.get_user_skills_sync(user_email)
+            if user_email
+            else skill_manager.get_user_skills_sync(None)
+        )
         skills_text = skill_manager.build_sub_agent_skills_text(skills)
 
-        # ANTHROPIC_CUSTOM_HEADERS passes x-openwebui-user-email header for LiteLLM tracking
+        # ANTHROPIC_CUSTOM_HEADERS for LiteLLM user tagging (claude path only;
+        # codex/opencode ignore it harmlessly because they don't read it).
         headers_env = ""
         if user_email:
-            headers_env = f"ANTHROPIC_CUSTOM_HEADERS={shlex.quote(f'x-openwebui-user-email: {user_email}')} "
-
-        # Common flags: disallow interactive tools that don't work in headless mode
-        base_flags = (
-            f"--max-turns {max_turns} "
-            f"--permission-mode bypassPermissions "
-            f"--disallowedTools 'AskUserQuestion,ExitPlanMode' "
-            f"--output-format json"
-        )
+            headers_env = (
+                f"ANTHROPIC_CUSTOM_HEADERS="
+                f"{shlex.quote(f'x-openwebui-user-email: {user_email}')} "
+            )
 
         if resume_session_id:
-            # === RESUME SESSION ===
-            resume_prompt = f"Continue working on the task. If needed, re-read {plan_file} for full context."
-            escaped_prompt = shlex.quote(resume_prompt)
-
-            claude_command = (
-                f"cd {shlex.quote(working_directory)} && "
-                f"{headers_env}"
-                f"claude -p {escaped_prompt} "
-                f"--resume {shlex.quote(resume_session_id)} "
-                f"{base_flags}"
+            # Resume path: short prompt, system_prompt empty (claude --resume
+            # restores it from the session). Adapters that don't support
+            # resume (codex, opencode) emit a stderr warning and start fresh.
+            task_for_dispatch = (
+                f"Continue working on the task. If needed, re-read "
+                f"{plan_file} for full context."
             )
+            system_prompt = ""
         else:
-            # === NEW SESSION ===
-            # Save task to plan file - source of truth for sub-agent (survives context compaction)
-            write_plan_cmd = f"cat > {plan_file} << 'TASK_PLAN_EOF'\n{task}\nTASK_PLAN_EOF"
+            # New session: write the task plan file (survives context compaction)
+            # and build the full system prompt with skills.
+            #
+            # SECURITY: encode the task body via base64 + pipe through `base64 -d`
+            # rather than embedding it directly into a shell heredoc. The previous
+            # `cat > {plan_file} << 'TASK_PLAN_EOF'\n{task}\nTASK_PLAN_EOF` pattern
+            # would close early if the task body contained a line equal to the
+            # sentinel `TASK_PLAN_EOF`, causing the remainder to execute as shell
+            # (and corrupting the saved plan even without malice). Base64 is
+            # immune to all shell metacharacters in the payload.
+            # Per CodeRabbit PR#75 review.
+            import base64
+            encoded_task = base64.b64encode(task.encode("utf-8")).decode("ascii")
+            write_plan_cmd = (
+                f"echo {shlex.quote(encoded_task)} | base64 -d > {shlex.quote(plan_file)}"
+            )
             await asyncio.to_thread(_execute_bash, container, write_plan_cmd, 30)
 
             system_prompt = f"""<critical_instruction>
@@ -1003,40 +950,48 @@ IMPORTANT: Read the relevant SKILL.md BEFORE starting any task!
 
 Use `cat <skill-location>` to read skill instructions.
 </available_skills>"""
+            task_for_dispatch = f"Read and execute your task plan from {plan_file}"
 
-            # Short prompt - full details in plan file
-            short_task = f"Read and execute your task plan from {plan_file}"
-            escaped_task = shlex.quote(short_task)
-            escaped_system = shlex.quote(system_prompt)
-
-            claude_command = (
-                f"cd {shlex.quote(working_directory)} && "
-                f"{headers_env}"
-                f"claude -p {escaped_task} "
-                f"--model {shlex.quote(model)} "
-                f"--append-system-prompt {escaped_system} "
-                f"{base_flags}"
-            )
-
-        # Create marker file BEFORE starting claude — used to find the new JSONL
+        # Marker file for JSONL session-id discovery — claude-only feature
+        # (codex --ephemeral and opencode run have no equivalent session
+        # JSONL trail; this is gated below in _stream_session_logs).
         await asyncio.to_thread(
             _execute_bash, container,
-            "touch /tmp/.sub_agent_start", 5
+            "touch /tmp/.sub_agent_start", 5,
         )
         start_time = time.time()
 
-        # Stream session logs via tail -f for real-time progress
+        # Stream session logs via tail -f for real-time progress.
+        # Claude-only — codex/opencode get heartbeat-only progress (Phase 7
+        # cost-guardrail-and-ttyd-UX milestone owns the per-CLI progress UX).
         async def _stream_session_logs():
-            """Monitor Claude's JSONL session log, send progress via SSE."""
+            if cli != Cli.CLAUDE:
+                # Heartbeat-only loop for non-claude CLIs.
+                try:
+                    while True:
+                        await asyncio.sleep(15)
+                        elapsed = int(time.time() - start_time)
+                        await send_progress(
+                            ctx, elapsed, SUB_AGENT_TIMEOUT,
+                            f"Agent running... ({format_elapsed_time(elapsed)})",
+                        )
+                except asyncio.CancelledError:
+                    return
+                except Exception:
+                    pass
+                return
+
+            # Claude path — original JSONL log streaming (lifted verbatim
+            # from v0.9.2.0).
             try:
-                # Wait for NEW session JSONL file (newer than marker)
                 jsonl_path = None
-                for _ in range(60):  # Max 60s wait
+                for _ in range(60):
                     await asyncio.sleep(1)
                     find_r = await asyncio.to_thread(
                         _execute_bash, container,
                         "find /home/assistant/.claude/projects/-home-assistant/ "
-                        "-name '*.jsonl' -newer /tmp/.sub_agent_start 2>/dev/null | head -1", 5
+                        "-name '*.jsonl' -newer /tmp/.sub_agent_start "
+                        "2>/dev/null | head -1", 5,
                     )
                     path = (find_r.get("output") or "").strip()
                     if path:
@@ -1044,16 +999,14 @@ Use `cat <skill-location>` to read skill instructions.
                         break
 
                 if not jsonl_path:
-                    # Fallback: heartbeat without log reading
                     while True:
                         await asyncio.sleep(15)
                         elapsed = int(time.time() - start_time)
                         await send_progress(
                             ctx, elapsed, SUB_AGENT_TIMEOUT,
-                            f"Agent running... ({format_elapsed_time(elapsed)})"
+                            f"Agent running... ({format_elapsed_time(elapsed)})",
                         )
 
-                # Start tail -f in a thread, bridge to asyncio via queue
                 import threading
                 q = asyncio.Queue()
                 loop = asyncio.get_event_loop()
@@ -1063,12 +1016,12 @@ Use `cat <skill-location>` to read skill instructions.
                     try:
                         exec_id = client.api.exec_create(
                             container.id, ["tail", "-n", "0", "-f", jsonl_path],
-                            stdout=True, stderr=False
+                            stdout=True, stderr=False,
                         )
                         for chunk in client.api.exec_start(exec_id['Id'], stream=True):
                             loop.call_soon_threadsafe(q.put_nowait, chunk)
                     except Exception:
-                        pass  # Container may have stopped
+                        pass
 
                 threading.Thread(target=_tail_reader, daemon=True).start()
 
@@ -1084,27 +1037,33 @@ Use `cat <skill-location>` to read skill instructions.
                                 elapsed = int(time.time() - start_time)
                                 msg = f"{action} ({format_elapsed_time(elapsed)})"
                                 print(f"[SUB-AGENT-PROGRESS] {msg}")
-                                await send_progress(ctx, elapsed, SUB_AGENT_TIMEOUT, msg)
+                                await send_progress(
+                                    ctx, elapsed, SUB_AGENT_TIMEOUT, msg,
+                                )
                     except asyncio.TimeoutError:
-                        # No new lines for 15s — send heartbeat
                         elapsed = int(time.time() - start_time)
                         await send_progress(
                             ctx, elapsed, SUB_AGENT_TIMEOUT,
-                            f"Agent running... ({format_elapsed_time(elapsed)})"
+                            f"Agent running... ({format_elapsed_time(elapsed)})",
                         )
             except asyncio.CancelledError:
                 return
             except Exception:
                 pass
 
-        # Run Claude command + log streaming concurrently
         log_task = asyncio.create_task(_stream_session_logs())
         try:
-            result = await asyncio.to_thread(
-                _execute_bash,
-                container,
-                claude_command,
-                SUB_AGENT_TIMEOUT
+            sub_result, model_id, model_display = await cli_dispatch(
+                container=container,
+                task=task_for_dispatch,
+                system_prompt=system_prompt,
+                model=model,
+                max_turns=max_turns,
+                timeout_s=SUB_AGENT_TIMEOUT,
+                working_directory=working_directory,
+                resume_session_id=resume_session_id,
+                plan_file=plan_file,
+                headers_env=headers_env,
             )
         finally:
             log_task.cancel()
@@ -1114,16 +1073,17 @@ Use `cat <skill-location>` to read skill instructions.
                 pass
 
         duration = time.time() - start_time
-        output = result.get("output", "")
-        exit_code = result.get("exit_code", 0)
 
-        # Helper: find session_id from JSONL file created after marker
+        # _find_session_id: claude-only (reads ~/.claude/projects/*.jsonl).
         async def _find_session_id() -> str:
+            if cli != Cli.CLAUDE:
+                return ""
             try:
                 find_r = await asyncio.to_thread(
                     _execute_bash, container,
                     "find /home/assistant/.claude/projects/-home-assistant/ "
-                    "-name '*.jsonl' -newer /tmp/.sub_agent_start 2>/dev/null | head -1", 5
+                    "-name '*.jsonl' -newer /tmp/.sub_agent_start "
+                    "2>/dev/null | head -1", 5,
                 )
                 jsonl_path = (find_r.get("output") or "").strip()
                 if jsonl_path:
@@ -1135,43 +1095,63 @@ Use `cat <skill-location>` to read skill instructions.
                 pass
             return ""
 
-        # Handle killed/crashed process (SIGKILL, SIGTERM, OOM, etc.)
-        if exit_code in (137, 143, -9, -15) or (exit_code != 0 and not output.strip()):
-            session_id = await _find_session_id()
-            signal_name = {137: "SIGKILL", 143: "SIGTERM", -9: "SIGKILL", -15: "SIGTERM"}.get(
-                exit_code, f"exit {exit_code}")
+        # SubAgentResult is the normalised dataclass — render it as the
+        # human-readable string the MCP tool has always returned.
+        # cost_usd is None for codex always, and may be None for opencode —
+        # render "unavailable" rather than "$0.00" (Pitfall 4). Phase 7
+        # cost-guardrail-and-ttyd-UX milestone refines this further.
+        cost_text = (
+            f"${sub_result.cost_usd:.4f}" if sub_result.cost_usd is not None
+            else "unavailable"
+        )
+        turns_text = (
+            f"{sub_result.turns}/{max_turns}" if sub_result.turns is not None
+            else f"?/{max_turns}"
+        )
+        session_id = sub_result.session_id or ""
+
+        # WARNING 1 fix: preserve v0.9.2.0 distinct user-facing messages
+        # for rc=124 (timeout), rc=137 (SIGKILL), rc=143 (SIGTERM), other
+        # non-zero (failed). SubAgentResult.returncode (added in plan
+        # 05-02 Task 0, populated by all three adapters) carries the rc.
+        if sub_result.is_error and not sub_result.text.strip():
+            rc = sub_result.returncode
+            if rc == 124:
+                reason = f"timed out after {SUB_AGENT_TIMEOUT}s"
+            elif rc == 137 or rc == -9:
+                reason = "killed by SIGKILL"
+            elif rc == 143 or rc == -15:
+                reason = "terminated by SIGTERM"
+            elif rc != 0:
+                reason = f"failed with exit code {rc}"
+            else:
+                reason = "crashed before producing results"
+            fallback_session = await _find_session_id()
             msg = (
-                f"**Sub-Agent Terminated** ({signal_name})\n"
+                f"**Sub-Agent Terminated** ({reason})\n"
                 f"**Model:** {model_display} | **Duration:** {duration:.1f}s\n\n"
                 f"Process was killed or crashed before producing results.\n"
             )
-            if session_id:
-                msg += f"\n**Session ID:** `{session_id}` (use resume_session_id to continue)"
+            if fallback_session:
+                msg += (
+                    f"\n**Session ID:** `{fallback_session}` "
+                    f"(use resume_session_id to continue)"
+                )
             return msg
 
-        # Check if timed out but Claude is still running
-        if exit_code == 124:
-            session_id = await _find_session_id()
-            timeout_msg = (
-                f"**Sub-Agent Timeout** ({SUB_AGENT_TIMEOUT}s)\n\n"
-                f"Claude Code is still running in the container.\n"
-                f"You can monitor progress in the SubAgent tab.\n\n"
-                f"Results will be in /mnt/user-data/outputs/"
+        status = "error" if sub_result.is_error else "success"
+        result_text = (
+            f"**Sub-Agent Completed** ({status})\n"
+            f"**Model:** {model_display} | **Turns:** {turns_text} | "
+            f"**Cost:** {cost_text} | **Duration:** {duration:.1f}s\n\n"
+            f"{sub_result.text}"
+        )
+        if session_id:
+            result_text += (
+                f"\n\n**Session ID:** `{session_id}` "
+                f"(use resume_session_id to continue)"
             )
-            if session_id:
-                timeout_msg += f"\n\n**Session ID:** `{session_id}` (use resume_session_id to continue)"
-            try:
-                check = await asyncio.to_thread(
-                    _execute_bash, container,
-                    "pgrep -f 'claude' > /dev/null 2>&1 && echo ALIVE || echo DEAD", 10)
-                if "ALIVE" in check.get("output", ""):
-                    return timeout_msg
-            except Exception:
-                pass
-            return timeout_msg
 
-        # Parse JSON result and format response
-        result_text = await _format_sub_agent_result(output, model_display, max_turns, duration)
         return result_text + _get_default_chat_warning()
 
     except Exception as e:

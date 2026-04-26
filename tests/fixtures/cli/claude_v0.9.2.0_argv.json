@@ -1,0 +1,46 @@
+{
+  "metadata": {
+    "captured_from": "v0.9.2.0",
+    "source": "computer-use-server/mcp_tools.py:967-1019 (NEW SESSION) and :962-973 (RESUME)",
+    "captured_at": "2026-04-26",
+    "purpose": "Phase 4 ADAPT-02 byte-compat — proves cli_adapters/claude.py:ClaudeAdapter.build_argv produces the same argv as the v0.9.2.0 production code at the argv layer (the surrounding shell-execution wrapper stays in mcp_tools.sub_agent through Phase 6)."
+  },
+  "new_session": {
+    "inputs": {
+      "task": "Read and execute your task plan from /home/assistant/task_plan.md",
+      "system_prompt": "<critical_instruction>\nYour task plan is saved at /home/assistant/task_plan.md\n</critical_instruction>",
+      "model": "claude-sonnet-4-6",
+      "max_turns": 25,
+      "timeout_s": 3600
+    },
+    "expected_argv": [
+      "claude",
+      "-p", "Read and execute your task plan from /home/assistant/task_plan.md",
+      "--model", "claude-sonnet-4-6",
+      "--append-system-prompt", "<critical_instruction>\nYour task plan is saved at /home/assistant/task_plan.md\n</critical_instruction>",
+      "--max-turns", "25",
+      "--permission-mode", "bypassPermissions",
+      "--disallowedTools", "AskUserQuestion,ExitPlanMode",
+      "--output-format", "json"
+    ]
+  },
+  "resume": {
+    "inputs": {
+      "task": "Continue working on the task. If needed, re-read /home/assistant/task_plan.md for full context.",
+      "system_prompt": "",
+      "model": "claude-sonnet-4-6",
+      "max_turns": 25,
+      "timeout_s": 3600,
+      "resume_session_id": "abc-123-session"
+    },
+    "expected_argv": [
+      "claude",
+      "-p", "Continue working on the task. If needed, re-read /home/assistant/task_plan.md for full context.",
+      "--resume", "abc-123-session",
+      "--max-turns", "25",
+      "--permission-mode", "bypassPermissions",
+      "--disallowedTools", "AskUserQuestion,ExitPlanMode",
+      "--output-format", "json"
+    ]
+  }
+}

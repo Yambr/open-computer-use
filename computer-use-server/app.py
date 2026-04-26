@@ -36,6 +36,7 @@ from docker_manager import (
     PUBLIC_BASE_URL,
     warn_if_public_base_url_is_default,
     warn_if_mcp_api_key_missing,
+    warn_subagent_cli,
 )
 from security import sanitize_chat_id, safe_path
 import skill_manager
@@ -199,6 +200,7 @@ async def lifespan(app):
     """
     warn_if_public_base_url_is_default()
     warn_if_mcp_api_key_missing()
+    warn_subagent_cli()
     from mcp_tools import mcp as _mcp_server
     # Import-for-side-effect: registers @mcp.resource handlers on the
     # FastMCP singleton. Must happen BEFORE streamable_http_app() so the
@@ -827,7 +829,7 @@ async def start_ttyd(chat_id: str, body: StartTtydRequest = Body(default=StartTt
     """Start ttyd + tmux in the container (lazy start).
 
     Uses tmux -A (attach-if-exists) so reconnections work without errors.
-    If dangerous_mode=True, sets CLAUDE_AUTOSTARTED=1 so .bashrc skips auto-launch —
+    If dangerous_mode=True, sets NO_AUTOSTART=1 so .bashrc skips auto-launch —
     the frontend will inject `claude --dangerously-skip-permissions` after connecting.
     """
     chat_id = sanitize_chat_id(chat_id)
@@ -842,7 +844,7 @@ async def start_ttyd(chat_id: str, body: StartTtydRequest = Body(default=StartTt
     if "RUNNING" in check.get("output", ""):
         return {"started": False, "already_running": True}
     # Start ttyd + tmux in background (-A = attach if session exists, create if not)
-    env_prefix = "CLAUDE_AUTOSTARTED=1 " if body.dangerous_mode else ""
+    env_prefix = "NO_AUTOSTART=1 " if body.dangerous_mode else ""
     await asyncio.to_thread(
         _execute_bash, container,
         f"cd /home/assistant && echo 'set -g mouse on' > ~/.tmux.conf && LANG=C.UTF-8 {env_prefix}nohup ttyd -W -p 7681 tmux -u new-session -A -s main bash > /dev/null 2>&1 &", 5)
@@ -1384,6 +1386,40 @@ async def skill_stats(x_internal_api_key: Optional[str] = Header(default=None)):
     async with _central_log_lock:
         result = await asyncio.get_event_loop().run_in_executor(None, _harvest_and_get_stats)
     return result
+
+
+# ============================================================================
+# Runtime introspection (Phase 9.5 — Preview SPA multi-CLI surface)
+# ============================================================================
+
+@app.get("/api/runtime/cli", tags=["System"])
+async def runtime_cli(response: Response):
+    """Return the active sub-agent CLI runtime.
+
+    Pure additive endpoint — no auth, no side effects, no breakage of the
+    existing MCP contract. Surfaces what `SUBAGENT_CLI` resolved to at
+    orchestrator boot (`docker_manager.SUBAGENT_CLI`) plus the per-CLI
+    default model so the Preview SPA can render an active-CLI badge.
+
+    Cache-Control: no-store — the value is fixed for the orchestrator
+    lifetime, but operators flipping `SUBAGENT_CLI` in `.env` and
+    restarting must see the new value immediately on next page load.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    # Resolve through cli_runtime so the badge reflects the SAME default
+    # the dispatcher will actually run, including all env-var overrides
+    # (CODEX_SUB_AGENT_DEFAULT_MODEL, OPENCODE_MODEL, etc.). Calling
+    # resolve_subagent_model("", cli) returns the (model_id, display_name)
+    # tuple — we surface model_id since that's what hits the wire.
+    # CR PR#76 finding #1: do not duplicate the per-CLI fallback table here.
+    from cli_runtime import Cli, resolve_cli, resolve_subagent_model
+    cli = resolve_cli()
+    model_id, _display = resolve_subagent_model("", cli)
+    return {
+        "cli": cli.value,
+        "default_model": model_id,
+        "supports_cost": cli == Cli.CLAUDE,
+    }
 
 
 # ============================================================================

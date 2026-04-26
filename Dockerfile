@@ -17,6 +17,17 @@ LABEL version="1.0.0"
 # also removing the wrapper and verifying the native binary works under Bun.
 ARG CLAUDE_CODE_VERSION=2.1.112
 
+# Codex CLI version. Pinned per RESEARCH STACK.md and Pitfall 6 (CLI version
+# drift breaks adapter contract while tests stay green). Bump only after
+# re-running tests/orchestrator/test_cli_adapters.py against the new release.
+ARG CODEX_VERSION=0.125.0
+
+# OpenCode (sst fork — opencode-ai on npm, NOT the unrelated similarly-named
+# package). See RESEARCH STACK.md for fork rationale. The npm package
+# downloads platform binaries from GitHub Releases at install time; pinning
+# the version neutralises URL drift (Pitfall 6).
+ARG OPENCODE_VERSION=1.14.25
+
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -217,6 +228,19 @@ RUN printf '#!/bin/bash\nplaywright-cli open "$1" 2>/dev/null &\n' > /usr/local/
 # Install Claude Code CLI from npm registry
 RUN sudo -u assistant bash -c "npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
+# Install Codex CLI from npm registry (Phase 6 — sub-agent runtime alternative).
+# Ships native linux-x64 binary via optionalDependencies; no Bun wrapper needed
+# (unlike claude-code, which repackaged in 2.1.113 — see CLAUDE_CODE_VERSION note).
+# Uses an isolated --cache dir to prevent postinstall scripts from corrupting
+# the shared ~/.npm/_cacache (which would break later installs like @playwright/cli
+# with EEXIST+ENOENT collisions on content-v2/sha512/X/Y shards).
+RUN sudo -u assistant bash -c "mkdir -p /tmp/npm-codex-cache && npm install -g --cache /tmp/npm-codex-cache @openai/codex@${CODEX_VERSION} && rm -rf /tmp/npm-codex-cache"
+
+# Install OpenCode CLI from npm registry (sst fork — Phase 6 third runtime).
+# Native binary downloaded at npm-postinstall time from GitHub Releases.
+# Same isolated --cache dir pattern as codex above (and for the same reason).
+RUN sudo -u assistant bash -c "mkdir -p /tmp/npm-opencode-cache && npm install -g --cache /tmp/npm-opencode-cache opencode-ai@${OPENCODE_VERSION} && rm -rf /tmp/npm-opencode-cache /home/assistant/.npm/_cacache"
+
 # Install Playwright CLI for browser automation (used by main AI via bash, Claude Code via skills)
 # Version pinned — patch below depends on internal structure
 RUN sudo -u assistant bash -c "npm install -g @playwright/cli@0.1.1" && \
@@ -277,6 +301,9 @@ if [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then\n\
 else\n\
     echo "No ANTHROPIC_AUTH_TOKEN - Claude Code will not work"\n\
 fi\n\
+\n\
+# Discoverability: how to escape sub-agent autostart\n\
+echo "Tip: plain bash with NO_AUTOSTART=1 bash  OR  touch /tmp/.no_autostart"\n\
 \n\
 # Configure Playwright CLI for browser automation\n\
 cat > /home/assistant/playwright-cli.json << PCLIEOF\n\
@@ -391,10 +418,74 @@ done\n\
 cp /home/assistant/.claude/CLAUDE.md /root/.claude/CLAUDE.md 2>/dev/null\n\
 cp /home/assistant/.claude/settings.json /root/.claude/settings.json 2>/dev/null\n\
 \n\
-# Auto-start claude on first interactive bash login (both users)\n\
-AUTOSTART_LINE='"'"'[ -z "$CLAUDE_AUTOSTARTED" ] && [ -n "$PS1" ] && export CLAUDE_AUTOSTARTED=1 && claude'"'"'\n\
+# Phase 6 — render per-CLI config files once per container (marker-gated).\n\
+# Marker is in /tmp (NOT volume) so an env-var change + restart re-renders\n\
+# from scratch (AUTH-04). Distinct from openwebui/init.sh persistent marker.\n\
+if [ ! -f /tmp/.cli-runtime-initialised ]; then\n\
+    case "${SUBAGENT_CLI:-claude}" in\n\
+        opencode)\n\
+            mkdir -p /tmp\n\
+            if [ -n "${OPENCODE_CONFIG_EXTRA:-}" ]; then\n\
+                printf "%s" "$OPENCODE_CONFIG_EXTRA" > /tmp/opencode.json\n\
+                echo "OpenCode config sourced from OPENCODE_CONFIG_EXTRA (operator override; canonical block skipped)"\n\
+            else\n\
+                cat > /tmp/opencode.json <<'"'"'OCEOF'"'"'\n\
+{\n\
+  "$schema": "https://opencode.ai/config.json",\n\
+  "provider": {\n\
+    "openrouter": {\n\
+      "options": { "apiKey": "{env:OPENROUTER_API_KEY}" }\n\
+    },\n\
+    "openai": {\n\
+      "options": { "apiKey": "{env:OPENAI_API_KEY}" }\n\
+    },\n\
+    "anthropic": {\n\
+      "options": { "apiKey": "{env:ANTHROPIC_API_KEY}" }\n\
+    }\n\
+  },\n\
+  "model": "anthropic/claude-sonnet-4-6"\n\
+}\n\
+OCEOF\n\
+                echo "OpenCode config rendered to /tmp/opencode.json (env-substituted, no plaintext secrets)"\n\
+            fi\n\
+            export OPENCODE_CONFIG=/tmp/opencode.json\n\
+            ;;\n\
+        codex)\n\
+            mkdir -p /home/assistant/.codex\n\
+            if [ -n "${OPENAI_BASE_URL:-}" ]; then\n\
+                cat > /home/assistant/.codex/config.toml <<CXEOF\n\
+model_provider = "custom"\n\
+\n\
+[model_providers.custom]\n\
+name = "custom-gateway"\n\
+base_url = "${OPENAI_BASE_URL}"\n\
+env_key = "OPENAI_API_KEY"\n\
+wire_api = "responses"\n\
+requires_openai_auth = true\n\
+CXEOF\n\
+                echo "Codex config rendered with custom gateway: $OPENAI_BASE_URL"\n\
+            else\n\
+                : > /home/assistant/.codex/config.toml\n\
+                echo "Codex config empty — public OpenAI defaults"\n\
+            fi\n\
+            if [ -n "${CODEX_CONFIG_EXTRA:-}" ]; then\n\
+                printf "\\n# === CODEX_CONFIG_EXTRA (operator-supplied) ===\\n%s\\n" "$CODEX_CONFIG_EXTRA" >> /home/assistant/.codex/config.toml\n\
+                echo "Codex config extended via CODEX_CONFIG_EXTRA"\n\
+            fi\n\
+            chown -R assistant:assistant /home/assistant/.codex\n\
+            ;;\n\
+    esac\n\
+    touch /tmp/.cli-runtime-initialised\n\
+fi\n\
+\n\
+# Auto-start chosen sub-agent CLI on first interactive bash login (both users).\n\
+# Honours SUBAGENT_CLI (default claude). Escape hatches: NO_AUTOSTART=1 env\n\
+# OR `touch /tmp/.no_autostart` from a second terminal to opt subsequent sessions out.\n\
+# Marker renamed from the old per-CLI name to SUBAGENT_AUTOSTARTED (independent\n\
+# check; existing volumes with the old marker still autostart exactly once on next session).\n\
+AUTOSTART_LINE='"'"'[ -z "$SUBAGENT_AUTOSTARTED" ] && [ -z "$NO_AUTOSTART" ] && [ ! -f /tmp/.no_autostart ] && [ -n "$PS1" ] && export SUBAGENT_AUTOSTARTED=1 && exec "${SUBAGENT_CLI:-claude}"'"'"'\n\
 for rc in /home/assistant/.bashrc /root/.bashrc; do\n\
-    if [ ! -f "$rc" ] || ! grep -q CLAUDE_AUTOSTARTED "$rc" 2>/dev/null; then\n\
+    if [ ! -f "$rc" ] || ! grep -q SUBAGENT_AUTOSTARTED "$rc" 2>/dev/null; then\n\
         echo "$AUTOSTART_LINE" >> "$rc"\n\
     fi\n\
 done\n\

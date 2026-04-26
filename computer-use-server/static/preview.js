@@ -942,7 +942,7 @@ function TerminalSession({ chatId, resumeId, dangerousMode, onBack }) {
           }
         })();
       } else if (dangerousModeRef.current) {
-        // New session in dangerous mode — CLAUDE_AUTOSTARTED=1 prevented .bashrc autostart,
+        // New session in dangerous mode — NO_AUTOSTART=1 prevented .bashrc autostart,
         // so we wait for the bash prompt and inject the command with the flag.
         // For reconnects where claude is already running — leave it undisturbed.
         (async () => {
@@ -1279,6 +1279,48 @@ function TerminalView({ chatId }) {
 // App
 // =============================================================================
 
+// Phase 9.5 — render a USD cost as either "$X.XXXX" or the literal
+// "unavailable" so codex/opencode runs (where the CLI does not surface
+// cost) never display a misleading "$0.0000". Mirrors the server-side
+// branch in mcp_tools.sub_agent (see PITFALLS.md Pitfall 4).
+function renderCost(costUsd) {
+  if (costUsd === null || costUsd === undefined) return 'unavailable';
+  const n = Number(costUsd);
+  if (!Number.isFinite(n)) return 'unavailable';
+  return `$${n.toFixed(4)}`;
+}
+
+// Phase 9.5 — small badge showing which sub-agent CLI the orchestrator
+// resolved at boot. Sourced from /api/runtime/cli (additive endpoint
+// added in app.py). When the endpoint 404s (older orchestrator) or the
+// fetch fails for any reason, the badge silently disappears — pure
+// progressive enhancement, no breakage of the existing layout.
+function ActiveCliBadge() {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/runtime/cli', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!cancelled && data) setInfo(data); })
+      .catch(() => {}); // older orchestrator without the endpoint — stay silent
+    return () => { cancelled = true; };
+  }, []);
+  if (!info || !info.cli) return null;
+  const title = `Active sub-agent CLI: ${info.cli}`
+    + (info.default_model ? `  ·  default model: ${info.default_model}` : '')
+    + (info.supports_cost ? '' : '  ·  cost reporting: unavailable');
+  return html`
+    <span class="active-cli-badge" title=${title}
+          style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
+                 margin-right:6px;border:1px solid var(--border, #d4d4d4);
+                 border-radius:10px;font-size:11px;line-height:16px;
+                 color:var(--muted, #666);background:var(--badge-bg, #f5f5f5);">
+      <span style="font-weight:600;text-transform:lowercase">${info.cli}</span>
+      ${!info.supports_cost && html`<span style="opacity:0.7">·</span><span style="opacity:0.7">cost n/a</span>`}
+    </span>
+  `;
+}
+
 function App() {
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -1431,6 +1473,7 @@ function App() {
         `}
       </div>
       <div class="toolbar-right">
+        <${ActiveCliBadge} />
         <a class="btn btn-icon" href=${location.href} target="_blank" rel="noopener" title="${t('open_new_tab')}">
           <span class="icon-inline" dangerouslySetInnerHTML=${{ __html: icon('externalLink') }}></span>
         </a>
