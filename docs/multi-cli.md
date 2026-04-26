@@ -83,13 +83,14 @@ docker compose logs computer-use-server | grep "Sub-agent runtime"
 Spawn any sandbox and verify the OpenCode config is rendered without leaking the key:
 ```bash
 docker exec <sandbox> cat /tmp/opencode.json
-# Expected: providers.openrouter.apiKey is "{env:OPENROUTER_API_KEY}" — NOT a literal sk-or-v1-... value
+# Expected: provider.openrouter.options.apiKey is "{env:OPENROUTER_API_KEY}" — NOT a literal sk-or-v1-... value
+# OpenCode 1.14.x schema: top-level key is "provider" (singular), apiKey nested under "options".
 ```
 
 The `{env:VAR}` syntax means OpenCode resolves the key at runtime from the container env. The file on disk contains zero plaintext secrets — the sandbox volume can be mounted, copied, or shared without leaking your OpenRouter key.
 
 Trigger a sub-agent call from the chat (or via the MCP `sub_agent` tool). Expected response shape:
-```
+```text
 **Sub-Agent Completed** (success)
 <the qwen3-coder reply>
 **Cost:** unavailable | **Duration:** 12.3s | **Turns:** unavailable
@@ -111,7 +112,7 @@ Trigger a sub-agent call from the chat (or via the MCP `sub_agent` tool). Expect
 
 If you set a Claude alias (`sonnet`/`opus`/`haiku`) while `SUBAGENT_CLI=codex`, the orchestrator hard-fails with a clear error rather than silently 400-ing against OpenAI:
 
-```
+```text
 Model alias 'sonnet' is Claude-only; SUBAGENT_CLI=codex requires a GPT model id
 (e.g. 'gpt-5-codex') or set CODEX_SUB_AGENT_DEFAULT_MODEL.
 ```

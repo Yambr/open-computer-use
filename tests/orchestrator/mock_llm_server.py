@@ -216,22 +216,6 @@ def _openai_responses_sse() -> list[tuple[str, dict]]:
     ]
 
 
-def _openai_chat_completion_sse(model: str) -> list[tuple[str, dict]]:
-    """Build a minimal valid OpenAI Chat Completions SSE stream.
-
-    OpenAI uses unnamed `data:` events (no `event:` line) terminated by
-    `data: [DONE]`. We emit through the same _write_sse helper but pass an
-    empty event name; the helper still works because clients ignore the
-    event name on chat/completions.
-
-    Actually OpenAI's chat-completions SSE does NOT use named events at all;
-    it sends bare `data: <json>` chunks. To match that exactly we bypass
-    _write_sse and write raw bytes inside the dispatcher instead.
-    """
-    # Unused — kept for symmetry; chat dispatcher writes raw chunks.
-    return []
-
-
 class MockLLMHandler(BaseHTTPRequestHandler):
     """Route POST requests to the matching protocol stub."""
 

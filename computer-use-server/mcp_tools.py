@@ -896,10 +896,17 @@ async def sub_agent(
                 f"{shlex.quote(f'x-openwebui-user-email: {user_email}')} "
             )
 
-        if resume_session_id:
+        if resume_session_id and cli == Cli.CLAUDE:
             # Resume path: short prompt, system_prompt empty (claude --resume
-            # restores it from the session). Adapters that don't support
-            # resume (codex, opencode) emit a stderr warning and start fresh.
+            # restores it from the session).
+            #
+            # Codex/opencode adapters do NOT support session resume — they
+            # emit a stderr warning and start fresh. If we collapsed the
+            # prompt + cleared system_prompt for them too, the "fresh" run
+            # would launch with the generic "Continue working..." stub and
+            # no system context, silently losing the user's task. So gate
+            # the rewrite on claude — codex/opencode keep the original
+            # task + system_prompt and start a fresh, fully-briefed run.
             task_for_dispatch = (
                 f"Continue working on the task. If needed, re-read "
                 f"{plan_file} for full context."
