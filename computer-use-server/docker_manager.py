@@ -552,6 +552,16 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
     # must show this env in the container Env.
     if SUBAGENT_CLI == "opencode":
         extra_env["OPENCODE_CONFIG"] = "/tmp/opencode.json"
+        # Propagate request-scoped X-Anthropic-Api-Key into the env name OpenCode
+        # expects (`{env:ANTHROPIC_API_KEY}` per docs/multi-cli.md and the
+        # entrypoint heredoc in Dockerfile). Without this, header-authenticated
+        # runs lose their credential when SUBAGENT_CLI=opencode because the claude
+        # branch above is not active. Process-level ANTHROPIC_AUTH_TOKEN env is
+        # the host-level fallback (covered by OPENCODE_PASSTHROUGH_ENVS — but the
+        # request-scoped header path was missed). Per CodeRabbit PR#75 review.
+        request_scoped_anthropic = current_anthropic_auth_token.get()
+        if request_scoped_anthropic:
+            extra_env["ANTHROPIC_API_KEY"] = request_scoped_anthropic
 
     # Vision API for describe-image / upd-processing skills
     if VISION_API_KEY:

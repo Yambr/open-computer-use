@@ -908,8 +908,19 @@ async def sub_agent(
         else:
             # New session: write the task plan file (survives context compaction)
             # and build the full system prompt with skills.
+            #
+            # SECURITY: encode the task body via base64 + pipe through `base64 -d`
+            # rather than embedding it directly into a shell heredoc. The previous
+            # `cat > {plan_file} << 'TASK_PLAN_EOF'\n{task}\nTASK_PLAN_EOF` pattern
+            # would close early if the task body contained a line equal to the
+            # sentinel `TASK_PLAN_EOF`, causing the remainder to execute as shell
+            # (and corrupting the saved plan even without malice). Base64 is
+            # immune to all shell metacharacters in the payload.
+            # Per CodeRabbit PR#75 review.
+            import base64
+            encoded_task = base64.b64encode(task.encode("utf-8")).decode("ascii")
             write_plan_cmd = (
-                f"cat > {plan_file} << 'TASK_PLAN_EOF'\n{task}\nTASK_PLAN_EOF"
+                f"echo {shlex.quote(encoded_task)} | base64 -d > {shlex.quote(plan_file)}"
             )
             await asyncio.to_thread(_execute_bash, container, write_plan_cmd, 30)
 

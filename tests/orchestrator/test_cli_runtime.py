@@ -216,23 +216,32 @@ def test_extra_env_carries_subagent_cli_via_create_container(monkeypatch):
     current_anthropic_auth_token.set(None)
     current_anthropic_base_url.set(None)
 
+    create_exception = None
     try:
         dm._create_container("test-chat", "test-container")
-    except Exception:
+    except Exception as e:  # noqa: BLE001 — best-effort capture, see skip below
         # Some downstream code may still fail without real Docker — that is
-        # fine. The extra_env was already constructed and captured before
+        # fine. The extra_env was already constructed and captured BEFORE
         # any failure path that requires real network/skill state.
-        pass
+        create_exception = e
 
-    if captured_env:
-        assert captured_env.get("SUBAGENT_CLI") == "opencode", (
-            f"SUBAGENT_CLI not in captured environment: {captured_env}"
+    if not captured_env:
+        # _FakeContainers.create() was never reached. The previous fallback
+        # (assert dm.SUBAGENT_CLI == "opencode") would silently green-light
+        # this test even if _create_container stopped emitting SUBAGENT_CLI
+        # entirely (covered already by test_valid_subagent_cli_resolves_to_lowercase
+        # and test_extra_env_injection_line_present_in_source). Skip explicitly
+        # so a real regression in extra_env injection cannot hide here.
+        # Per CodeRabbit PR#75 review.
+        import pytest
+        pytest.skip(
+            "_FakeContainers.create() not reached "
+            f"(upstream raised: {type(create_exception).__name__ if create_exception else 'no error'}). "
+            "Coverage falls back to test_extra_env_injection_line_present_in_source."
         )
-    else:
-        # Fallback to source-grep guard if create() was never reached.
-        # Already covered by test_extra_env_injection_line_present_in_source,
-        # but assert here too so this test reports the failure mode clearly.
-        assert dm.SUBAGENT_CLI == "opencode"
+    assert captured_env.get("SUBAGENT_CLI") == "opencode", (
+        f"SUBAGENT_CLI not in captured environment: {captured_env}"
+    )
 
 
 # === f: warn_subagent_cli banner ===

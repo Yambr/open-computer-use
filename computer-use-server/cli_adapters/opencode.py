@@ -143,8 +143,10 @@ class OpenCodeAdapter:
                 if isinstance(step_cost, (int, float)):
                     cost_usd = (cost_usd or 0.0) + float(step_cost)
 
+        # If opencode exits early with no parseable message AND no stdout, fall
+        # back to stderr (mirrors codex adapter; same CodeRabbit PR#75 review).
         return SubAgentResult(
-            text=last_message_text or stdout,
+            text=last_message_text or stdout or stderr,
             cost_usd=cost_usd,
             turns=None,
             is_error=is_error,

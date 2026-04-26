@@ -149,8 +149,11 @@ class CodexAdapter:
                 tokens_in += usage.get("input_tokens", 0) or 0
                 tokens_out += usage.get("output_tokens", 0) or 0
 
+        # If codex exits early with no parseable message AND no stdout, fall back
+        # to stderr so the caller surfaces the real CLI error instead of a generic
+        # "failed with exit code N" banner. Per CodeRabbit PR#75 review.
         return SubAgentResult(
-            text=last_message_text or stdout,
+            text=last_message_text or stdout or stderr,
             cost_usd=None,
             turns=None,
             is_error=is_error,
