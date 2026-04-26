@@ -411,6 +411,55 @@ done\n\
 cp /home/assistant/.claude/CLAUDE.md /root/.claude/CLAUDE.md 2>/dev/null\n\
 cp /home/assistant/.claude/settings.json /root/.claude/settings.json 2>/dev/null\n\
 \n\
+# Phase 6 — render per-CLI config files once per container (marker-gated).\n\
+# Marker is in /tmp (NOT volume) so an env-var change + restart re-renders\n\
+# from scratch (AUTH-04). Distinct from openwebui/init.sh persistent marker.\n\
+if [ ! -f /tmp/.cli-runtime-initialised ]; then\n\
+    case "${SUBAGENT_CLI:-claude}" in\n\
+        opencode)\n\
+            mkdir -p /tmp\n\
+            cat > /tmp/opencode.json <<'"'"'OCEOF'"'"'\n\
+{\n\
+  "$schema": "https://opencode.ai/config.json",\n\
+  "providers": {\n\
+    "openrouter": {\n\
+      "apiKey": "{env:OPENROUTER_API_KEY}"\n\
+    },\n\
+    "openai": {\n\
+      "apiKey": "{env:OPENAI_API_KEY}"\n\
+    },\n\
+    "anthropic": {\n\
+      "apiKey": "{env:ANTHROPIC_API_KEY}"\n\
+    }\n\
+  },\n\
+  "model": "anthropic/claude-sonnet-4-6"\n\
+}\n\
+OCEOF\n\
+            export OPENCODE_CONFIG=/tmp/opencode.json\n\
+            echo "OpenCode config rendered to /tmp/opencode.json (env-substituted, no plaintext secrets)"\n\
+            ;;\n\
+        codex)\n\
+            mkdir -p /home/assistant/.codex\n\
+            if [ -n "${OPENAI_BASE_URL:-}" ]; then\n\
+                cat > /home/assistant/.codex/config.toml <<CXEOF\n\
+[model_providers.custom]\n\
+name = "custom-gateway"\n\
+base_url = "${OPENAI_BASE_URL}"\n\
+env_key = "OPENAI_API_KEY"\n\
+wire_api = "responses"\n\
+requires_openai_auth = true\n\
+CXEOF\n\
+                echo "Codex config rendered with custom gateway: $OPENAI_BASE_URL"\n\
+            else\n\
+                : > /home/assistant/.codex/config.toml\n\
+                echo "Codex config empty — public OpenAI defaults"\n\
+            fi\n\
+            chown -R assistant:assistant /home/assistant/.codex\n\
+            ;;\n\
+    esac\n\
+    touch /tmp/.cli-runtime-initialised\n\
+fi\n\
+\n\
 # Auto-start claude on first interactive bash login (both users)\n\
 AUTOSTART_LINE='"'"'[ -z "$CLAUDE_AUTOSTARTED" ] && [ -n "$PS1" ] && export CLAUDE_AUTOSTARTED=1 && claude'"'"'\n\
 for rc in /home/assistant/.bashrc /root/.bashrc; do\n\
