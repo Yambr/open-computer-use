@@ -12,7 +12,7 @@ MCP server that gives any LLM its own computer — managed Docker workspaces wit
 
 > **Online demo:** **[chat.yambr.com](https://chat.yambr.com)** — Open WebUI with Computer Use already set up, sign in with GitHub or Google. ([More ways to try it](#ways-to-try-it) below.)
 >
-> **See it in action:** **[Demo course on docs.yambr.com](https://docs.yambr.com/demo-course/overview)** — eight live scenarios captured from the chat above (pitch deck, Word doc, Excel, PDF invoice, data chart, live-rendered landing page, web scrape, building a custom skill). Real prompts, real screenshots, copy-pasteable.
+> **See it in action:** **[Demo course on docs.yambr.com](https://docs.yambr.com/demo-course)** — eight live scenarios captured from the chat above (pitch deck, Word doc, Excel, PDF invoice, data chart, live-rendered landing page, web scrape, building a custom skill). Real prompts, real screenshots, copy-pasteable.
 >
 > If any of this looks useful, a ⭐ on the repo really helps — thanks!
 
@@ -72,7 +72,7 @@ Works with **any MCP-compatible client**: Open WebUI, Claude Desktop, LiteLLM, n
 
 ![Sub-Agent Dashboard](docs/screenshots/06-sub-agent-dashboard.png)
 
-For all eight live scenarios with prompts you can copy-paste, see the **[Demo course](https://docs.yambr.com/demo-course/overview)**. See [docs/FEATURES.md](docs/FEATURES.md) for architecture details and [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
+For all eight live scenarios with prompts you can copy-paste, see the **[Demo course](https://docs.yambr.com/demo-course)**. See [docs/FEATURES.md](docs/FEATURES.md) for architecture details and [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for all screenshots.
 
 > **Pro tip**: Create skills with Claude Code in the terminal, then use them with any model in the chat. Skills are model-agnostic — write once, use everywhere.
 
