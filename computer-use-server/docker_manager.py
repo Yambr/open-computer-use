@@ -120,6 +120,7 @@ CODEX_PASSTHROUGH_ENVS = (
     ("AZURE_OPENAI_API_KEY", os.getenv("AZURE_OPENAI_API_KEY", "")),
     ("AZURE_OPENAI_ENDPOINT", os.getenv("AZURE_OPENAI_ENDPOINT", "")),
     ("AZURE_OPENAI_API_VERSION", os.getenv("AZURE_OPENAI_API_VERSION", "")),
+    ("CODEX_CONFIG_EXTRA", os.getenv("CODEX_CONFIG_EXTRA", "")),
 )
 
 # OpenCode passthrough envs (Phase 6 — only injected when SUBAGENT_CLI=opencode).
@@ -130,6 +131,7 @@ OPENCODE_PASSTHROUGH_ENVS = (
     ("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
     ("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY", "")),
     ("OPENCODE_MODEL", os.getenv("OPENCODE_MODEL", "")),
+    ("OPENCODE_CONFIG_EXTRA", os.getenv("OPENCODE_CONFIG_EXTRA", "")),
 )
 
 # Sub-agent CLI runtime selector (CLI-01, CLI-02). Read once at module load
