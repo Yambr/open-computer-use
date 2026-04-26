@@ -234,12 +234,12 @@ RUN sudo -u assistant bash -c "npm install -g @anthropic-ai/claude-code@${CLAUDE
 # Uses an isolated --cache dir to prevent postinstall scripts from corrupting
 # the shared ~/.npm/_cacache (which would break later installs like @playwright/cli
 # with EEXIST+ENOENT collisions on content-v2/sha512/X/Y shards).
-RUN sudo -u assistant bash -c "npm install -g --cache /tmp/npm-codex-cache @openai/codex@${CODEX_VERSION} && rm -rf /tmp/npm-codex-cache"
+RUN sudo -u assistant bash -c "mkdir -p /tmp/npm-codex-cache && npm install -g --cache /tmp/npm-codex-cache @openai/codex@${CODEX_VERSION} && rm -rf /tmp/npm-codex-cache"
 
 # Install OpenCode CLI from npm registry (sst fork — Phase 6 third runtime).
 # Native binary downloaded at npm-postinstall time from GitHub Releases.
 # Same isolated --cache dir pattern as codex above (and for the same reason).
-RUN sudo -u assistant bash -c "npm install -g --cache /tmp/npm-opencode-cache opencode-ai@${OPENCODE_VERSION} && rm -rf /tmp/npm-opencode-cache /home/assistant/.npm/_cacache"
+RUN sudo -u assistant bash -c "mkdir -p /tmp/npm-opencode-cache && npm install -g --cache /tmp/npm-opencode-cache opencode-ai@${OPENCODE_VERSION} && rm -rf /tmp/npm-opencode-cache /home/assistant/.npm/_cacache"
 
 # Install Playwright CLI for browser automation (used by main AI via bash, Claude Code via skills)
 # Version pinned — patch below depends on internal structure
