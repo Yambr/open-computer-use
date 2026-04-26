@@ -829,7 +829,7 @@ async def start_ttyd(chat_id: str, body: StartTtydRequest = Body(default=StartTt
     """Start ttyd + tmux in the container (lazy start).
 
     Uses tmux -A (attach-if-exists) so reconnections work without errors.
-    If dangerous_mode=True, sets CLAUDE_AUTOSTARTED=1 so .bashrc skips auto-launch —
+    If dangerous_mode=True, sets NO_AUTOSTART=1 so .bashrc skips auto-launch —
     the frontend will inject `claude --dangerously-skip-permissions` after connecting.
     """
     chat_id = sanitize_chat_id(chat_id)
@@ -844,7 +844,7 @@ async def start_ttyd(chat_id: str, body: StartTtydRequest = Body(default=StartTt
     if "RUNNING" in check.get("output", ""):
         return {"started": False, "already_running": True}
     # Start ttyd + tmux in background (-A = attach if session exists, create if not)
-    env_prefix = "CLAUDE_AUTOSTARTED=1 " if body.dangerous_mode else ""
+    env_prefix = "NO_AUTOSTART=1 " if body.dangerous_mode else ""
     await asyncio.to_thread(
         _execute_bash, container,
         f"cd /home/assistant && echo 'set -g mouse on' > ~/.tmux.conf && LANG=C.UTF-8 {env_prefix}nohup ttyd -W -p 7681 tmux -u new-session -A -s main bash > /dev/null 2>&1 &", 5)

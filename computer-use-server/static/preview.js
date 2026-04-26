@@ -942,7 +942,7 @@ function TerminalSession({ chatId, resumeId, dangerousMode, onBack }) {
           }
         })();
       } else if (dangerousModeRef.current) {
-        // New session in dangerous mode — CLAUDE_AUTOSTARTED=1 prevented .bashrc autostart,
+        // New session in dangerous mode — NO_AUTOSTART=1 prevented .bashrc autostart,
         // so we wait for the bash prompt and inject the command with the flag.
         // For reconnects where claude is already running — leave it undisturbed.
         (async () => {
