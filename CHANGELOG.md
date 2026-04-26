@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.9.2.2 — Multi-CLI Sub-Agent runtime followups (2026-04-26)
+
+Patch release on top of v0.9.2.1 covering the v0.9.2.1 audit followups (Phases 9.1–9.6): real-CLI smoke harness, two production Dockerfile bug fixes (`opencode` schema, `codex` `model_provider` selector), Preview SPA active-CLI badge, CLI config templates with `OPENCODE_CONFIG_EXTRA` / `CODEX_CONFIG_EXTRA` env hooks, plus CodeRabbit review followups (resume-session CLI gate, opencode docs schema, dead helper, MD040 fences). Security: `pillow` 12.1.1 → 12.2.0 (CVE-2026-40192), `python-multipart` 0.0.22 → 0.0.26.
 
 ### Fixed
 
