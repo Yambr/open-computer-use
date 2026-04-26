@@ -302,6 +302,9 @@ else\n\
     echo "No ANTHROPIC_AUTH_TOKEN - Claude Code will not work"\n\
 fi\n\
 \n\
+# Discoverability: how to escape sub-agent autostart\n\
+echo "Tip: plain bash with NO_AUTOSTART=1 bash  OR  touch /tmp/.no_autostart"\n\
+\n\
 # Configure Playwright CLI for browser automation\n\
 cat > /home/assistant/playwright-cli.json << PCLIEOF\n\
 {\n\
@@ -464,10 +467,14 @@ CXEOF\n\
     touch /tmp/.cli-runtime-initialised\n\
 fi\n\
 \n\
-# Auto-start claude on first interactive bash login (both users)\n\
-AUTOSTART_LINE='"'"'[ -z "$CLAUDE_AUTOSTARTED" ] && [ -n "$PS1" ] && export CLAUDE_AUTOSTARTED=1 && claude'"'"'\n\
+# Auto-start chosen sub-agent CLI on first interactive bash login (both users).\n\
+# Honours SUBAGENT_CLI (default claude). Escape hatches: NO_AUTOSTART=1 env\n\
+# OR `touch /tmp/.no_autostart` from a second terminal to opt subsequent sessions out.\n\
+# Marker renamed from the old per-CLI name to SUBAGENT_AUTOSTARTED (independent\n\
+# check; existing volumes with the old marker still autostart exactly once on next session).\n\
+AUTOSTART_LINE='"'"'[ -z "$SUBAGENT_AUTOSTARTED" ] && [ -z "$NO_AUTOSTART" ] && [ ! -f /tmp/.no_autostart ] && [ -n "$PS1" ] && export SUBAGENT_AUTOSTARTED=1 && exec "${SUBAGENT_CLI:-claude}"'"'"'\n\
 for rc in /home/assistant/.bashrc /root/.bashrc; do\n\
-    if [ ! -f "$rc" ] || ! grep -q CLAUDE_AUTOSTARTED "$rc" 2>/dev/null; then\n\
+    if [ ! -f "$rc" ] || ! grep -q SUBAGENT_AUTOSTARTED "$rc" 2>/dev/null; then\n\
         echo "$AUTOSTART_LINE" >> "$rc"\n\
     fi\n\
 done\n\
