@@ -42,7 +42,7 @@ Browser (xterm.js)  ←WebSocket→  Computer Use Server  ←WebSocket→  Conta
 
 ## Dangerous Mode
 
-Toggle **"Skip permission prompts"** to run Claude Code without confirmation dialogs. Sets `CLAUDE_AUTOSTARTED=1` environment variable. Use only for trusted tasks.
+Toggle **"Skip permission prompts"** to run Claude Code without confirmation dialogs. Sets `NO_AUTOSTART=1` environment variable so .bashrc skips its autostart and the frontend can inject `claude --dangerously-skip-permissions` instead. Use only for trusted tasks.
 
 ## Sub-agent Timeout
 

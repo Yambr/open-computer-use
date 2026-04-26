@@ -1,5 +1,77 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`opencode` runtime was non-functional in v0.9.2.1.** The Dockerfile entrypoint rendered `/tmp/opencode.json` with top-level key `"providers"` (plural) and a flat `"apiKey"` per provider. Current opencode (1.14.25) schema requires `"provider"` (singular) with credentials nested under `"options": { "apiKey": ... }`. Pre-fix containers exited with `Error: Configuration is invalid at /tmp/opencode.json ↳ Unrecognized key: "providers"` before reaching the model. Caught by Phase 9.1 real-CLI smoke (`tests/orchestrator/test_cli_adapters_live.py`).
+- **`codex` `OPENAI_BASE_URL` was silently ignored in v0.9.2.1.** The Dockerfile heredoc declared `[model_providers.custom]` when `OPENAI_BASE_URL` is set but never set the top-level `model_provider = "custom"` selector, so codex always fell through to the default `openai` provider (api.openai.com) regardless. Fixed by prepending the selector line. Operators pointing codex at a corporate gateway are unblocked.
+
+### Added
+
+- **Real-CLI smoke suite** — `tests/orchestrator/test_cli_adapters_live.py` (gated by `RUN_LIVE_CLI=1`) plus `tests/orchestrator/mock_llm_server.py`. Runs each adapter end-to-end against a hermetic stdlib HTTP server speaking three wire protocols (Anthropic Messages SSE, OpenAI Responses SSE, OpenAI Chat Completions SSE) inside a docker-network sidecar. Closes audit concern #1 from `.planning/milestones/v0.9.2.1-AUDIT.md`. Also includes two regression guards that load the entrypoint-rendered configs (not test-side configs) so future heredoc regressions trip immediately.
+- **Preview SPA active-CLI surface** — new `GET /api/runtime/cli` orchestrator endpoint returning `{cli, default_model, supports_cost}`. The preview UI (`computer-use-server/static/preview.js`) now renders an `ActiveCliBadge` pill in the toolbar showing the resolved sub-agent CLI; for codex/opencode it adds a "cost n/a" indicator so operators understand `cost_usd: null` is not a `$0.00` rendering bug. Pure progressive enhancement — silently disappears against older orchestrators without the endpoint. Endpoint contract pinned by `tests/orchestrator/test_runtime_cli_endpoint.py`. Closes audit concern #3.
+- **CLI config templates companion** — `docs/cli-config-templates.md` with copy-paste recipes for codex+Azure, codex+approval/sandbox modes, codex+custom OpenAI-compat gateways, opencode+instructions, opencode+MCP federation, opencode+custom openai-compat providers, opencode+agent personas, plus a verification recipe. Backed by two new env hooks in the Dockerfile entrypoint: **`OPENCODE_CONFIG_EXTRA`** (replaces `/tmp/opencode.json` verbatim) and **`CODEX_CONFIG_EXTRA`** (appended to `~/.codex/config.toml` after the canonical block). Both backwards-compatible — unset = today's behaviour. Cross-linked from `docs/multi-cli.md` under `## Advanced configs`. Closes audit concern #2.
+
+### Docs
+
+- `docs/multi-cli.md` cross-links the new templates companion under the `## Advanced configs` section.
+- `.planning/REQUIREMENTS.md` `DOCS-MULTICLI-01..04` checkboxes flipped from `[ ]` → `[x]` (cosmetic-only sync; the docs themselves shipped in commit `245d1b6`).
+
+## v0.9.2.1 — Multi-CLI Sub-Agent Runtime (2026-04-26)
+
+Adds OpenAI Codex CLI (`@openai/codex@0.125.0`) and OpenCode (`opencode-ai@1.14.25`, sst fork) as drop-in alternatives to Claude Code across the entire sub-agent surface. A single `SUBAGENT_CLI=claude|codex|opencode` env switch routes every sub-agent invocation through the chosen CLI with identical operator UX. Default unset = `claude` (byte-identical backwards-compat with v0.9.2.0).
+
+### Added
+
+- **`SUBAGENT_CLI` env switch** with hard-fail allowlist validation (typo → orchestrator refuses to start) (CLI-01, CLI-02, CLI-03)
+- **`cli_runtime.py` resolver + `cli_adapters/` package** (Protocol, `SubAgentResult` dataclass, three adapters) (ADAPT-01)
+- **CodexAdapter** — `codex exec --ephemeral --json --output-last-message` with `--cd /tmp/codex-agents-<uuid>/` workdir (ADAPT-03)
+- **OpenCodeAdapter** — `opencode run --model <provider/model> --format json --dangerously-skip-permissions` (ADAPT-04)
+- **Per-CLI model resolution** with hard-fail on cross-CLI alias misuse (e.g. `sonnet` on codex → actionable ValueError) (ADAPT-06)
+- **`cli_runtime.dispatch(...)` single entry point**; `mcp_tools.sub_agent` rewritten as thin orchestration over it; production claude path is byte-identical to v0.9.2.0 (golden-snapshot tested) (ADAPT-02, ADAPT-05)
+- **Per-CLI auth allowlists** in `_create_container` prevent cross-CLI key leak (Pitfall 1) (AUTH-01)
+- **OpenCode config rendered to `/tmp/opencode.json`** (NOT volume) with `{env:VAR}` substitution syntax — zero plaintext secrets on disk (Pitfall 7) (AUTH-02)
+- **Codex `~/.codex/config.toml`** rendered conditionally with `[model_providers.custom]` block when `OPENAI_BASE_URL` is set (AUTH-03)
+- **Marker-gated entrypoint heredoc** (`/tmp/.cli-runtime-initialised`) — config rendering fires once per container lifetime (AUTH-04)
+- **`.bashrc` autostart honours `${SUBAGENT_CLI:-claude}`** with `NO_AUTOSTART=1` env + `/tmp/.no_autostart` sentinel escape hatches; marker renamed `CLAUDE_AUTOSTARTED → SUBAGENT_AUTOSTARTED` (TERM-01, TERM-02, TERM-03)
+- **Cost-guardrail caveat** — `cost_usd=None` rendered as `cost: unavailable` (never `$0.00`) for non-claude CLIs; `SUB_AGENT_TIMEOUT` documented as backstop
+- **`docs/multi-cli.md`** — operator guide with worked OpenCode + qwen3-coder + OpenRouter recipe (DOCS-MULTICLI-01, DOCS-MULTICLI-02)
+
+### Tests (mandatory, ship with the code)
+
+- **TEST-01** — Docker image installs all three CLIs; `claude --version`, `codex --version`, `opencode --version` smoke (image build + `tests/test-docker-image.sh`)
+- **TEST-02** — `cli_runtime.resolve_cli` resolver suite (`tests/orchestrator/test_cli_runtime.py`, ~23 cases inc. invalid SystemExit + per-CLI passthrough)
+- **TEST-03** — `cli_adapters` adapter argv + parse_result coverage with per-CLI fixtures under `tests/fixtures/cli/` (`tests/orchestrator/test_cli_adapters.py`)
+- **TEST-04** — end-to-end `sub_agent(...)` dispatch suite parametrized over all 3 CLIs, signature regression guard, cost-rendering "unavailable" gate (`tests/orchestrator/test_sub_agent_dispatch.py`)
+- **TEST-05** — `openwebui/init.sh` byte-equals v0.9.2.0 baseline regression (`tests/test_init_sh_unchanged.sh`, hardcoded sha256 `31ce03b6...c27a7`)
+- **TEST-06** — per-CLI dispatch + marker-gating (`GATED-SENTINEL`) + `NO_AUTOSTART` escape-hatch smoke in `tests/test-docker-image.sh`
+
+### Backwards compatibility
+
+- `SUBAGENT_CLI` unset / empty / `claude` → byte-identical to v0.9.2.0 (verified by golden-snapshot test of `claude_command` argv + end-to-end dispatch shell-command equality)
+- `mcp_tools.sub_agent(task, max_turns=25, model="sonnet")` MCP signature unchanged — every existing skill caller works without modification
+- Existing volumes with old `CLAUDE_AUTOSTARTED=1` markers continue to work — autostart fires once on next session via the new independent `SUBAGENT_AUTOSTARTED` check; no double-firing, no regression
+- `dangerous_mode` terminal flow (`app.py:847`) migrated from injecting `CLAUDE_AUTOSTARTED=1` to the new documented `NO_AUTOSTART=1` escape hatch
+- `openwebui/init.sh` unchanged (CI-enforced)
+
+### Documentation
+
+- `docs/multi-cli.md` (DOCS-MULTICLI-01, DOCS-MULTICLI-02) — full operator guide with switch matrix, worked recipes, troubleshooting, prior-art credits
+- `README.md` cross-link in the Sub-agent / Pro tip area (DOCS-MULTICLI-03)
+- `docs/INSTALL.md` cross-link in the env configuration section (DOCS-MULTICLI-03)
+- `.env.example` — `# === Optional: Multi-CLI sub-agent runtime ===` block with `SUBAGENT_CLI=` (commented) + per-CLI auth env templates (DOCS-MULTICLI-03)
+- `CHANGELOG.md` v0.9.2.1 entry (this entry) (DOCS-MULTICLI-04)
+
+### Prior art
+
+- [OpenAI Codex CLI documentation](https://developers.openai.com/codex/cli/reference) — `codex exec` flag spec + JSONL event schema
+- [sst/opencode documentation](https://opencode.ai/docs/) — `opencode run`, `{env:VAR}` config substitution, providers list
+- [OpenRouter qwen3-coder model page](https://openrouter.ai/qwen/qwen3-coder)
+- Issue #40 / PR #41 (community contribution by `rahxam`) — informed Phase 3 (Claude Code gateway compatibility), the foundation this milestone builds on
+
+---
+
 ## v0.9.2.0 (2026-04-25)
 
 ### Breaking Changes — Open WebUI base bump 0.8.12 → 0.9.2

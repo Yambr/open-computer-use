@@ -25,6 +25,9 @@ COPY ./docker_manager.py .
 COPY ./context_vars.py .
 COPY ./docs_html.py .
 COPY ./security.py .
+# Multi-CLI sub-agent runtime (v0.9.2.1) — resolver + adapter package
+COPY ./cli_runtime.py .
+COPY ./cli_adapters/ ./cli_adapters/
 COPY ./static/ ./static/
 
 # MCP API Key for authorization

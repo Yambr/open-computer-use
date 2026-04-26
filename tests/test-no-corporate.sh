@@ -41,8 +41,13 @@ fi
 TEST_NUM=0
 TOTAL=$(grep -v '^#' "$PATTERNS_FILE" | grep -v '^$' | wc -l | tr -d ' ')
 
-while IFS='|' read -r pattern description; do
-    # Skip comments and empty lines
+while IFS=$'\t' read -r pattern description; do
+    # Skip comments and empty lines.
+    # CR PR#76 finding #5: separator changed from '|' to TAB. The previous
+    # IFS='|' split on the first literal '|' in the line, which silently
+    # truncated grep alternations like 'foo\|bar' to just 'foo\' (a malformed
+    # BRE that grep error-swallowed). TAB never appears inside a grep BRE,
+    # so alternations are preserved untouched.
     [[ "$pattern" =~ ^#.*$ ]] && continue
     [[ -z "$pattern" ]] && continue
 
@@ -85,8 +90,10 @@ echo ""
 echo "[+3] No cyrillic characters in PR commit messages"
 if git -C "$ROOT" rev-parse --git-dir > /dev/null 2>&1; then
     if git -C "$ROOT" rev-parse --verify --quiet origin/main > /dev/null 2>&1; then
+        # CR PR#76 finding #7: force UTF-8 locale so awk's [А-Яа-яЁё]
+        # character class works under C/POSIX locales (minimal CI containers).
         CYR_HITS=$(git -C "$ROOT" log origin/main..HEAD --pretty=format:'%H%n%B%n===END===' 2>/dev/null | \
-            awk -v RS='===END===\n' '
+            LC_ALL=C.UTF-8 awk -v RS='===END===\n' '
                 /[А-Яа-яЁё]/ {
                     split($0, lines, "\n");
                     sha = lines[1];

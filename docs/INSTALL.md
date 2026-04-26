@@ -57,6 +57,8 @@ See `.env.example` for the full list with defaults.
 
 Routing Claude Code through a custom gateway (LiteLLM / Azure / Bedrock)? See [claude-code-gateway.md](claude-code-gateway.md) for the full recipe.
 
+Want sub-agents to run on OpenAI Codex or OpenCode (with OpenRouter / qwen / DeepSeek / 75+ providers) instead of Claude? Flip `SUBAGENT_CLI=claude|codex|opencode` in `.env` — see [multi-cli.md](multi-cli.md) for the full guide and a worked OpenCode + qwen3-coder + OpenRouter recipe.
+
 ## Model Settings
 
 After login, go to your model settings and set:

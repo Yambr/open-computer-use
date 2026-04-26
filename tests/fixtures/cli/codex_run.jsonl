@@ -1,0 +1,4 @@
+{"type": "turn.started", "turn_id": "t-1"}
+{"type": "item.started", "item": {"type": "message", "id": "m-1"}}
+{"type": "item.completed", "item": {"type": "message", "id": "m-1", "content": [{"type": "text", "text": "Hello from codex. The answer is 42."}]}}
+{"type": "turn.completed", "turn_id": "t-1", "usage": {"input_tokens": 1234, "output_tokens": 56}}

@@ -315,6 +315,28 @@ def apply_patch():
             )
             return False
 
+    # CR PR#76 finding #3 (Critical): on the legacy fallback path,
+    # show_art/show_ctrl stay None because _find_subscribe_pattern did
+    # not match the wrapped legacy shape. If we then call _build_new_patch
+    # to upgrade Patch 2 (Case b), the f-string interpolates the literal
+    # word "None" into the JS, producing `None.set(!0),None.set(!0)` —
+    # a runtime ReferenceError in the browser that silently breaks
+    # auto-show. Refuse the upgrade in that case; the legacy patch keeps
+    # working as it did before.
+    if subscribe_already and (show_art is None or show_ctrl is None):
+        print(
+            "  Patch 2 (getContents): skipping upgrade on legacy chunk — "
+            "show_artifacts/show_controls names not derivable from this "
+            "build's subscribe shape; legacy Patch 2 (no setTimeout) "
+            "remains in place. To force upgrade, rebuild the chunk from "
+            "stock Open WebUI and re-apply.",
+            file=sys.stderr,
+        )
+        # Treat this as a no-op success: subscribe-side patch is fine,
+        # legacy getContents-side patch is fine, only the optional
+        # upgrade is skipped. Returning True keeps the build green.
+        return True
+
     if not art_store:
         print("  WARNING: Could not determine artifact store name, skipping patch 2")
     else:
