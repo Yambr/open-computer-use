@@ -22,7 +22,8 @@ ARG CLAUDE_CODE_VERSION=2.1.112
 # re-running tests/orchestrator/test_cli_adapters.py against the new release.
 ARG CODEX_VERSION=0.125.0
 
-# OpenCode (sst fork — opencode-ai on npm, NOT opencode-cli). The npm package
+# OpenCode (sst fork — opencode-ai on npm, NOT the unrelated similarly-named
+# package). See RESEARCH STACK.md for fork rationale. The npm package
 # downloads platform binaries from GitHub Releases at install time; pinning
 # the version neutralises URL drift (Pitfall 6).
 ARG OPENCODE_VERSION=1.14.25
@@ -226,6 +227,15 @@ RUN printf '#!/bin/bash\nplaywright-cli open "$1" 2>/dev/null &\n' > /usr/local/
 
 # Install Claude Code CLI from npm registry
 RUN sudo -u assistant bash -c "npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+# Install Codex CLI from npm registry (Phase 6 — sub-agent runtime alternative).
+# Ships native linux-x64 binary via optionalDependencies; no Bun wrapper needed
+# (unlike claude-code, which repackaged in 2.1.113 — see CLAUDE_CODE_VERSION note).
+RUN sudo -u assistant bash -c "npm install -g @openai/codex@${CODEX_VERSION}"
+
+# Install OpenCode CLI from npm registry (sst fork — Phase 6 third runtime).
+# Native binary downloaded at npm-postinstall time from GitHub Releases.
+RUN sudo -u assistant bash -c "npm install -g opencode-ai@${OPENCODE_VERSION}"
 
 # Install Playwright CLI for browser automation (used by main AI via bash, Claude Code via skills)
 # Version pinned — patch below depends on internal structure
