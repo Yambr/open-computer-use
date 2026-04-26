@@ -254,5 +254,173 @@ def test_warn_subagent_cli_default_claude(monkeypatch, capsys):
     assert "[MCP] Sub-agent runtime: claude" in out
 
 
+# === resolve_subagent_model (ADAPT-06, plan 05-01) ===
+# Per-CLI alias resolution + Claude-only-alias-on-codex hard-fail (Pitfall 3).
+
+def _import_resolver():
+    """Drop modules + freshly import to pick up current env."""
+    _drop_modules()
+    return importlib.import_module("cli_runtime")
+
+
+def test_resolve_claude_alias_sonnet_default():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model("sonnet", Cli.CLAUDE)
+    assert model_id == "claude-sonnet-4-6"
+    assert display == "sonnet"
+
+
+def test_resolve_claude_alias_opus_default():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model("opus", Cli.CLAUDE)
+    assert model_id == "claude-opus-4-6"
+    assert display == "opus"
+
+
+def test_resolve_claude_alias_haiku_default():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model("haiku", Cli.CLAUDE)
+    assert model_id == "claude-haiku-4-5"
+    assert display == "haiku"
+
+
+def test_resolve_claude_empty_falls_back_to_sonnet():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model("", Cli.CLAUDE)
+    assert model_id == "claude-sonnet-4-6"
+    assert display == "sonnet"
+
+
+def test_resolve_claude_direct_id_passthrough():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model(
+        "claude-sonnet-4-6", Cli.CLAUDE,
+    )
+    assert model_id == "claude-sonnet-4-6"
+    assert display == "claude-sonnet-4-6"
+
+
+def test_resolve_claude_alias_case_insensitive():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    for alias in ("SONNET", "Sonnet", "  sonnet  "):
+        model_id, display = cli_runtime.resolve_subagent_model(alias, Cli.CLAUDE)
+        assert model_id == "claude-sonnet-4-6"
+        assert display == "sonnet"
+
+
+def test_resolve_claude_honors_anthropic_default_sonnet_env(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "azure/my-deployment")
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model("sonnet", Cli.CLAUDE)
+    assert model_id == "azure/my-deployment"
+    assert display == "sonnet"
+
+
+@pytest.mark.parametrize("alias", ["sonnet", "opus", "haiku", "SONNET", "Opus"])
+def test_resolve_codex_claude_alias_raises(alias):
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    with pytest.raises(ValueError) as exc:
+        cli_runtime.resolve_subagent_model(alias, Cli.CODEX)
+    assert "Claude-only" in str(exc.value)
+    assert "CODEX_SUB_AGENT_DEFAULT_MODEL" in str(exc.value)
+
+
+def test_resolve_codex_empty_returns_default(monkeypatch):
+    monkeypatch.delenv("CODEX_SUB_AGENT_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("CODEX_MODEL", raising=False)
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model("", Cli.CODEX)
+    assert model_id == "gpt-5-codex"
+    assert display == "gpt-5-codex"
+
+
+def test_resolve_codex_honors_codex_sub_agent_default_model_env(monkeypatch):
+    monkeypatch.setenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "gpt-5-codex-pro")
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model("", Cli.CODEX)
+    assert model_id == "gpt-5-codex-pro"
+
+
+def test_resolve_codex_codex_model_env_fallback(monkeypatch):
+    monkeypatch.delenv("CODEX_SUB_AGENT_DEFAULT_MODEL", raising=False)
+    monkeypatch.setenv("CODEX_MODEL", "gpt-5-codex-from-codex-model-env")
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, _ = cli_runtime.resolve_subagent_model("", Cli.CODEX)
+    assert model_id == "gpt-5-codex-from-codex-model-env"
+
+
+def test_resolve_codex_direct_id_passthrough():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model(
+        "gpt-5-codex", Cli.CODEX,
+    )
+    assert model_id == "gpt-5-codex"
+    assert display == "gpt-5-codex"
+
+
+def test_resolve_opencode_alias_sonnet():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model("sonnet", Cli.OPENCODE)
+    assert model_id == "anthropic/claude-sonnet-4-6"
+    assert display == "sonnet"
+
+
+def test_resolve_opencode_alias_opus():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model("opus", Cli.OPENCODE)
+    assert model_id == "anthropic/claude-opus-4-6"
+    assert display == "opus"
+
+
+def test_resolve_opencode_provider_model_passthrough():
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, display = cli_runtime.resolve_subagent_model(
+        "openrouter/qwen/qwen-3-coder", Cli.OPENCODE,
+    )
+    assert model_id == "openrouter/qwen/qwen-3-coder"
+    assert display == "openrouter/qwen/qwen-3-coder"
+
+
+def test_resolve_opencode_bare_id_warns_but_returns(capsys):
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, _ = cli_runtime.resolve_subagent_model("bareid", Cli.OPENCODE)
+    assert model_id == "bareid"
+    out = capsys.readouterr().out
+    assert "no provider prefix" in out
+
+
+def test_resolve_opencode_empty_default(monkeypatch):
+    monkeypatch.delenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("OPENCODE_MODEL", raising=False)
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, _ = cli_runtime.resolve_subagent_model("", Cli.OPENCODE)
+    assert model_id == "anthropic/claude-sonnet-4-6"
+
+
+def test_resolve_opencode_honors_opencode_sub_agent_default_model_env(monkeypatch):
+    monkeypatch.setenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "openrouter/x/y")
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    model_id, _ = cli_runtime.resolve_subagent_model("", Cli.OPENCODE)
+    assert model_id == "openrouter/x/y"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
