@@ -290,17 +290,6 @@ def test_claude_parse_result_zero_cost_becomes_none(claude_stdout_fixture):
     assert result.session_id is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BLOCKER 1: ClaudeAdapter.parse_result returncode-as-error gate "
-        "lands in plan 05-05 Task 0. Until that patch ships, parse_result "
-        "ignores returncode and returns is_error=False for empty stdout + "
-        "rc!=0. strict=True turns the unexpected pass after 05-05 lands "
-        "into a hard failure so this xfail marker is forced to be removed "
-        "in lockstep with the ClaudeAdapter fix."
-    ),
-)
 def test_claude_parse_result_nonzero_returncode_is_error():
     """BLOCKER 1 regression guard.
 

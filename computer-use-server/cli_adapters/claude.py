@@ -104,6 +104,17 @@ class ClaudeAdapter:
         render "cost: unavailable" rather than "$0.00" upstream).
         turns → None when num_turns is 0 OR missing (same rationale).
         session_id → None when empty string OR missing.
+
+        is_error → True when the JSON `result` line says is_error=True OR when
+        returncode != 0. The returncode gate aligns ClaudeAdapter with
+        CodexAdapter/OpenCodeAdapter (Phase 5 BLOCKER 1) — without it, killed
+        or timed-out claude runs (rc=137/143/124 with empty stdout) would
+        silently render as success because there is no JSON `result` line to
+        flip is_error.
+
+        returncode → captured into SubAgentResult.returncode (added in plan
+        05-02 Task 0) so the caller can render distinct user-facing messages
+        for rc=124 (timeout), rc=137 (SIGKILL), rc=143 (SIGTERM).
         """
         response_text = ""
         cost = 0.0
@@ -134,6 +145,13 @@ class ClaudeAdapter:
         if not response_text:
             response_text = stdout
 
+        # BLOCKER 1: align with CodexAdapter/OpenCodeAdapter — non-zero rc is
+        # ALWAYS an error, even when the JSON `result` line is missing
+        # (killed/SIGKILL/SIGTERM/timeout cases). Without this gate,
+        # rc=137 + empty stdout would silently produce is_error=False and
+        # mcp_tools' Sub-Agent-Terminated branch would never fire.
+        is_error = is_error or (returncode != 0)
+
         return SubAgentResult(
             text=response_text,
             cost_usd=cost if cost else None,
@@ -141,4 +159,5 @@ class ClaudeAdapter:
             is_error=is_error,
             session_id=session_id or None,
             raw_events=[],
+            returncode=returncode,
         )
