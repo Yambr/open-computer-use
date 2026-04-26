@@ -135,10 +135,10 @@ def docker_env() -> dict:
     host_probe_port = sock.getsockname()[1]
     sock.close()
 
-    _docker("network", "create", NETWORK_NAME)
-
     mock_src = Path(__file__).resolve().parent / "mock_llm_server.py"
     assert mock_src.is_file(), f"mock server source missing: {mock_src}"
+
+    _docker("network", "create", NETWORK_NAME)
 
     try:
         _docker(
@@ -499,15 +499,24 @@ def test_codex_entrypoint_selects_custom_provider():
             "--user", "assistant",
             WORKSPACE_IMAGE,
             "-lc",
-            "/home/assistant/.entrypoint.sh true >/dev/null 2>&1; "
+            # Use && so a failing entrypoint short-circuits the cat — otherwise
+            # an empty config.toml would still pass the rc==0 check below.
+            # Stderr is captured (not redirected to /dev/null) so the assertion
+            # message can surface entrypoint diagnostics on failure.
+            "/home/assistant/.entrypoint.sh true >/dev/null && "
             "cat /home/assistant/.codex/config.toml",
         ],
         capture_output=True,
         text=True,
         timeout=60,
     )
-    print(f"[codex-entrypoint] rc={res.returncode}\nOUT:\n{res.stdout}", file=sys.stderr)
-    assert res.returncode == 0
+    print(
+        f"[codex-entrypoint] rc={res.returncode}\nOUT:\n{res.stdout}\nERR:\n{res.stderr}",
+        file=sys.stderr,
+    )
+    assert res.returncode == 0, (
+        f"entrypoint+cat failed (rc={res.returncode}):\nSTDERR:\n{res.stderr}"
+    )
     assert 'model_provider = "custom"' in res.stdout, (
         "Dockerfile heredoc must set top-level model_provider so the custom "
         "block is actually selected. Without it, OPENAI_BASE_URL traffic still "
