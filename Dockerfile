@@ -17,6 +17,16 @@ LABEL version="1.0.0"
 # also removing the wrapper and verifying the native binary works under Bun.
 ARG CLAUDE_CODE_VERSION=2.1.112
 
+# Codex CLI version. Pinned per RESEARCH STACK.md and Pitfall 6 (CLI version
+# drift breaks adapter contract while tests stay green). Bump only after
+# re-running tests/orchestrator/test_cli_adapters.py against the new release.
+ARG CODEX_VERSION=0.125.0
+
+# OpenCode (sst fork — opencode-ai on npm, NOT opencode-cli). The npm package
+# downloads platform binaries from GitHub Releases at install time; pinning
+# the version neutralises URL drift (Pitfall 6).
+ARG OPENCODE_VERSION=1.14.25
+
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
