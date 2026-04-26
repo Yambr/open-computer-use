@@ -16,7 +16,9 @@ Pitfall E (RESEARCH.md): import direction is cli_runtime FROM docker_manager,
 NOT the reverse. docker_manager owns the constant; cli_runtime consumes it.
 """
 
+import asyncio
 import os
+import shlex
 from enum import StrEnum
 
 from docker_manager import (
@@ -24,11 +26,13 @@ from docker_manager import (
     ANTHROPIC_DEFAULT_SONNET_MODEL,
     ANTHROPIC_DEFAULT_OPUS_MODEL,
     ANTHROPIC_DEFAULT_HAIKU_MODEL,
+    _execute_bash_capture,
 )
 from cli_adapters import CliAdapter
 from cli_adapters.claude import ClaudeAdapter
 from cli_adapters.codex import CodexAdapter
 from cli_adapters.opencode import OpenCodeAdapter
+from cli_adapters.result import SubAgentResult
 
 
 class Cli(StrEnum):
@@ -157,3 +161,85 @@ def resolve_subagent_model(alias_or_id: str, cli: Cli) -> tuple[str, str]:
     if cli == Cli.OPENCODE:
         return _resolve_opencode(requested, key)
     raise ValueError(f"unknown CLI: {cli!r}")
+
+
+# ===========================================================================
+# ADAPT-02 / ADAPT-05 / Phase 5: dispatch — single entry point.
+# ===========================================================================
+# Resolves active CLI -> picks adapter -> resolves model -> builds argv ->
+# creates per-CLI workdir if needed -> executes inside container via
+# _execute_bash_capture -> parses result.
+#
+# mcp_tools.sub_agent calls THIS, not the adapters directly. The function
+# is async because the underlying docker exec_run blocks on I/O; we wrap
+# it in asyncio.to_thread to keep the FastAPI event loop free.
+
+async def dispatch(
+    *,
+    container,
+    task: str,
+    system_prompt: str,
+    model: str,
+    max_turns: int,
+    timeout_s: int,
+    working_directory: str,
+    resume_session_id: str = "",
+    plan_file: str = "",
+    headers_env: str = "",
+) -> "tuple[SubAgentResult, str, str]":
+    """Build argv via active adapter, execute inside container, parse result.
+
+    Returns (result, model_id, model_display) — the model_display is
+    threaded back to the caller's result formatting (existing v0.9.2.0
+    contract: ALIAS_MAP returned `model_display` separately from
+    `model_id`; we preserve that here so mcp_tools.sub_agent can render
+    the user-facing display name unchanged).
+
+    SECURITY (Phase 5 threat model T-05-05-02): every argv element is
+    shlex.quote'd before joining into the shell command. headers_env is
+    operator-controlled (currently only ANTHROPIC_CUSTOM_HEADERS) and is
+    already shlex.quote'd by mcp_tools.sub_agent BEFORE being passed in
+    (preserves v0.9.2.0 contract — the dispatch helper does NOT re-quote
+    headers_env; it concatenates verbatim).
+    """
+    cli = resolve_cli()
+    adapter = get_adapter(cli)
+    model_id, model_display = resolve_subagent_model(model, cli)
+
+    # Per-CLI workdir setup. Codex requires --cd <existing dir>; we
+    # extract the workdir from the argv (it is the value following --cd)
+    # and `mkdir -p` it inside the container BEFORE exec.
+    argv = adapter.build_argv(
+        task=task,
+        system_prompt=system_prompt,
+        model=model_id,
+        max_turns=max_turns,
+        timeout_s=timeout_s,
+        resume_session_id=resume_session_id,
+        plan_file=plan_file,
+    )
+
+    if cli == Cli.CODEX and "--cd" in argv:
+        cd_target = argv[argv.index("--cd") + 1]
+        # mkdir inside the container (NOT on orchestrator host) — the
+        # cd_target lives on the sandbox container's tmpfs.
+        mkdir_cmd = f"mkdir -p {shlex.quote(cd_target)}"
+        await asyncio.to_thread(
+            _execute_bash_capture, container, mkdir_cmd, 10,
+        )
+
+    quoted_argv = " ".join(shlex.quote(a) for a in argv)
+    shell_cmd = (
+        f"cd {shlex.quote(working_directory)} && "
+        f"{headers_env}{quoted_argv}"
+    )
+
+    proc = await asyncio.to_thread(
+        _execute_bash_capture, container, shell_cmd, timeout_s,
+    )
+    result = adapter.parse_result(
+        stdout=proc.stdout,
+        stderr=proc.stderr,
+        returncode=proc.returncode,
+    )
+    return result, model_id, model_display
