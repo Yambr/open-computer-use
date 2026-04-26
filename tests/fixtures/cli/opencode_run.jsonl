@@ -1,0 +1,6 @@
+{"type": "session-started", "session_id": "ignored-by-parser"}
+{"type": "step-start", "step": 1}
+{"type": "step-finish", "step": 1, "cost": 0.0042, "usage": {"input_tokens": 800, "output_tokens": 30}}
+{"type": "step-start", "step": 2}
+{"type": "step-finish", "step": 2, "cost": 0.0011}
+{"type": "assistant-message-completed", "text": "Hello from opencode. Answer: forty-two."}

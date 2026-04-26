@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "captured_from": "v0.9.2.0",
+    "source": "computer-use-server/mcp_tools.py:_format_sub_agent_result lines 819-845 input shape",
+    "captured_at": "2026-04-26",
+    "purpose": "Phase 5 TEST-03 — ClaudeAdapter.parse_result roundtrip; mirrors the shape claude CLI emits as the LAST line of --output-format json. The byte-compat invariant is enforced jointly with claude_v0.9.2.0_argv.json (the argv side) and the parse_result test in test_cli_adapters.py (the parse side)."
+  },
+  "happy_path": {
+    "stdout": "{\"type\": \"system\", \"subtype\": \"init\"}\n{\"type\": \"assistant\", \"message\": {\"role\": \"assistant\"}}\n{\"type\": \"result\", \"result\": \"Task done. Files written.\", \"total_cost_usd\": 0.1234, \"num_turns\": 7, \"is_error\": false, \"session_id\": \"abc-123-uuid\"}",
+    "stderr": "",
+    "returncode": 0,
+    "expected": {
+      "text": "Task done. Files written.",
+      "cost_usd": 0.1234,
+      "turns": 7,
+      "is_error": false,
+      "session_id": "abc-123-uuid"
+    }
+  },
+  "zero_cost_path": {
+    "stdout": "{\"type\": \"result\", \"result\": \"x\", \"total_cost_usd\": 0.0, \"num_turns\": 0, \"is_error\": false, \"session_id\": \"\"}",
+    "stderr": "",
+    "returncode": 0,
+    "expected": {
+      "text": "x",
+      "cost_usd": null,
+      "turns": null,
+      "is_error": false,
+      "session_id": null
+    }
+  }
+}
