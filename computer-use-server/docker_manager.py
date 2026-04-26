@@ -69,6 +69,11 @@ MCP_TOKENS_API_KEY = os.getenv("MCP_TOKENS_API_KEY", "")
 
 # Sub-agent configuration
 SUB_AGENT_DEFAULT_MODEL = os.getenv("SUB_AGENT_DEFAULT_MODEL", "sonnet")
+# Per-CLI sub-agent default models (ADAPT-06 / Phase 5).
+# Empty string = "no override"; cli_runtime.resolve_subagent_model falls back
+# to the CLI-native default (gpt-5-codex / anthropic/claude-sonnet-4-6).
+CODEX_SUB_AGENT_DEFAULT_MODEL = os.getenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "")
+OPENCODE_SUB_AGENT_DEFAULT_MODEL = os.getenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "")
 SUB_AGENT_MAX_TURNS = int(os.getenv("SUB_AGENT_MAX_TURNS", "25"))
 SUB_AGENT_TIMEOUT = int(os.getenv("SUB_AGENT_TIMEOUT", "3600"))
 
