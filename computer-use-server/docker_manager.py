@@ -21,6 +21,7 @@ import shlex
 import time
 import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 import aiohttp
@@ -787,6 +788,66 @@ def _execute_bash(container, command: str, timeout: int = None) -> dict:
             "output": f"Execution error: {str(e)}",
             "success": False
         }
+
+
+# ---------------------------------------------------------------------------
+# ADAPT-05 / Phase 5: capture variant of _execute_bash.
+#
+# _execute_bash returns {output, exit_code, success} where stdout+stderr are
+# concatenated. Adapter parse_result(stdout, stderr, returncode) needs them
+# separated, so cli_runtime.dispatch uses this helper instead. Same docker
+# exec semantics (timeout, shutdown-timer reset, demux=True), different
+# return shape.
+#
+# Returns a SimpleNamespace so callers can do `.stdout`, `.stderr`,
+# `.returncode` (matches subprocess.CompletedProcess shape — adapter parsers
+# are written against that idiom). SimpleNamespace is imported at the top of
+# the module (PEP 8 — do NOT inline the import here).
+# ---------------------------------------------------------------------------
+def _execute_bash_capture(container, command: str, timeout: int = None):
+    """Execute bash in container; return SimpleNamespace(stdout, stderr, returncode).
+
+    Stdout/stderr are kept separate (unlike _execute_bash which concatenates).
+    Used by cli_runtime.dispatch to feed adapter.parse_result, which is
+    written against the subprocess.CompletedProcess (stdout, stderr,
+    returncode) shape.
+
+    SECURITY (Phase 5 threat model T-05-05-01): the `command` argument is
+    passed straight to bash -c via shlex.quote — caller is responsible for
+    having shlex.quote'd every shell-significant value. cli_runtime.dispatch
+    constructs the command from `shlex.quote`'d argv elements; do not call
+    this helper with operator-controlled raw strings.
+    """
+    user, workdir = _get_container_user_and_workdir()
+    try:
+        cmd_timeout = timeout if timeout is not None else COMMAND_TIMEOUT
+        shutdown_timeout = max(CONTAINER_IDLE_TIMEOUT, cmd_timeout + 60)
+        _reset_shutdown_timer(container, shutdown_timeout)
+        timed_command = f"timeout {cmd_timeout} bash -c {shlex.quote(command)}"
+
+        exec_result = container.exec_run(
+            cmd=["bash", "-c", timed_command],
+            stdout=True,
+            stderr=True,
+            demux=True,
+            workdir=workdir,
+        )
+
+        stdout_data, stderr_data = exec_result.output if exec_result.output else (b"", b"")
+        stdout = stdout_data.decode("utf-8", errors="replace") if stdout_data else ""
+        stderr = stderr_data.decode("utf-8", errors="replace") if stderr_data else ""
+
+        return SimpleNamespace(
+            stdout=stdout,
+            stderr=stderr,
+            returncode=exec_result.exit_code,
+        )
+    except Exception as e:
+        return SimpleNamespace(
+            stdout="",
+            stderr=f"Execution error: {str(e)}",
+            returncode=-1,
+        )
 
 
 def execute_bash_streaming(container, command: str, timeout: int, on_output_line=None) -> dict:
