@@ -521,13 +521,20 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
         extra_env["GITLAB_TOKEN"] = gitlab_token
         print(f"[MCP] Injecting GITLAB_TOKEN into container environment")
 
-    anthropic_key = current_anthropic_auth_token.get() or ANTHROPIC_AUTH_TOKEN
-    anthropic_base = current_anthropic_base_url.get() or ANTHROPIC_BASE_URL
-    if anthropic_key:
-        extra_env["ANTHROPIC_AUTH_TOKEN"] = anthropic_key
-        extra_env["ANTHROPIC_BASE_URL"] = anthropic_base
+    # Phase 3 gateway-path injection — only active when SUBAGENT_CLI=claude
+    # (AUTH-01: no Anthropic gateway vars bleed into codex/opencode containers).
+    if SUBAGENT_CLI == "claude":
+        anthropic_key = current_anthropic_auth_token.get() or ANTHROPIC_AUTH_TOKEN
+        anthropic_base = current_anthropic_base_url.get() or ANTHROPIC_BASE_URL
+        if anthropic_key:
+            extra_env["ANTHROPIC_AUTH_TOKEN"] = anthropic_key
+            extra_env["ANTHROPIC_BASE_URL"] = anthropic_base
 
-    for _name, _value in CLAUDE_CODE_PASSTHROUGH_ENVS:
+    # Inject only the active CLI's auth allowlist (AUTH-01 / Pitfall 1: no
+    # auth bleed across CLIs — e.g. when SUBAGENT_CLI=opencode, OPENAI_API_KEY
+    # and OPENROUTER_API_KEY land in extra_env but ANTHROPIC_* gateway vars
+    # do NOT, even if set on the host).
+    for _name, _value in _PASSTHROUGH_BY_CLI[SUBAGENT_CLI]:
         if _value:
             extra_env[_name] = _value
 
@@ -535,6 +542,16 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
     # the Phase 7 .bashrc autostart `exec "${SUBAGENT_CLI:-claude}"` can read it
     # and `docker inspect <sandbox>` shows the chosen runtime in Env.
     extra_env["SUBAGENT_CLI"] = SUBAGENT_CLI
+
+    # OpenCode reads its config from $OPENCODE_CONFIG. Pin it to /tmp so docker
+    # exec'd subprocesses (e.g. mcp_tools.sub_agent dispatch) inherit it — the
+    # entrypoint `export OPENCODE_CONFIG=/tmp/opencode.json` only affects the
+    # entrypoint shell session, NOT subsequent `docker exec` invocations.
+    # Without this pin, OpenCode would fall back to ~/.local/share/opencode/auth.json
+    # and reopen the Pitfall 7 leak vector. ROADMAP success #2: `docker inspect`
+    # must show this env in the container Env.
+    if SUBAGENT_CLI == "opencode":
+        extra_env["OPENCODE_CONFIG"] = "/tmp/opencode.json"
 
     # Vision API for describe-image / upd-processing skills
     if VISION_API_KEY:
@@ -550,7 +567,10 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
     if user_email:
         extra_env["GIT_AUTHOR_EMAIL"] = user_email
         extra_env["GIT_COMMITTER_EMAIL"] = user_email
-        extra_env["ANTHROPIC_CUSTOM_HEADERS"] = f"x-openwebui-user-email: {user_email}"
+        # Anthropic-specific custom header — only emit for the claude runtime
+        # so codex / opencode containers do not get spurious anthropic env.
+        if SUBAGENT_CLI == "claude":
+            extra_env["ANTHROPIC_CUSTOM_HEADERS"] = f"x-openwebui-user-email: {user_email}"
 
     # Workspace volume for this chat
     workspace_volume = f"chat-{chat_id}-workspace"
@@ -698,6 +718,17 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
             print(f"[MCP] Registered {n} upload resource(s) for chat {chat_id}")
     except Exception as e:
         print(f"[MCP] Warning: MCP resources sync failed: {e}")
+
+    # Pitfall 7 defense — scrub OpenCode auth.json from volume on container
+    # creation (handles resurrected containers from previous opencode-auth-login
+    # experiments). Best-effort — silent on failure (absence is normal).
+    try:
+        container.exec_run(
+            "rm -f /home/assistant/.local/share/opencode/auth.json",
+            user="assistant",
+        )
+    except Exception:
+        pass
 
     return container
 
