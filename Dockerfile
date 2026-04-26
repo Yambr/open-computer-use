@@ -235,7 +235,10 @@ RUN sudo -u assistant bash -c "npm install -g @openai/codex@${CODEX_VERSION}"
 
 # Install OpenCode CLI from npm registry (sst fork — Phase 6 third runtime).
 # Native binary downloaded at npm-postinstall time from GitHub Releases.
-RUN sudo -u assistant bash -c "npm install -g opencode-ai@${OPENCODE_VERSION}"
+# Clean npm cache after install — opencode-ai's postinstall corrupts cache shards
+# in /home/assistant/.npm/_cacache/, causing later installs (e.g. @playwright/cli)
+# to fail with EEXIST + ENOENT. Surgical fix: scrub the user cache dir.
+RUN sudo -u assistant bash -c "npm install -g opencode-ai@${OPENCODE_VERSION} && npm cache clean --force && rm -rf /home/assistant/.npm/_cacache"
 
 # Install Playwright CLI for browser automation (used by main AI via bash, Claude Code via skills)
 # Version pinned — patch below depends on internal structure
