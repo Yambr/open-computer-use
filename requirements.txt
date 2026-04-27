@@ -85,7 +85,7 @@ unoserver==3.4
 pyoo==1.4
 
 # CLI and utilities
-click==8.3.0
+click==8.3.3
 colorama==0.4.6
 coloredlogs==15.0.1
 humanfriendly==10.0
