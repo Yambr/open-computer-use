@@ -22,6 +22,7 @@ COPY ./uploads.py .
 COPY ./system_prompt.py .
 COPY ./skill_manager.py .
 COPY ./docker_manager.py .
+COPY ./owui_sync.py .
 COPY ./context_vars.py .
 COPY ./docs_html.py .
 COPY ./security.py .

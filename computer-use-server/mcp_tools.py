@@ -74,6 +74,7 @@ import shlex
 import time
 import asyncio
 import urllib.parse
+from pathlib import Path
 from typing import Optional, List, Annotated
 
 from mcp.server.fastmcp import FastMCP, Context
@@ -157,8 +158,10 @@ from docker_manager import (
     ANTHROPIC_DEFAULT_SONNET_MODEL,
     ANTHROPIC_DEFAULT_OPUS_MODEL,
     ANTHROPIC_DEFAULT_HAIKU_MODEL,
+    BASE_DATA_DIR, OWUI_INTERNAL_URL, OWUI_API_KEY,
 )
 from cli_runtime import dispatch as cli_dispatch, Cli, resolve_cli
+from owui_sync import sync_outputs_to_owui, format_sync_summary
 
 
 
@@ -468,6 +471,27 @@ def _truncate_output(output: str, max_chars: int = MAX_BASH_OUTPUT_CHARS) -> str
     )
 
 
+async def _sync_outputs_if_configured(chat_id: str) -> list[dict]:
+    if not OWUI_INTERNAL_URL or not OWUI_API_KEY:
+        return []
+
+    outputs_dir = Path(BASE_DATA_DIR) / chat_id / "outputs"
+    if not outputs_dir.exists():
+        return []
+
+    try:
+        return await asyncio.to_thread(
+            sync_outputs_to_owui,
+            chat_id,
+            outputs_dir,
+            OWUI_INTERNAL_URL,
+            OWUI_API_KEY,
+        )
+    except Exception as e:
+        print(f"[owui_sync] non-fatal error for chat {chat_id}: {e}")
+        return []
+
+
 @mcp.tool()
 async def bash_tool(command: str, description: str, ctx: Context) -> str:
     """
@@ -530,7 +554,9 @@ async def bash_tool(command: str, description: str, ctx: Context) -> str:
                 pass
 
         output = _apply_command_semantics(command, result["exit_code"], result["output"])
-        return _truncate_output(output) + _get_default_chat_warning()
+        synced_outputs = await _sync_outputs_if_configured(chat_id)
+        formatted_output = format_sync_summary(_truncate_output(output), synced_outputs)
+        return formatted_output + _get_default_chat_warning()
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -606,7 +632,9 @@ except Exception as e:
 """
         payload = json.dumps({"path": path, "old_str": old_str, "new_str": new_str})
         result = await asyncio.to_thread(_execute_python_with_stdin, container, script, payload)
-        return result["output"] + _get_default_chat_warning()
+        synced_outputs = await _sync_outputs_if_configured(chat_id)
+        output = format_sync_summary(result["output"], synced_outputs)
+        return output + _get_default_chat_warning()
 
     except Exception as e:
         return f"Error: {str(e)}"
@@ -666,7 +694,9 @@ except Exception as e:
         payload = json.dumps({"path": path, "file_text": file_text})
         result = await asyncio.to_thread(_execute_python_with_stdin, container, script, payload)
         output = result["output"] if result["success"] else f"Error: {result['output']}"
-        return output + _get_default_chat_warning()
+        synced_outputs = await _sync_outputs_if_configured(chat_id)
+        formatted_output = format_sync_summary(output, synced_outputs)
+        return formatted_output + _get_default_chat_warning()
 
     except Exception as e:
         return f"Error: {str(e)}"
@@ -879,6 +909,12 @@ async def sub_agent(
 
         # Build the sub-agent system prompt with dynamic skills.
         file_base_url = f"{PUBLIC_BASE_URL}/files/{chat_id}"
+        owui_outputs_note = ""
+        if OWUI_INTERNAL_URL and OWUI_API_KEY:
+            owui_outputs_note = (
+                "\n- If tool results include Open WebUI file paths like "
+                "/api/v1/files/<id>/content, prefer those paths for final deliverables."
+            )
         plan_file = "/home/assistant/task_plan.md"
         skills = (
             skill_manager.get_user_skills_sync(user_email)
@@ -947,7 +983,7 @@ You are working in a Linux container (Ubuntu 24) as an autonomous sub-agent.
 FILE LOCATIONS:
 - User uploads: /mnt/user-data/uploads (read-only)
 - Workspace: /home/assistant
-- Outputs: /mnt/user-data/outputs (URL: {file_base_url}/)
+- Outputs: /mnt/user-data/outputs (URL: {file_base_url}/){owui_outputs_note}
 </environment>
 
 <available_skills>
@@ -1159,7 +1195,9 @@ Use `cat <skill-location>` to read skill instructions.
                 f"(use resume_session_id to continue)"
             )
 
-        return result_text + _get_default_chat_warning()
+        synced_outputs = await _sync_outputs_if_configured(chat_id)
+        formatted_result = format_sync_summary(result_text, synced_outputs)
+        return formatted_result + _get_default_chat_warning()
 
     except Exception as e:
         return f"Sub-agent error: {str(e)}"
