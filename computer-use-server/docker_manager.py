@@ -59,6 +59,8 @@ PUBLIC_BASE_URL_DEFAULT = "http://computer-use-server:8081"
 # empty string would otherwise bypass the startup warning). Also strip any
 # trailing slash so downstream concatenations never produce `//files/...`.
 PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or PUBLIC_BASE_URL_DEFAULT).rstrip("/")
+OWUI_INTERNAL_URL = (os.getenv("OWUI_INTERNAL_URL") or "").rstrip("/")
+OWUI_API_KEY = os.getenv("OWUI_API_KEY", "")
 CONTAINER_IDLE_TIMEOUT = int(os.getenv("CONTAINER_IDLE_TIMEOUT", "600"))
 DEBUG_LOGGING = os.getenv("DEBUG_LOGGING", "false").lower() == "true"
 ORCHESTRATOR_CONTAINER_NAME = os.getenv("ORCHESTRATOR_CONTAINER_NAME", "computer-use-server")
