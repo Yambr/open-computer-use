@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/yambr-open-computer-use-badge.png)](https://mseep.ai/app/yambr-open-computer-use)
+
 # Open Computer Use
 
 [![Build](https://github.com/Yambr/open-computer-use/actions/workflows/build.yml/badge.svg)](https://github.com/Yambr/open-computer-use/actions/workflows/build.yml)
