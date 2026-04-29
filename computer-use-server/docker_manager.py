@@ -34,6 +34,7 @@ from context_vars import (
     current_gitlab_token, current_gitlab_host,
     current_anthropic_auth_token, current_anthropic_base_url,
     current_mcp_tokens_url, current_mcp_tokens_api_key, current_mcp_servers,
+    current_mcp_oauth_token,
 )
 from system_prompt import render_system_prompt_sync
 
@@ -300,25 +301,75 @@ _docker_client: Optional[docker.DockerClient] = None
 
 
 
-def build_mcp_config(server_names_csv: str, base_url: Optional[str], user_email: str = "") -> dict | None:
-    """Build Claude Code ~/.mcp.json config from comma-separated server names.
+def build_mcp_config(server_names_or_config: str, base_url: Optional[str], user_email: str = "", oauth_token: str = "") -> dict | None:
+    """Build Claude Code ~/.mcp.json config from a server name list or a raw MCP JSON config.
 
-    URLs are templated as {base_url}/mcp/{server_name} (LiteLLM MCP proxy pattern).
-    Authorization uses ANTHROPIC_AUTH_TOKEN env var (resolved inside container at write time).
+    ``server_names_or_config`` accepts two formats:
 
-    Returns dict ready for json.dumps, or None if no servers specified.
+    CSV (e.g. ``"confluence,jira"``):
+        URLs are templated as ``{base_url}/mcp/{name}`` (LiteLLM MCP proxy pattern).
+        All CSV servers use ``Authorization: Bearer $ANTHROPIC_AUTH_TOKEN`` — the
+        write script resolves this from the container env at runtime.
 
-    ``base_url`` may be None or empty; both fall back to the module-level
-    ANTHROPIC_BASE_URL constant so callers can pass the ContextVar value
-    directly without a manual fallback.
+    JSON object (starts with ``{``):
+        Parsed directly as ``{"mcpServers": {...}}`` or a bare ``{name: cfg}`` dict.
+        Each http-type server controls its own auth via the ``"authToken"`` field:
+
+        ``"authToken": "$oauth"``
+            Embed the current OAuth session ``access_token`` directly (resolved at
+            call time from the ``oauth_token`` parameter). Expires with the session.
+        ``"authToken": "$ENV_VAR_NAME"``
+            Placeholder — the write script resolves ``os.environ["ENV_VAR_NAME"]``
+            inside the container at write time (e.g. ``"$ANTHROPIC_AUTH_TOKEN"``).
+        ``"authToken": "literal-value"``
+            Embed the string as-is.
+        No ``authToken`` field:
+            No ``Authorization`` header — explicit no-auth.
+
+        Servers with an existing ``Authorization`` in ``headers`` are never touched.
+
+    Returns a dict ready for ``json.dumps``, or None if the input is empty /
+    results in no usable servers.
     """
-    # Blocklist: prevent recursive sub_agent loops
     BLOCKED_SERVERS = {"docker_ai", "docker-ai"}
 
-    names = [s.strip() for s in server_names_csv.split(",") if s.strip() and s.strip() not in BLOCKED_SERVERS]
-    if not names:
+    input_str = (server_names_or_config or "").strip()
+    if not input_str:
         return None
 
+    if input_str.startswith("{"):
+        try:
+            parsed = json.loads(input_str)
+        except json.JSONDecodeError as e:
+            print(f"[MCP] Warning: failed to parse MCP JSON config: {e}")
+            return None
+        if "mcpServers" not in parsed:
+            parsed = {"mcpServers": parsed}
+        servers = {k: v for k, v in parsed.get("mcpServers", {}).items() if k not in BLOCKED_SERVERS}
+        if not servers:
+            return None
+        for cfg in servers.values():
+            if not isinstance(cfg, dict) or cfg.get("type") != "http":
+                continue
+            auth_spec = cfg.pop("authToken", None)  # consume shorthand, strip from output
+            hdrs = cfg.setdefault("headers", {})
+            if user_email:
+                hdrs.setdefault("x-openwebui-user-email", user_email)
+            if "Authorization" in hdrs or auth_spec is None:
+                continue  # explicit header wins; no authToken = explicit no-auth
+            if auth_spec == "$oauth":
+                if oauth_token:
+                    hdrs["Authorization"] = f"Bearer {oauth_token}"
+                # else: oauth not available → leave without Authorization
+            elif auth_spec:
+                # "$ENV_VAR" placeholder or literal token
+                hdrs["Authorization"] = f"Bearer {auth_spec}"
+        return {"mcpServers": servers}
+
+    # CSV path — all servers use ANTHROPIC_AUTH_TOKEN from container env
+    names = [s.strip() for s in input_str.split(",") if s.strip() and s.strip() not in BLOCKED_SERVERS]
+    if not names:
+        return None
     base = (base_url or ANTHROPIC_BASE_URL or "https://api.anthropic.com").rstrip("/")
     servers = {}
     for name in names:
@@ -327,6 +378,7 @@ def build_mcp_config(server_names_csv: str, base_url: Optional[str], user_email:
             "url": f"{base}/mcp/{name}",
             "headers": {
                 "x-openwebui-user-email": user_email,
+                "Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN",
             },
         }
     return {"mcpServers": servers}
@@ -335,8 +387,10 @@ def build_mcp_config(server_names_csv: str, base_url: Optional[str], user_email:
 def build_mcp_config_write_script(mcp_config: dict) -> str:
     """Build a shell command that writes ~/.mcp.json inside a container.
 
-    ANTHROPIC_AUTH_TOKEN is resolved from the container's env at runtime,
-    so no secrets are baked into the script itself.
+    Resolves ``Authorization: Bearer $VAR_NAME`` placeholders by reading
+    ``os.environ[VAR_NAME]`` inside the container. Servers whose Authorization
+    value does not start with ``$`` are written as-is (literal or pre-resolved
+    OAuth tokens). Servers with no Authorization header are written unchanged.
     Uses base64 to avoid shell/JSON escaping issues.
     """
     import base64
@@ -345,9 +399,14 @@ def build_mcp_config_write_script(mcp_config: dict) -> str:
         f"python3 -c '"
         f"import json,os,base64;"
         f"c=json.loads(base64.b64decode(\"{config_b64}\"));"
-        f"k=os.environ.get(\"ANTHROPIC_AUTH_TOKEN\",\"\");"
-        f"[s[\"headers\"].__setitem__(\"Authorization\",\"Bearer \"+k)"
-        f" for s in c[\"mcpServers\"].values() if \"headers\" in s];"
+        # Resolve "Bearer $VAR_NAME" placeholders from container env
+        f"[h.__setitem__(\"Authorization\",\"Bearer \"+os.environ[v])"
+        f" if (a:=h.get(\"Authorization\",\"\")).startswith(\"Bearer $\")"
+        f" and (v:=a[8:]) in os.environ"
+        f" else h.pop(\"Authorization\",None)"
+        f" if a.startswith(\"Bearer $\") else None"
+        f" for s in c[\"mcpServers\"].values()"
+        f" if isinstance(s,dict) and (h:=s.get(\"headers\",{{}})) is not None];"
         f"json.dump(c,open(os.path.expanduser(\"~/.mcp.json\"),\"w\"),indent=2);"
         # Auto-approve MCP servers in settings.local.json so Claude Code doesn't ask
         f"p=os.path.expanduser(\"~/.claude/settings.local.json\");"
@@ -696,6 +755,7 @@ def _create_container(chat_id: str, container_name: str) -> docker.models.contai
                 mcp_servers_str,
                 current_anthropic_base_url.get(),
                 current_user_email.get() or "",
+                current_mcp_oauth_token.get() or "",
             )
             if mcp_cfg:
                 write_cmd = build_mcp_config_write_script(mcp_cfg)

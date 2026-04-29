@@ -150,6 +150,9 @@ def describe_image(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    user_email = os.environ.get("USER_EMAIL", "")
+    if user_email:
+        headers["x-openwebui-user-email"] = user_email
 
     try:
         response = requests.post(
