@@ -14,8 +14,7 @@
 ### Known followups
 
 - The `extract-text` binary is vendored under `vendor/extract-text/` (~2MB blob). A future patch should fetch it at build time with sha256 verification and remove the blob from git. Source release URL TBD — Anthropic does not currently publish a public release for this CLI.
-- GSD and Superpowers are pinned via upstream tags (`v1.9.9`, `v5.0.7`). Tags are mutable; for strict reproducibility switch to commit SHAs via `--build-arg GSD_REF=<sha> --build-arg SUPERPOWERS_REF=<sha>`.
-- `PyMuPDF==1.24.10` is AGPL-3.0. Distributing this image publicly triggers AGPL conveyance obligations. Decision pending: drop PyMuPDF (only one example in `pdf-reading/SKILL.md` requires it; `pypdfium2` covers the rest), or accept AGPL and add a `NOTICE` entry alongside the project license.
+- GSD and Superpowers are pinned via upstream tags (`v1.9.9`, `v5.0.7`). Tags are mutable. `git clone --branch` does not accept raw commit SHAs; for strict reproducibility a future patch should switch to `git clone --no-checkout && git fetch <sha> && git checkout <sha>`.
 
 ## v0.9.2.2 — Multi-CLI Sub-Agent runtime followups (2026-04-26)
 

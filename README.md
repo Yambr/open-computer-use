@@ -511,4 +511,4 @@ This project uses a multi-license model:
 
 **Attribution required**: include "Open Computer Use" and a link to this repository.
 
-See [NOTICE](NOTICE) for details.
+See [NOTICE](NOTICE) for details. For third-party dependency licenses (PyMuPDF AGPL, Anthropic Skill License, Apache 2.0 bundles, etc.), see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).

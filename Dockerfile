@@ -391,7 +391,10 @@ cat > /home/assistant/.claude/settings.json << CCEOF\n\
       "Read(/mnt/user-data/uploads/**)",\n\
       "Read(/mnt/skills/**)",\n\
       "Read(/home/assistant/.claude/**)",\n\
-      "Write(/home/assistant/.claude/**)",\n\
+      "Write(/home/assistant/.claude/CLAUDE.md)",\n\
+      "Write(/home/assistant/.claude/settings.json)",\n\
+      "Edit(/home/assistant/.claude/CLAUDE.md)",\n\
+      "Edit(/home/assistant/.claude/settings.json)",\n\
       "Bash(gsd:*)",\n\
       "Bash(ls*)",\n\
       "Bash(cat*)",\n\
@@ -597,9 +600,11 @@ COPY --chown=root:root ./skills /mnt/skills/
 # (main AI reads /mnt/skills/, these live only in the Claude Code home volume).
 #
 # Refs are pinned to upstream tags. Tags are mutable (upstream can re-tag);
-# for strict reproducibility, override with a commit SHA instead:
-#   --build-arg GSD_REF=<sha> --build-arg SUPERPOWERS_REF=<sha>
-# To bump, change the ARGs below and rebuild.
+# `--branch` accepts only tag/branch names — not raw SHAs. For strict
+# reproducibility, switch the clone strategy to `clone --no-checkout`
+# followed by `git fetch <sha> && git checkout <sha>`. Tracked as a
+# followup in CHANGELOG.md "Known followups". To bump the pinned tags,
+# change the ARGs below and rebuild.
 ARG GSD_REF=v1.9.9
 ARG SUPERPOWERS_REF=v5.0.7
 

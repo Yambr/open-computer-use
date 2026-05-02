@@ -12,7 +12,17 @@ Vendored binary used by the `file-reading` and `pdf-reading` skills.
 - **ipynb** → fenced code cells
 - **rtf / html / htm** → plain text
 
-Architecture: x86_64 ELF, statically linked, ~2 MB.
+Architecture: x86_64 ELF, dynamically linked, ~2 MB.
+
+**This binary is x86_64-only.** Building the image under `linux/arm64`
+(Apple Silicon, AWS Graviton without emulation) will produce a
+non-functional binary — `extract-text /path/to/file.docx` segfaults
+under qemu emulation. The project `CLAUDE.md` mandates
+`docker build --platform linux/amd64`; honor that. For native arm64
+deployments, either run amd64 under qemu (slow) or remove the `COPY`
+line in `Dockerfile` and rely on the open-source fallbacks
+(pandoc / python-docx / openpyxl / python-pptx / nbconvert) documented
+in `skills/public/file-reading/SKILL.md`.
 
 ## Why it lives here
 
