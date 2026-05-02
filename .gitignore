@@ -81,6 +81,9 @@ skills_archive.zip
 .playwright-mcp/
 FIXES_*.md
 demo-recordings/
+demo-frames/
+docs/demo-prompts/
+tools/
 POST.md
 
 # GSD planning artefacts — private mirror only (see GitLab remote `private`).
