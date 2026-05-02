@@ -682,7 +682,7 @@ async def _render_uncached(chat_id: Optional[str], user_email: Optional[str]) ->
     never agreed to.
     """
     # Lazy import to avoid circular: docker_manager → system_prompt at import time.
-    from docker_manager import PUBLIC_BASE_URL
+    from docker_manager import PUBLIC_BASE_URL, OWUI_INTERNAL_URL
 
     if user_email:
         skills = await skill_manager.get_user_skills(user_email)
@@ -704,6 +704,12 @@ async def _render_uncached(chat_id: Optional[str], user_email: Optional[str]) ->
     result = result.replace("{file_base_url}", base)
     result = result.replace("{archive_url}", f"{base}/archive")
     result = result.replace("{chat_id}", chat_id)
+    if OWUI_INTERNAL_URL:
+        result = result.replace(
+            "   - Action: Copy completed files here and share as HTTP links",
+            "   - Action: Copy completed files here and share as HTTP links\n"
+            "   - If tool results include Open WebUI file paths like /api/v1/files/<id>/content, prefer the Open WebUI file paths returned in tool results for final deliverables",
+        )
     return result
 
 

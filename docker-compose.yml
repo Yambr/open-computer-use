@@ -24,20 +24,20 @@ services:
     build: ./computer-use-server
     container_name: computer-use-server
     ports:
-      - "${MCP_PORT:-8081}:8081"
+      - "${MCP_BIND_HOST:-0.0.0.0}:${MCP_PORT:-8081}:8081"
     depends_on:
       workspace:
         condition: service_completed_successfully
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp/computer-use-data:/tmp/computer-use-data:rw
+      - ${HOST_COMPUTER_USE_DATA_DIR:-/tmp/computer-use-data}:${HOST_COMPUTER_USE_DATA_DIR:-/tmp/computer-use-data}:rw
       - computer-use-data:/data:rw
       - skills-cache:/data/skills-cache:rw
     environment:
       - MCP_API_KEY=${MCP_API_KEY:-}
       - DOCKER_IMAGE=${DOCKER_IMAGE:-open-computer-use:latest}
-      - USER_DATA_BASE_PATH=/tmp/computer-use-data
-      - BASE_DATA_DIR=/tmp/computer-use-data
+      - USER_DATA_BASE_PATH=${HOST_COMPUTER_USE_DATA_DIR:-/tmp/computer-use-data}
+      - BASE_DATA_DIR=${HOST_COMPUTER_USE_DATA_DIR:-/tmp/computer-use-data}
       # Public URL of this orchestrator, as reachable from the end-user's
       # browser. The server bakes it into every /system-prompt response (so the
       # model writes correct links) and returns it to the Open WebUI filter via
@@ -45,6 +45,8 @@ services:
       # same URL). This is THE single source of truth for the browser-facing
       # URL — the filter no longer has its own Valve for it.
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://computer-use-server:8081}
+      - OWUI_INTERNAL_URL=${OWUI_INTERNAL_URL:-}
+      - OWUI_API_KEY=${OWUI_API_KEY:-}
       - COMMAND_TIMEOUT=${COMMAND_TIMEOUT:-120}
       - SUB_AGENT_TIMEOUT=${SUB_AGENT_TIMEOUT:-3600}
       - SINGLE_USER_MODE=${SINGLE_USER_MODE:-}
@@ -75,8 +77,9 @@ services:
     build: ./cron
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp/computer-use-data:/tmp/computer-use-data:rw
+      - ${HOST_COMPUTER_USE_DATA_DIR:-/tmp/computer-use-data}:${HOST_COMPUTER_USE_DATA_DIR:-/tmp/computer-use-data}:rw
     environment:
+      - DATA_DIR=${HOST_COMPUTER_USE_DATA_DIR:-/tmp/computer-use-data}
       - CONTAINER_MAX_AGE_HOURS=${CONTAINER_MAX_AGE_HOURS:-24}
       - DATA_MAX_AGE_DAYS=${DATA_MAX_AGE_DAYS:-7}
     restart: unless-stopped

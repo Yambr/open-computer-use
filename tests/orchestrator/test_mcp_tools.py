@@ -136,6 +136,28 @@ class TestBashToolCommandSemantics(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Exit code: 1", result)
 
 
+class TestOutputSyncIntegration(unittest.IsolatedAsyncioTestCase):
+    """Tests for appending Open WebUI-native file references to tool results."""
+
+    @patch("mcp_tools._ensure_gitlab_token", new_callable=AsyncMock)
+    @patch("mcp_tools._get_or_create_container", return_value=_mock_container())
+    async def test_bash_tool_appends_synced_output_links(self, mock_container, mock_token):
+        from mcp_tools import bash_tool
+        current_chat_id.set("test-chat")
+        ctx = MagicMock()
+        ctx.report_progress = AsyncMock()
+
+        with patch("mcp_tools.execute_bash_streaming",
+                   return_value={"output": "done", "exit_code": 0, "success": True}), \
+             patch("mcp_tools._sync_outputs_if_configured", new_callable=AsyncMock,
+                   return_value=[{"filename": "hello.txt", "file_id": "file-1", "url": "/api/v1/files/file-1/content"}]):
+            result = await bash_tool("echo hi", "test", ctx)
+
+        self.assertIn("done", result)
+        self.assertIn("Synced to Open WebUI", result)
+        self.assertIn("/api/v1/files/file-1/content", result)
+
+
 class TestViewTruncation(unittest.IsolatedAsyncioTestCase):
     """Tests for view output truncation at 30K (increased from 16K)."""
 
