@@ -120,6 +120,13 @@ CODEX_PASSTHROUGH_ENVS = (
     ("AZURE_OPENAI_API_KEY", os.getenv("AZURE_OPENAI_API_KEY", "")),
     ("AZURE_OPENAI_ENDPOINT", os.getenv("AZURE_OPENAI_ENDPOINT", "")),
     ("AZURE_OPENAI_API_VERSION", os.getenv("AZURE_OPENAI_API_VERSION", "")),
+    # Operator-supplied codex config override (see docs/cli-config-templates.md
+    # "Codex — custom OpenAI-compat gateway" recipe). Appended to the canonical
+    # ~/.codex/config.toml block by the Dockerfile entrypoint when set, so
+    # operators can route codex through a self-hosted gateway without forking.
+    # Without this entry the override never crosses the orchestrator → sandbox
+    # boundary. Same gap as #77; included here for codex parity.
+    ("CODEX_CONFIG_EXTRA", os.getenv("CODEX_CONFIG_EXTRA", "")),
 )
 
 # OpenCode passthrough envs (Phase 6 — only injected when SUBAGENT_CLI=opencode).
@@ -130,6 +137,14 @@ OPENCODE_PASSTHROUGH_ENVS = (
     ("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
     ("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY", "")),
     ("OPENCODE_MODEL", os.getenv("OPENCODE_MODEL", "")),
+    # Operator-supplied OpenCode config override (see docs/cli-config-templates.md
+    # "OpenCode — custom OpenAI-compat provider" recipe). Replaces /tmp/opencode.json
+    # verbatim when set, so operators can route the opencode sub-agent through a
+    # self-hosted gateway (LiteLLM, OpenLLM, etc.) for proxy-only deployments.
+    # Without this entry the override never crosses the orchestrator → sandbox
+    # boundary and the entrypoint heredoc falls through to the canonical
+    # 3-provider default. Closes #77.
+    ("OPENCODE_CONFIG_EXTRA", os.getenv("OPENCODE_CONFIG_EXTRA", "")),
 )
 
 # Sub-agent CLI runtime selector (CLI-01, CLI-02). Read once at module load

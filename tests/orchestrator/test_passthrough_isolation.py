@@ -82,6 +82,8 @@ def _clear_phase6_auth_env():
         "AZURE_OPENAI_API_KEY",
         "AZURE_OPENAI_ENDPOINT",
         "AZURE_OPENAI_API_VERSION",
+        "CODEX_CONFIG_EXTRA",
+        "OPENCODE_CONFIG_EXTRA",
         "SUBAGENT_CLI",
     ):
         os.environ.pop(key, None)
@@ -93,19 +95,19 @@ def _clear_phase6_auth_env():
         (
             "claude",
             {"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"},
-            {"OPENAI_API_KEY", "OPENROUTER_API_KEY", "OPENAI_BASE_URL", "OPENCODE_CONFIG"},
+            {"OPENAI_API_KEY", "OPENROUTER_API_KEY", "OPENAI_BASE_URL", "OPENCODE_CONFIG", "OPENCODE_CONFIG_EXTRA", "CODEX_CONFIG_EXTRA"},
             None,  # OPENCODE_CONFIG must NOT be set for non-opencode runtimes
         ),
         (
             "codex",
-            {"OPENAI_API_KEY", "OPENAI_BASE_URL"},
-            {"ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY", "OPENCODE_CONFIG"},
+            {"OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_CONFIG_EXTRA"},
+            {"ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY", "OPENCODE_CONFIG", "OPENCODE_CONFIG_EXTRA"},
             None,
         ),
         (
             "opencode",
-            {"OPENROUTER_API_KEY", "OPENAI_API_KEY"},
-            {"ANTHROPIC_AUTH_TOKEN"},
+            {"OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENCODE_CONFIG_EXTRA"},
+            {"ANTHROPIC_AUTH_TOKEN", "CODEX_CONFIG_EXTRA"},
             "/tmp/opencode.json",  # Plan 06-01 Edit 1c — ROADMAP success #2
         ),
     ],
@@ -128,6 +130,8 @@ def test_passthrough_isolation(
         "OPENAI_API_KEY": "sk-oai-stub",
         "OPENAI_BASE_URL": "https://gateway.example",
         "OPENROUTER_API_KEY": "sk-or-stub",
+        "OPENCODE_CONFIG_EXTRA": '{"stub":"opencode"}',
+        "CODEX_CONFIG_EXTRA": "[stub-codex]",
     }
 
     with patch.dict(os.environ, {}, clear=False):
