@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.9.2.3 — extract-text + bundled GSD/Superpowers skills (2026-05-03)
+
+Patch release on top of v0.9.2.2 (Open WebUI base unchanged). Adds Anthropic's `extract-text` CLI for unified plain-text extraction across document formats, the `file-reading` and `pdf-reading` skills built on top of it, and bundled GSD + Superpowers skill packs auto-wired for Claude Code subagents. PyMuPDF and xlrd added to support the new skills (third-party licensing tracked in `THIRD-PARTY-LICENSES.md`). Hardened `settings.json` permissions — agent can no longer overwrite its own hook scripts.
 
 ### Added
 
@@ -10,6 +12,11 @@
 - **`PyMuPDF==1.24.10`** and **`xlrd==2.0.1`** added to `requirements.txt` for PDF positional image extraction (`pdf-reading`) and legacy `.xls` parsing (`file-reading`).
 - **GSD + Superpowers bundled for Claude Code** — pinned to `v1.9.9` (`gsd-build/get-shit-done`) and `v5.0.7` (`obra/superpowers`). Override at build time with `--build-arg GSD_REF=… --build-arg SUPERPOWERS_REF=…`. Cloned to `/opt/skills-external/`, then symlinked into `~/.claude/{skills,agents,commands,hooks}` from the entrypoint. Inside the container Claude Code gains `/gsd:*` slash-commands, `gsd-*` agents, superpowers skills, and SessionStart/Pre/PostToolUse hooks. Main AI is unaffected (still reads `/mnt/skills/`). `settings.json` hook commands are guarded with `[ -f … ] && … || true` so missing upstream files do not error every session.
 - **`skills/README.md`** — licensing matrix and disclaimer for Anthropic-authored skills (`docx`, `pdf`, `pptx`, `xlsx`, `file-reading`, `pdf-reading`). Spells out that those directories are bundled for operators with a valid Anthropic agreement and points to the open-source fallbacks already documented in each `SKILL.md`.
+- **`THIRD-PARTY-LICENSES.md`** — explicit licensing notice for bundled third-party deps. Calls out PyMuPDF AGPL-3.0 conveyance obligations, Anthropic Skill License materials, Apache-2.0 GSD/Superpowers, and the BSD-3-Clause Open WebUI base. Linked from the README License section.
+
+### Security
+
+- **Narrowed agent Write permissions inside the sandbox.** Previously `settings.json` granted `Write(/home/assistant/.claude/**)`, which let the agent overwrite the same `gsd-*.js` / `gsd-*.sh` hook scripts that run automatically on `SessionStart`, `PreToolUse`, and `PostToolUse` — a self-mutation / persistence path. Allowed writes are now narrowed to `Write(.claude/CLAUDE.md)` and `Write(.claude/settings.json)` only; `hooks/`, `agents/`, `commands/`, and `skills/` stay read-only. `tests/test-pr88-skills.sh` asserts the regression. (CodeRabbit PR #88.)
 
 ### Known followups
 
