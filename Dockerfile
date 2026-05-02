@@ -375,6 +375,8 @@ When you make a mistake, update this CLAUDE.md so you do not repeat it.\n\
 - ls /mnt/skills/ — list available skills\n\
 - cat /mnt/skills/<name>/SKILL.md — skill instructions\n\
 - ls /mnt/user-data/uploads/ — user-uploaded files\n\
+- GSD (Get Shit Done): /gsd:help in Claude Code for spec-driven workflow commands\n\
+- Superpowers skills: test-driven-development, brainstorming, systematic-debugging, etc.\n\
 \n\
 CLAUDEMDEOF\n\
 cat > /home/assistant/.claude/settings.json << CCEOF\n\
@@ -388,11 +390,30 @@ cat > /home/assistant/.claude/settings.json << CCEOF\n\
       "Read(/mnt/user-data/outputs/**)",\n\
       "Read(/mnt/user-data/uploads/**)",\n\
       "Read(/mnt/skills/**)",\n\
+      "Read(/home/assistant/.claude/**)",\n\
+      "Write(/home/assistant/.claude/**)",\n\
+      "Bash(gsd:*)",\n\
       "Bash(ls*)",\n\
       "Bash(cat*)",\n\
       "Bash(mkdir*)",\n\
       "Bash(cp*)",\n\
       "Bash(mv*)"\n\
+    ]\n\
+  },\n\
+  "hooks": {\n\
+    "SessionStart": [\n\
+      {"hooks": [{"type": "command", "command": "node /home/assistant/.claude/hooks/gsd-check-update.js"}]},\n\
+      {"hooks": [{"type": "command", "command": "bash /home/assistant/.claude/hooks/gsd-session-state.sh"}]}\n\
+    ],\n\
+    "PreToolUse": [\n\
+      {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "node /home/assistant/.claude/hooks/gsd-prompt-guard.js", "timeout": 5}]},\n\
+      {"matcher": "Read", "hooks": [{"type": "command", "command": "node /home/assistant/.claude/hooks/gsd-read-guard.js", "timeout": 5}]},\n\
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash /home/assistant/.claude/hooks/gsd-validate-commit.sh", "timeout": 5}]},\n\
+      {"matcher": "", "hooks": [{"type": "command", "command": "node /home/assistant/.claude/hooks/gsd-workflow-guard.js", "timeout": 5}]}\n\
+    ],\n\
+    "PostToolUse": [\n\
+      {"matcher": "Bash|Edit|Write|MultiEdit|Agent|Task", "hooks": [{"type": "command", "command": "node /home/assistant/.claude/hooks/gsd-context-monitor.js", "timeout": 10}]},\n\
+      {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash /home/assistant/.claude/hooks/gsd-phase-boundary.sh", "timeout": 5}]}\n\
     ]\n\
   }\n\
 }\n\
@@ -413,6 +434,34 @@ for skilldir in /mnt/skills/public/ /mnt/skills/private/ /mnt/skills/user/; do\n
         [ -d "$skill" ] && ln -sf "$skill" /root/.claude/skills/$(basename "$skill") 2>/dev/null\n\
     done\n\
 done\n\
+\n\
+# External skills (GSD + Superpowers) — SYMLINK into volume to keep /home/assistant small\n\
+# (per-container volume — see commit 934197d "Move npm packages out of volume mount")\n\
+# GSD get-shit-done/ is read-only: cache lives in ~/.cache/gsd/, state in project .planning/\n\
+mkdir -p /home/assistant/.claude/agents /home/assistant/.claude/commands /home/assistant/.claude/hooks\n\
+if [ -d /opt/skills-external/gsd ]; then\n\
+    ln -sfn /opt/skills-external/gsd/get-shit-done /home/assistant/.claude/get-shit-done\n\
+    for f in /opt/skills-external/gsd/agents/*.md; do\n\
+        [ -e "$f" ] && ln -sfn "$f" /home/assistant/.claude/agents/$(basename "$f")\n\
+    done\n\
+    ln -sfn /opt/skills-external/gsd/commands/gsd /home/assistant/.claude/commands/gsd\n\
+    for h in /opt/skills-external/gsd/hooks/*; do\n\
+        [ -e "$h" ] && ln -sfn "$h" /home/assistant/.claude/hooks/$(basename "$h")\n\
+    done\n\
+fi\n\
+if [ -d /opt/skills-external/superpowers ]; then\n\
+    for d in /opt/skills-external/superpowers/skills/*/; do\n\
+        name=$(basename "$d")\n\
+        [ -e "/home/assistant/.claude/skills/$name" ] || ln -sfn "$d" "/home/assistant/.claude/skills/$name"\n\
+    done\n\
+    for f in /opt/skills-external/superpowers/commands/*.md; do\n\
+        [ -e "$f" ] && [ ! -e "/home/assistant/.claude/commands/$(basename "$f")" ] && ln -sfn "$f" /home/assistant/.claude/commands/$(basename "$f")\n\
+    done\n\
+    for f in /opt/skills-external/superpowers/agents/*.md; do\n\
+        [ -e "$f" ] && [ ! -e "/home/assistant/.claude/agents/$(basename "$f")" ] && ln -sfn "$f" /home/assistant/.claude/agents/$(basename "$f")\n\
+    done\n\
+fi\n\
+chown -R --no-dereference $(id -u assistant 2>/dev/null || echo 1000):$(id -g assistant 2>/dev/null || echo 1000) /home/assistant/.claude 2>/dev/null || true\n\
 \n\
 # Copy CLAUDE.md and settings.json for root too\n\
 cp /home/assistant/.claude/CLAUDE.md /root/.claude/CLAUDE.md 2>/dev/null\n\
@@ -540,6 +589,36 @@ RUN chmod +x /usr/local/bin/extract-text
 # Copy skills into image (available in all containers)
 # Placed late in Dockerfile so skill file changes don't invalidate heavy layers above
 COPY --chown=root:root ./skills /mnt/skills/
+
+# ── External skills for Claude Code only: GSD + Superpowers ──────────────────
+# Cloned at build-time from GitHub; laid out under /opt/skills-external/, then
+# symlinked into /home/assistant/.claude/ by entrypoint. NOT exposed to main AI
+# (main AI reads /mnt/skills/, these live only in the Claude Code home volume).
+
+# GSD (Get Shit Done) — commands, agents, hooks, engine
+# NOTE: upstream repo has no skills/ dir — gsd-* skills are generated by the
+# official npx installer. Users invoke via /gsd:<cmd> slash-commands instead.
+RUN git clone --depth 1 https://github.com/gsd-build/get-shit-done.git /tmp/gsd && \
+    mkdir -p /opt/skills-external/gsd/get-shit-done \
+             /opt/skills-external/gsd/agents \
+             /opt/skills-external/gsd/commands \
+             /opt/skills-external/gsd/hooks && \
+    cp -r /tmp/gsd/get-shit-done/. /opt/skills-external/gsd/get-shit-done/ && \
+    cp /tmp/gsd/agents/gsd-*.md /opt/skills-external/gsd/agents/ && \
+    cp -r /tmp/gsd/commands/. /opt/skills-external/gsd/commands/ && \
+    cp -r /tmp/gsd/hooks/. /opt/skills-external/gsd/hooks/ && \
+    rm -rf /tmp/gsd && \
+    ln -sf /opt/skills-external/gsd/get-shit-done/bin/gsd-tools.cjs /usr/local/bin/gsd && \
+    chmod +x /opt/skills-external/gsd/hooks/*.sh /opt/skills-external/gsd/hooks/*.js 2>/dev/null || true
+
+# Superpowers — skills, commands, agents, hooks
+RUN git clone --depth 1 https://github.com/obra/superpowers.git /tmp/superpowers && \
+    mkdir -p /opt/skills-external/superpowers && \
+    cp -r /tmp/superpowers/skills /opt/skills-external/superpowers/ && \
+    cp -r /tmp/superpowers/commands /opt/skills-external/superpowers/ && \
+    cp -r /tmp/superpowers/agents /opt/skills-external/superpowers/ && \
+    cp -r /tmp/superpowers/hooks /opt/skills-external/superpowers/ 2>/dev/null || true && \
+    rm -rf /tmp/superpowers /opt/skills-external/superpowers/**/.git 2>/dev/null || true
 
 # Verify installations
 RUN python3 -c "import docx, pptx, openpyxl; print('Python packages OK')" && \
