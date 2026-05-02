@@ -128,12 +128,9 @@ echo "$XLRD" | grep -qE "^2\." && pass "import xlrd (2.x) works" \
 
 # -----------------------------------------------------------------------------
 echo ""
-echo "[3/8] vendored binary location + READMEs"
+echo "[3/8] new skills layout + skills/README.md disclaimer"
 # -----------------------------------------------------------------------------
 
-# vendor/extract-text/ ships into the image as part of the build context too;
-# but the canonical path users care about is the symlink/copy at /usr/local/bin.
-# Still: assert vendor README is reachable inside the image where the skills live.
 VENDOR_README=$(run 'cat /mnt/skills/public/file-reading/SKILL.md 2>/dev/null | head -1') || VENDOR_README=""
 echo "$VENDOR_README" | grep -q "^---" && pass "file-reading SKILL.md present and frontmatter intact" \
     || fail "file-reading SKILL.md missing or corrupt: $VENDOR_README"
@@ -212,7 +209,7 @@ if [ -n "$SETTINGS" ]; then
     # Every hook command must be guarded with `[ -f … ]` so a missing
     # GSD/Superpowers file no-ops cleanly. There are 8 hook commands;
     # all 8 must have the guard.
-    GUARD_COUNT=$(echo "$SETTINGS" | grep -cE '\[ -f /home/assistant/.claude/hooks/gsd-[a-z-]+\.(js|sh) \] && (node|bash) ') || GUARD_COUNT=0
+    GUARD_COUNT=$(echo "$SETTINGS" | grep -cE '\[ -f /home/assistant/\.claude/hooks/[^ ]+ \] && (node|bash) ') || GUARD_COUNT=0
     if [ "${GUARD_COUNT:-0}" -ge 8 ]; then
         pass "all 8 hook commands are guarded with [ -f … ] (count: $GUARD_COUNT)"
     else

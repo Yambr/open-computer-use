@@ -596,8 +596,10 @@ COPY --chown=root:root ./skills /mnt/skills/
 # symlinked into /home/assistant/.claude/ by entrypoint. NOT exposed to main AI
 # (main AI reads /mnt/skills/, these live only in the Claude Code home volume).
 #
-# Refs are pinned to released tags for reproducibility. To bump, change the ARGs
-# below and rebuild. Override at build time with `--build-arg GSD_REF=…`.
+# Refs are pinned to upstream tags. Tags are mutable (upstream can re-tag);
+# for strict reproducibility, override with a commit SHA instead:
+#   --build-arg GSD_REF=<sha> --build-arg SUPERPOWERS_REF=<sha>
+# To bump, change the ARGs below and rebuild.
 ARG GSD_REF=v1.9.9
 ARG SUPERPOWERS_REF=v5.0.7
 
