@@ -7,6 +7,7 @@
 [![Stars](https://img.shields.io/github/stars/Yambr/open-computer-use)](https://github.com/Yambr/open-computer-use/stargazers)
 [![Issues](https://img.shields.io/github/issues/Yambr/open-computer-use)](https://github.com/Yambr/open-computer-use/issues)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Yambr/open-computer-use?utm_source=oss&utm_medium=github&utm_campaign=Yambr%2Fopen-computer-use&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 MCP server that gives any LLM its own computer — managed Docker workspaces with live browser, terminal, code execution, document skills, and autonomous sub-agents. Self-hosted, open-source, pluggable into any model.
 
@@ -16,7 +17,7 @@ MCP server that gives any LLM its own computer — managed Docker workspaces wit
 >
 > If any of this looks useful, a ⭐ on the repo really helps — thanks!
 
-![Demo: AI reads GitHub README and creates a landing page](docs/demo-landing-page.gif)
+![Demo: Qwen 3.6 Plus scrapes GitHub Trending, builds an Excel chart, and ships an editorial web dashboard — all in one chat](docs/demo-qwen-trending.gif)
 
 ## What is this?
 
@@ -510,4 +511,4 @@ This project uses a multi-license model:
 
 **Attribution required**: include "Open Computer Use" and a link to this repository.
 
-See [NOTICE](NOTICE) for details.
+See [NOTICE](NOTICE) for details. For third-party dependency licenses (PyMuPDF AGPL, Anthropic Skill License, Apache 2.0 bundles, etc.), see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
