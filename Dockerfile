@@ -532,6 +532,11 @@ RUN rm -rf /home/assistant/.npm /home/assistant/.cache && \
 # Set working directory
 WORKDIR /home/assistant
 
+# extract-text CLI: unified plain-text extractor for docx/odt/epub/xlsx/pptx/rtf/html/htm/ipynb
+# Anthropic-built Rust binary (x86_64 ELF, ~2MB). Used by the file-reading and xlsx skills.
+COPY --chown=root:root extract-text /usr/local/bin/extract-text
+RUN chmod +x /usr/local/bin/extract-text
+
 # Copy skills into image (available in all containers)
 # Placed late in Dockerfile so skill file changes don't invalidate heavy layers above
 COPY --chown=root:root ./skills /mnt/skills/
