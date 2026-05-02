@@ -17,7 +17,7 @@ MCP server that gives any LLM its own computer — managed Docker workspaces wit
 >
 > If any of this looks useful, a ⭐ on the repo really helps — thanks!
 
-![Demo: AI reads GitHub README and creates a landing page](docs/demo-landing-page.gif)
+![Demo: Qwen 3.6 Plus scrapes GitHub Trending, builds an Excel chart, and ships an editorial web dashboard — all in one chat](docs/demo-qwen-trending.gif)
 
 ## What is this?
 
