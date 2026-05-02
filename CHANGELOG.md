@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`extract-text` CLI** — Anthropic's Rust-based unified plain-text extractor at `/usr/local/bin/extract-text`. Handles docx/odt/epub/xlsx/pptx/rtf/html/htm/ipynb in a single call. Vendored at `vendor/extract-text/` (see README there for licensing). Used by the new `file-reading` and `pdf-reading` skills.
+- **`file-reading` skill** (`/mnt/skills/public/file-reading/`) — dispatch table telling the model which tool to use for each upload type, so it doesn't `cat` a PDF or slurp a 100MB CSV.
+- **`pdf-reading` skill** (`/mnt/skills/public/pdf-reading/`) — content inventory, text extraction, page rasterization, embedded image / attachment / form-field extraction, and document-type-aware reading strategies.
+- **`PyMuPDF==1.24.10`** and **`xlrd==2.0.1`** added to `requirements.txt` for PDF positional image extraction (`pdf-reading`) and legacy `.xls` parsing (`file-reading`).
+- **GSD + Superpowers bundled for Claude Code** — pinned to `v1.9.9` (`gsd-build/get-shit-done`) and `v5.0.7` (`obra/superpowers`). Override at build time with `--build-arg GSD_REF=… --build-arg SUPERPOWERS_REF=…`. Cloned to `/opt/skills-external/`, then symlinked into `~/.claude/{skills,agents,commands,hooks}` from the entrypoint. Inside the container Claude Code gains `/gsd:*` slash-commands, `gsd-*` agents, superpowers skills, and SessionStart/Pre/PostToolUse hooks. Main AI is unaffected (still reads `/mnt/skills/`). `settings.json` hook commands are guarded with `[ -f … ] && … || true` so missing upstream files do not error every session.
+- **`skills/README.md`** — licensing matrix and disclaimer for Anthropic-authored skills (`docx`, `pdf`, `pptx`, `xlsx`, `file-reading`, `pdf-reading`). Spells out that those directories are bundled for operators with a valid Anthropic agreement and points to the open-source fallbacks already documented in each `SKILL.md`.
+
+### Known followups
+
+- The `extract-text` binary is vendored under `vendor/extract-text/` (~2MB blob). A future patch should fetch it at build time with sha256 verification and remove the blob from git.
+
 ## v0.9.2.2 — Multi-CLI Sub-Agent runtime followups (2026-04-26)
 
 Patch release on top of v0.9.2.1 covering the v0.9.2.1 audit followups (Phases 9.1–9.6): real-CLI smoke harness, two production Dockerfile bug fixes (`opencode` schema, `codex` `model_provider` selector), Preview SPA active-CLI badge, CLI config templates with `OPENCODE_CONFIG_EXTRA` / `CODEX_CONFIG_EXTRA` env hooks, plus CodeRabbit review followups (resume-session CLI gate, opencode docs schema, dead helper, MD040 fences). Security: `pillow` 12.1.1 → 12.2.0 (CVE-2026-40192), `python-multipart` 0.0.22 → 0.0.26.
