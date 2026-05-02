@@ -130,6 +130,13 @@ OPENCODE_PASSTHROUGH_ENVS = (
     ("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
     ("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY", "")),
     ("OPENCODE_MODEL", os.getenv("OPENCODE_MODEL", "")),
+    # Operator-supplied OpenCode config override (see docs/cli-config-templates.md
+    # "OpenCode — custom OpenAI-compat provider" recipe). Allows routing the
+    # opencode sub-agent through a self-hosted gateway (LiteLLM, OpenLLM, etc.)
+    # for proxy-only deployments. Without this entry the override never crosses
+    # the orchestrator → sandbox boundary and the entrypoint heredoc falls
+    # through to the canonical 3-provider default. Closes #77.
+    ("OPENCODE_CONFIG_EXTRA", os.getenv("OPENCODE_CONFIG_EXTRA", "")),
 )
 
 # Sub-agent CLI runtime selector (CLI-01, CLI-02). Read once at module load
