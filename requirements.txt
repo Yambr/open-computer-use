@@ -11,7 +11,7 @@ xlrd==2.0.1
 # PDF processing
 pypdf==5.9.0
 pdfplumber==0.11.9
-pypdfium2==4.30.0
+pypdfium2==5.7.1
 PyMuPDF==1.24.10
 pikepdf==9.11.0
 pdfkit==1.0.0
