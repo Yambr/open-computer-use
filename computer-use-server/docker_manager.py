@@ -68,14 +68,14 @@ BASE_DATA_DIR = Path(os.getenv("BASE_DATA_DIR", "/data"))
 MCP_TOKENS_URL = os.getenv("MCP_TOKENS_URL", "")
 MCP_TOKENS_API_KEY = os.getenv("MCP_TOKENS_API_KEY", "")
 
-# Sub-agent configuration — per-CLI default models only (D-03/D-04).
+# Sub-agent configuration — per-CLI default models (D-03/D-04).
 # The legacy single SUB_AGENT_DEFAULT_MODEL global was removed in Phase 2;
-# the deprecation grace window from Phase 1 D-10 is over. Use the per-CLI
-# vars below; the resolver in cli_runtime.py raises if none are set for
-# opencode/codex.
-CLAUDE_SUB_AGENT_DEFAULT_MODEL = os.getenv("CLAUDE_SUB_AGENT_DEFAULT_MODEL", "")
-CODEX_SUB_AGENT_DEFAULT_MODEL = os.getenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "")
-OPENCODE_SUB_AGENT_DEFAULT_MODEL = os.getenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "")
+# the deprecation grace window from Phase 1 D-10 is over. The per-CLI env
+# vars (CLAUDE_/CODEX_/OPENCODE_SUB_AGENT_DEFAULT_MODEL) are read directly
+# by the resolver in cli_runtime.py — no module-level constants needed
+# here. The resolver raises a clear ValueError when caller passes no model
+# AND the per-CLI env is unset (opencode/codex only; claude falls back to
+# the canonical 'sonnet' alias).
 SUB_AGENT_MAX_TURNS = int(os.getenv("SUB_AGENT_MAX_TURNS", "25"))
 SUB_AGENT_TIMEOUT = int(os.getenv("SUB_AGENT_TIMEOUT", "3600"))
 

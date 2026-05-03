@@ -18,8 +18,13 @@ def _to_toml_value(v):
 
     This is the canonical reference implementation. The Dockerfile inline Python
     must stay in sync with this function.
+
+    TOML has no null literal, so None is rejected explicitly rather than
+    serialized as "null" (invalid TOML) or "" (silently swallowed).
     """
     import json
+    if v is None:
+        raise ValueError("TOML does not support null values; provider config must omit empty fields rather than set them to null")
     if isinstance(v, dict):
         inner = ", ".join(k + " = " + _to_toml_value(val) for k, val in v.items())
         return "{" + inner + "}"
@@ -65,9 +70,13 @@ class TestToTomlValue(unittest.TestCase):
     def test_bool_false(self):
         assert _to_toml_value(False) == "false"
 
-    def test_null_is_json_null(self):
-        # JSON null serialized for TOML — in practice shouldn't appear in provider cfg
-        assert _to_toml_value(None) == "null"
+    def test_none_raises_valueerror(self):
+        # TOML has no null literal; serializing None as "null" would produce
+        # invalid TOML. Reject explicitly to surface schema bugs at config-load
+        # time, not later when codex tries to parse the file.
+        import pytest
+        with pytest.raises(ValueError, match="TOML does not support null"):
+            _to_toml_value(None)
 
     def test_list_value(self):
         assert _to_toml_value([1, 2, 3]) == "[1, 2, 3]"

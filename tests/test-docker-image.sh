@@ -95,6 +95,19 @@ echo "$RESULT" | grep -q "OK" && pass "list-subagent-models in PATH" || fail "li
 RESULT=$(run_in_container "test -x \$(which list-subagent-models 2>/dev/null || echo /nonexistent) && echo OK || echo FAIL") || RESULT=""
 echo "$RESULT" | grep -q "OK" && pass "list-subagent-models is executable" || fail "list-subagent-models is not executable inside image"
 
+# Phase 2 smoke: list-subagent-models claude path (always available, no env or
+# config files needed) returns valid JSON with cli="claude" and non-empty
+# models array. This catches a class of bugs where the script is present and
+# executable but crashes at runtime (broken import, missing stdlib, etc.).
+RESULT=$(run_in_container "SUBAGENT_CLI=claude list-subagent-models 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[\"cli\"]==\"claude\" and len(d[\"models\"])>=3, d; print(\"OK\")'") || RESULT=""
+echo "$RESULT" | grep -q "OK" && pass "list-subagent-models claude returns valid JSON with >=3 models" || fail "list-subagent-models claude smoke failed"
+
+# Phase 2 smoke: list-subagent-models opencode path with no env (canonical
+# cli-defaults/opencode.json fallback). Validates the host-friendly read path
+# end-to-end inside the container.
+RESULT=$(run_in_container "unset OPENCODE_CONFIG_EXTRA OPENCODE_MODEL_ALIASES OPENCODE_SUB_AGENT_DEFAULT_MODEL; SUBAGENT_CLI=opencode list-subagent-models 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[\"cli\"]==\"opencode\" and \"models\" in d, d; print(\"OK\")'") || RESULT=""
+echo "$RESULT" | grep -q "OK" && pass "list-subagent-models opencode returns valid JSON from canonical cli-defaults" || fail "list-subagent-models opencode canonical smoke failed"
+
 # 6. Python packages
 echo ""
 echo "[6/14] Python packages"

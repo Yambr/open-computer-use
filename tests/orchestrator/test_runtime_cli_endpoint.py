@@ -10,7 +10,9 @@ silently on missing fields.
 Contract:
   GET /api/runtime/cli -> 200
   body.cli            in {"claude", "codex", "opencode"}
-  body.default_model  non-empty string
+  body.default_model  non-empty string for claude (canonical 'sonnet' fallback);
+                      null for codex/opencode when no per-CLI default env is set
+                      (Phase 2 D-02 dropped the hardcoded fallback for those CLIs)
   body.supports_cost  bool, true ONLY for claude
   Cache-Control: no-store
   Method allowlist: GET only (HEAD/POST/PUT/DELETE -> 405)

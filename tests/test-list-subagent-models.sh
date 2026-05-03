@@ -133,7 +133,12 @@ fi
 echo ""
 echo "[5] Host-mode: opencode reads canonical cli-defaults file"
 TMPDIR_HOSTS=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_HOSTS"' EXIT
+EMPTY_TMPDIR=""
+cleanup_tmpdirs() {
+    [ -n "$TMPDIR_HOSTS" ] && rm -rf "$TMPDIR_HOSTS"
+    [ -n "$EMPTY_TMPDIR" ] && rm -rf "$EMPTY_TMPDIR"
+}
+trap cleanup_tmpdirs EXIT
 
 cp "$CLI_DEFAULTS_DIR/opencode.json" "$TMPDIR_HOSTS/"
 cp "$CLI_DEFAULTS_DIR/codex.json"    "$TMPDIR_HOSTS/"
@@ -367,7 +372,7 @@ fi
 echo ""
 echo "[13] opencode host-mode: missing cli-defaults file → exit 3"
 EMPTY_TMPDIR=$(mktemp -d)
-trap 'rm -rf "$EMPTY_TMPDIR"' EXIT
+# cleanup handled by the unified cleanup_tmpdirs trap set near line 136
 set +e
 SUBAGENT_CLI=opencode LIST_SUBAGENT_CLI_DEFAULTS_DIR="$EMPTY_TMPDIR" python3 "$SCRIPT" >/tmp/lsm.stdout 2>/tmp/lsm.stderr
 rc=$?
@@ -393,7 +398,7 @@ elif [ "$rc" -eq 0 ]; then
 else
     fail "opencode missing file: unexpected exit code $rc"
 fi
-rm -rf "$EMPTY_TMPDIR"
+# EMPTY_TMPDIR cleaned up by cleanup_tmpdirs trap on EXIT
 
 # ---------------------------------------------------------------------------
 # Summary

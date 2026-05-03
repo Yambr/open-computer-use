@@ -60,14 +60,25 @@ def test_docker_manager_has_no_sub_agent_default_model(monkeypatch):
     )
 
 
-def test_docker_manager_has_claude_sub_agent_default_model(monkeypatch):
-    """D-04: docker_manager must define CLAUDE_SUB_AGENT_DEFAULT_MODEL."""
+def test_docker_manager_has_no_per_cli_constants(monkeypatch):
+    """D-04 (CodeRabbit cleanup): the per-CLI default-model env vars are read
+    directly by cli_runtime resolver — docker_manager must NOT re-export them
+    as module-level constants (dead code that drifts out of sync).
+    """
     for mod in ("cli_runtime", "docker_manager"):
         sys.modules.pop(mod, None)
     dm = importlib.import_module("docker_manager")
-    assert hasattr(dm, "CLAUDE_SUB_AGENT_DEFAULT_MODEL"), (
-        "CLAUDE_SUB_AGENT_DEFAULT_MODEL must be present in docker_manager"
-    )
+    for name in (
+        "SUB_AGENT_DEFAULT_MODEL",
+        "CLAUDE_SUB_AGENT_DEFAULT_MODEL",
+        "CODEX_SUB_AGENT_DEFAULT_MODEL",
+        "OPENCODE_SUB_AGENT_DEFAULT_MODEL",
+    ):
+        assert not hasattr(dm, name), (
+            f"docker_manager must NOT export {name} — the resolver in "
+            "cli_runtime.py reads the env var directly. Re-exporting it as a "
+            "module-level constant is dead code (no one imports it)."
+        )
 
 
 # ---------------------------------------------------------------------------

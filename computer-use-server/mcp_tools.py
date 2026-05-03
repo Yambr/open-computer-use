@@ -958,8 +958,13 @@ async def sub_agent(
 
     try:
         # Resolve default model inside try so ValueError surfaces as "Sub-agent error: ..."
+        # Preserve the resolver's display_name (e.g. "sonnet") so the completion
+        # banner shows the friendly alias instead of the full id (e.g.
+        # "claude-sonnet-4-6"). dispatch() re-resolves and would only return the
+        # id-as-display once the alias has been expanded, losing the friendly name.
+        default_display_name = None
         if not model:
-            model, _display_name = resolve_subagent_model("", cli)
+            model, default_display_name = resolve_subagent_model("", cli)
         await _ensure_gitlab_token()
         container = await asyncio.to_thread(_get_or_create_container, chat_id)
 
@@ -1170,6 +1175,11 @@ Use `cat <skill-location>` to read skill instructions.
                 plan_file=plan_file,
                 headers_env=headers_env,
             )
+            # When caller omitted `model` and we resolved the default above,
+            # restore the friendly display_name (e.g. "sonnet"); dispatch()
+            # would otherwise have surfaced the resolved id ("claude-sonnet-4-6").
+            if default_display_name:
+                model_display = default_display_name
         finally:
             log_task.cancel()
             try:

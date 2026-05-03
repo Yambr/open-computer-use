@@ -33,11 +33,14 @@ for f in "${FILES[@]}"; do
         fail "$f does not exist"
         continue
     fi
-    # Lines containing forbidden tokens, EXCLUDING marker-tagged lines
-    # and lines mentioning list-subagent-models.
+    # Lines containing forbidden tokens, EXCLUDING marker-tagged lines.
+    # No additional exemptions — FORBIDDEN_PATTERN does not match the
+    # discovery command literal "list-subagent-models", so it never causes
+    # false positives. (The previous "grep -v list-subagent-models" filter
+    # was a defensive overreach that hid real violations on any line that
+    # mentioned the discovery command.)
     hits=$(grep -nE "$FORBIDDEN_PATTERN" "$fpath" \
             | grep -v 'canonical-example' \
-            | grep -v 'list-subagent-models' \
             || true)
     if [ -z "$hits" ]; then
         pass "$f has no unmarked hardcoded model names"

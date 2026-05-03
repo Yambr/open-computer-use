@@ -509,6 +509,8 @@ CXEOF\n\
                 python3 -c "\n\
 import json,sys\n\
 def _to_toml_value(v):\n\
+    if v is None:\n\
+        raise ValueError('"'"'TOML does not support null values; provider config must omit empty fields'"'"')\n\
     if isinstance(v,dict):\n\
         inner='"'"', '"'"'.join(k+'"'"' = '"'"'+_to_toml_value(val) for k,val in v.items())\n\
         return '"'"'{'"'"'+inner+'"'"'}'"'"'\n\

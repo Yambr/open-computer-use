@@ -149,8 +149,8 @@ class TestMcpToolsStructure(unittest.TestCase):
 
     def test_mcp_add_tool_call_present(self):
         """mcp.add_tool(sub_agent) must be present (not counting comments)."""
-        code_lines = [l for l in self.src.splitlines()
-                      if "mcp.add_tool(sub_agent)" in l and not l.strip().startswith("#")]
+        code_lines = [line for line in self.src.splitlines()
+                      if "mcp.add_tool(sub_agent)" in line and not line.strip().startswith("#")]
         self.assertEqual(len(code_lines), 1,
                          f"Expected exactly 1 mcp.add_tool(sub_agent) call, found: {code_lines}")
 
