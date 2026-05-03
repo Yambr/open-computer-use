@@ -153,12 +153,12 @@ from docker_manager import (
     DOCKER_SOCKET, DOCKER_IMAGE, CONTAINER_MEM_LIMIT, CONTAINER_CPU_LIMIT,
     COMMAND_TIMEOUT, ENABLE_NETWORK, USER_DATA_BASE_PATH, PUBLIC_BASE_URL,
     MCP_TOKENS_URL, MCP_TOKENS_API_KEY,
-    SUB_AGENT_DEFAULT_MODEL, SUB_AGENT_MAX_TURNS, SUB_AGENT_TIMEOUT,
+    SUB_AGENT_MAX_TURNS, SUB_AGENT_TIMEOUT,
     ANTHROPIC_DEFAULT_SONNET_MODEL,
     ANTHROPIC_DEFAULT_OPUS_MODEL,
     ANTHROPIC_DEFAULT_HAIKU_MODEL,
 )
-from cli_runtime import dispatch as cli_dispatch, Cli, resolve_cli
+from cli_runtime import dispatch as cli_dispatch, Cli, resolve_cli, resolve_subagent_model
 
 
 
@@ -810,7 +810,129 @@ fi
         return f"Error: {str(e)}"
 
 
-@mcp.tool()
+# ---------------------------------------------------------------------------
+# Per-CLI docstring variants for the sub_agent tool.
+# FastMCP captures fn.__doc__ at mcp.add_tool() registration time, so we
+# assign the correct variant before calling mcp.add_tool(sub_agent).
+# See RESEARCH.md "FastMCP Docstring Binding Mechanics" (base.py:66).
+# ---------------------------------------------------------------------------
+
+_SUBAGENT_DOC_CLAUDE = """Spawn a sub-agent (claude code) to perform a focused subtask.
+
+COSTLY: Spawns a separate Claude CLI session with its own API budget.
+Use ONLY as a last resort for complex CODE tasks requiring 10+ iterative tool calls.
+
+Justified uses:
+- Multi-file refactoring (5+ files) with test verification loops
+- Complex code review with automatic fixes across many files
+- Iterative test-fix cycles (run tests, analyze, fix, re-run until pass)
+
+Do NOT use for (handle these yourself):
+- Tasks completable in fewer than 10 tool calls
+- Creating presentations, documents, spreadsheets
+- Web research or information gathering
+- Simple code review, documentation, or analysis
+- Git operations or simple file edits
+
+Args:
+    task: Detailed description of the task for the sub-agent to accomplish
+    description: Why you are delegating this task to a sub-agent
+    model: Claude model alias or id. Aliases: 'sonnet' (default, fast), 'opus' (powerful,
+           slower), 'haiku' (cheapest). Pass an empty string to use the per-CLI default
+           (claude -> sonnet). Operator override: CLAUDE_SUB_AGENT_DEFAULT_MODEL env.
+    max_turns: Maximum number of agentic turns (default from env, typically 25)
+    working_directory: Working directory for the agent (default: /home/assistant)
+    resume_session_id: Session ID to resume a previous sub-agent session (from previous result)
+
+Returns:
+    Sub-agent's response with task results, cost, turn count, and session_id for resume
+
+Tip: Run `list-subagent-models` (or `bash /mnt/skills/public/sub-agent/scripts/list_subagent_models.sh`)
+to discover valid model ids for the active SUBAGENT_CLI.
+"""
+
+_SUBAGENT_DOC_OPENCODE = """Spawn a sub-agent (opencode) to perform a focused subtask.
+
+COSTLY: Spawns a separate opencode CLI session with its own API budget.
+Use ONLY as a last resort for complex CODE tasks requiring 10+ iterative tool calls.
+
+Justified uses:
+- Multi-file refactoring (5+ files) with test verification loops
+- Complex code review with automatic fixes across many files
+- Iterative test-fix cycles (run tests, analyze, fix, re-run until pass)
+
+Do NOT use for (handle these yourself):
+- Tasks completable in fewer than 10 tool calls
+- Creating presentations, documents, spreadsheets
+- Web research or information gathering
+- Simple code review, documentation, or analysis
+- Git operations or simple file edits
+
+Args:
+    task: Detailed description of the task for the sub-agent to accomplish
+    description: Why you are delegating this task to a sub-agent
+    model: opencode model id in `provider/model` form (e.g. `anthropic/claude-sonnet-4-6`,
+           `openrouter/qwen/qwen-3-coder`). Pass an empty string to use the per-CLI default
+           (controlled by OPENCODE_SUB_AGENT_DEFAULT_MODEL env). Operators can extend the
+           alias vocabulary via the OPENCODE_MODEL_ALIASES env var (JSON object string).
+    max_turns: Maximum number of agentic turns (default from env, typically 25)
+    working_directory: Working directory for the agent (default: /home/assistant)
+    resume_session_id: Session ID to resume a previous sub-agent session (from previous result)
+
+Returns:
+    Sub-agent's response with task results, cost, turn count, and session_id for resume
+
+Required: Run `list-subagent-models` (or `bash /mnt/skills/public/sub-agent/scripts/list_subagent_models.sh`)
+to discover valid model ids for opencode before calling this tool. Pass concrete ids; do not use Claude aliases.
+"""
+
+_SUBAGENT_DOC_CODEX = """Spawn a sub-agent (codex) to perform a focused subtask.
+
+COSTLY: Spawns a separate codex CLI session with its own API budget.
+Use ONLY as a last resort for complex CODE tasks requiring 10+ iterative tool calls.
+
+Justified uses:
+- Multi-file refactoring (5+ files) with test verification loops
+- Complex code review with automatic fixes across many files
+- Iterative test-fix cycles (run tests, analyze, fix, re-run until pass)
+
+Do NOT use for (handle these yourself):
+- Tasks completable in fewer than 10 tool calls
+- Creating presentations, documents, spreadsheets
+- Web research or information gathering
+- Simple code review, documentation, or analysis
+- Git operations or simple file edits
+
+Args:
+    task: Detailed description of the task for the sub-agent to accomplish
+    description: Why you are delegating this task to a sub-agent
+    model: codex model id (fully qualified — codex requires concrete ids, no aliases). Pass an
+           empty string to use the per-CLI default (controlled by CODEX_SUB_AGENT_DEFAULT_MODEL
+           env; falls back to `gpt-5-codex`).
+    max_turns: Maximum number of agentic turns (default from env, typically 25)
+    working_directory: Working directory for the agent (default: /home/assistant)
+    resume_session_id: Session ID to resume a previous sub-agent session (from previous result)
+
+Returns:
+    Sub-agent's response with task results, cost, turn count, and session_id for resume
+
+Required: Run `list-subagent-models` (or `bash /mnt/skills/public/sub-agent/scripts/list_subagent_models.sh`)
+to discover valid model ids for codex before calling this tool.
+"""
+
+
+def _subagent_docstring_for_cli(cli: str) -> str:
+    """Return the FastMCP Tool.description for sub_agent given the active CLI.
+
+    Falls back to the claude variant for unknown CLI values (mirrors resolve_cli's default).
+    """
+    if cli == "opencode":
+        return _SUBAGENT_DOC_OPENCODE
+    if cli == "codex":
+        return _SUBAGENT_DOC_CODEX
+    return _SUBAGENT_DOC_CLAUDE
+
+
 async def sub_agent(
     task: str,
     description: str,
@@ -820,33 +942,6 @@ async def sub_agent(
     working_directory: str = "/home/assistant",
     resume_session_id: str = ""
 ) -> str:
-    """
-    COSTLY: Spawns a separate Claude CLI session with its own API budget.
-    Use ONLY as a last resort for complex CODE tasks requiring 10+ iterative tool calls.
-
-    Justified uses:
-    - Multi-file refactoring (5+ files) with test verification loops
-    - Complex code review with automatic fixes across many files
-    - Iterative test-fix cycles (run tests, analyze, fix, re-run until pass)
-
-    Do NOT use for (handle these yourself):
-    - Tasks completable in fewer than 10 tool calls
-    - Creating presentations, documents, spreadsheets
-    - Web research or information gathering
-    - Simple code review, documentation, or analysis
-    - Git operations or simple file edits
-
-    Args:
-        task: Detailed description of the task for the sub-agent to accomplish
-        description: Why you are delegating this task to a sub-agent
-        model: Model to use: 'sonnet' (default, fast) or 'opus' (powerful, better for complex tasks)
-        max_turns: Maximum number of agentic turns (default from env, typically 25)
-        working_directory: Working directory for the agent (default: /home/assistant)
-        resume_session_id: Session ID to resume a previous sub-agent session (from previous result)
-
-    Returns:
-        Sub-agent's response with task results, cost, turn count, and session_id for resume
-    """
     chat_id, error = _validate_chat_id()
     if error:
         return error
@@ -855,7 +950,7 @@ async def sub_agent(
 
     # Use defaults from env if not specified
     if not model:
-        model = SUB_AGENT_DEFAULT_MODEL
+        model, _display_name = resolve_subagent_model("", resolve_cli())
     if max_turns <= 0:
         max_turns = SUB_AGENT_MAX_TURNS
     # Resolve the active CLI runtime — single source of truth.
@@ -1163,6 +1258,13 @@ Use `cat <skill-location>` to read skill instructions.
 
     except Exception as e:
         return f"Sub-agent error: {str(e)}"
+
+
+# Assign the per-CLI docstring BEFORE registering with FastMCP.
+# FastMCP captures fn.__doc__ at add_tool() time (base.py:66), so this
+# must come after the function definition and before mcp.add_tool().
+sub_agent.__doc__ = _subagent_docstring_for_cli(os.getenv("SUBAGENT_CLI", "claude"))
+mcp.add_tool(sub_agent)
 
 
 # ============================================================================
