@@ -45,14 +45,14 @@ echo ""
 # the existing grep-based pass/fail accounting handle the failure naturally.
 
 # 1. Node.js and Python versions
-echo "[1/12] Runtime versions"
+echo "[1/14] Runtime versions"
 VERSIONS=$(run_in_container 'node --version && python3 --version') || VERSIONS=""
 echo "$VERSIONS" | grep -q "v22" && pass "Node.js v22" || fail "Node.js version"
 echo "$VERSIONS" | grep -q "Python 3" && pass "Python 3" || fail "Python version"
 
 # 2. CommonJS require()
 echo ""
-echo "[2/12] CommonJS require()"
+echo "[2/14] CommonJS require()"
 for pkg in react pptxgenjs pdf-lib docx sharp react-dom/server react-icons/fa; do
     RESULT=$(run_in_container "node -e \"try { require('$pkg'); console.log('OK') } catch(e) { console.log('FAIL: ' + e.code) }\"") || RESULT=""
     echo "$RESULT" | grep -q "OK" && pass "require('$pkg')" || fail "require('$pkg'): $RESULT"
@@ -60,7 +60,7 @@ done
 
 # 3. ES Modules import
 echo ""
-echo "[3/12] ES Modules import"
+echo "[3/14] ES Modules import"
 for pkg in react pptxgenjs pdf-lib; do
     RESULT=$(run_in_container "node --input-type=module -e \"import '$pkg'; console.log('OK')\"") || RESULT=""
     echo "$RESULT" | grep -q "OK" && pass "import '$pkg'" || fail "import '$pkg'"
@@ -68,7 +68,7 @@ done
 
 # 4. html2pptx import (full path)
 echo ""
-echo "[4/12] html2pptx import"
+echo "[4/14] html2pptx import"
 RESULT=$(run_in_container "node --input-type=module -e \"import { html2pptx } from '/usr/local/lib/node_modules_global/lib/node_modules/@anthropic-ai/html2pptx/dist/html2pptx.mjs'; console.log('OK')\"" 2>/dev/null || echo "SKIP")
 if echo "$RESULT" | grep -q "OK"; then
     pass "html2pptx ESM import"
@@ -80,7 +80,7 @@ fi
 
 # 5. CLI tools (Phase 6 — extended to include codex + opencode + --version smoke)
 echo ""
-echo "[5/12] CLI tools"
+echo "[5/14] CLI tools"
 for tool in mmdc tsc tsx claude codex opencode; do
     RESULT=$(run_in_container "which $tool >/dev/null 2>&1 && echo OK || echo MISSING") || RESULT=""
     echo "$RESULT" | grep -q "OK" && pass "$tool in PATH" || fail "$tool not found in PATH"
@@ -97,7 +97,7 @@ echo "$RESULT" | grep -q "OK" && pass "list-subagent-models is executable" || fa
 
 # 6. Python packages
 echo ""
-echo "[6/12] Python packages"
+echo "[6/14] Python packages"
 for pkg in docx pptx openpyxl; do
     RESULT=$(run_in_container "python3 -c \"import $pkg; print('OK')\"") || RESULT=""
     echo "$RESULT" | grep -q "OK" && pass "python import $pkg" || fail "python import $pkg"
@@ -107,7 +107,7 @@ echo "$RESULT" | grep -q "OK" && pass "python playwright" || fail "python playwr
 
 # 7. User npm install (lodash)
 echo ""
-echo "[7/12] User npm install"
+echo "[7/14] User npm install"
 RESULT=$(run_in_container 'cd /home/assistant && npm install lodash >/dev/null 2>&1 && if [ -d /home/assistant/node_modules/lodash ]; then echo "user=YES"; else echo "user=NO"; fi && SYS_COUNT=$(ls /home/node_modules/ 2>/dev/null | wc -l) && echo "system=$SYS_COUNT"') || RESULT=""
 echo "$RESULT" | grep -q "user=YES" && pass "lodash in /home/assistant/node_modules" || fail "lodash not in user dir"
 SYS=$(echo "$RESULT" | awk -F= '/^system=/{print $2}')
@@ -115,7 +115,7 @@ SYS=$(echo "$RESULT" | awk -F= '/^system=/{print $2}')
 
 # 8. npm prefix check
 echo ""
-echo "[8/12] npm configuration"
+echo "[8/14] npm configuration"
 RESULT=$(run_in_container 'npm config get prefix 2>/dev/null || echo "undefined"') || RESULT=""
 # Trim trailing whitespace/newlines so the anchored regex below can match
 # against a clean single-line value.
@@ -137,7 +137,7 @@ fi
 
 # 9. Volume size
 echo ""
-echo "[9/12] Volume size"
+echo "[9/14] Volume size"
 SIZE_KB=$(run_in_container "du -sk /home/assistant/ | cut -f1") || SIZE_KB=""
 if [ "${SIZE_KB:-999999}" -lt 1024 ]; then
     pass "/home/assistant < 1MB (${SIZE_KB}KB)"
@@ -147,7 +147,7 @@ fi
 
 # 10. Permissions and guard files
 echo ""
-echo "[10/12] Permissions and guard files"
+echo "[10/14] Permissions and guard files"
 RESULT=$(run_in_container '
 [ -x /home/assistant/.entrypoint.sh ] && echo "entrypoint=OK" || echo "entrypoint=FAIL"
 [ -f /home/assistant/.gitconfig ] && echo "gitconfig=OK" || echo "gitconfig=FAIL"
@@ -171,7 +171,7 @@ echo "$RESULT" | grep -q "owner=assistant" && pass "files owned by assistant" ||
 # root here matches production parity. /tmp is world-readable so the marker
 # check works regardless.
 echo ""
-echo "[11/13] Per-CLI dispatch smoke + marker gating"
+echo "[11/14] Per-CLI dispatch smoke + marker gating"
 for cli in claude codex opencode; do
     SMOKE_CONTAINER="ocu-smoke-${cli}-$$"
     # Start a long-running container (so we can exec the entrypoint twice).
@@ -246,7 +246,7 @@ done
 # (the [ -n "$PS1" ] guard would otherwise short-circuit and falsely pass).
 # Two variants: env var NO_AUTOSTART=1 and sentinel file /tmp/.no_autostart.
 echo ""
-echo "[12/13] NO_AUTOSTART escape hatch"
+echo "[12/14] NO_AUTOSTART escape hatch"
 NOAUTOSTART_OUT=$(docker run --rm --platform linux/amd64 \
     -e SUBAGENT_CLI=claude \
     -e NO_AUTOSTART=1 \
@@ -271,14 +271,38 @@ else
     fail "/tmp/.no_autostart sentinel — autostart still fired (output: $(echo "$SENTINEL_OUT" | head -c 200))"
 fi
 
-# 13. Entrypoint executes cleanly with the real ENTRYPOINT path.
+# 13. cli-defaults/ canonical configs present and parseable (Phase 2 D-09).
+echo ""
+echo "[13/14] cli-defaults/ canonical configs present and parseable"
+for f in opencode.json codex.json README.md; do
+    if docker run --rm --platform linux/amd64 "$IMAGE" sh -c "test -f /opt/cli-defaults/$f" 2>/dev/null; then
+        pass "/opt/cli-defaults/$f exists in image"
+    else
+        fail "/opt/cli-defaults/$f missing in image"
+    fi
+done
+for f in opencode.json codex.json; do
+    if docker run --rm --platform linux/amd64 "$IMAGE" python3 -c "import json; json.load(open('/opt/cli-defaults/$f'))" 2>/dev/null; then
+        pass "/opt/cli-defaults/$f parses as JSON"
+    else
+        fail "/opt/cli-defaults/$f failed JSON parse"
+    fi
+done
+# _spdx key present in opencode.json
+if docker run --rm --platform linux/amd64 "$IMAGE" python3 -c "import json; assert json.load(open('/opt/cli-defaults/opencode.json'))['_spdx'] == 'BUSL-1.1'" 2>/dev/null; then
+    pass "/opt/cli-defaults/opencode.json carries _spdx=BUSL-1.1"
+else
+    fail "/opt/cli-defaults/opencode.json missing _spdx key"
+fi
+
+# 14. Entrypoint executes cleanly with the real ENTRYPOINT path.
 # All other tests bypass /home/assistant/.entrypoint.sh via --entrypoint=bash
 # so stdout parsing works. That leaves no coverage for the entrypoint script
 # itself — a shell syntax error there would ship unnoticed. This step runs
 # the image with its declared entrypoint and checks that (a) the process
 # exits 0, and (b) the expected status banner is printed.
 echo ""
-echo "[13/13] Entrypoint execution"
+echo "[14/14] Entrypoint execution"
 # Wrap the command substitution in `if` so `set -e` does not abort the
 # whole test script on a non-zero docker exit — we need to reach fail()
 # with the captured output for structured reporting.
