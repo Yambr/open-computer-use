@@ -1,0 +1,18 @@
+{
+  "_spdx": "BUSL-1.1",
+  "_copyright": "Copyright (c) 2025 Open Computer Use Contributors",
+  "_doc": "Canonical default opencode config consumed when OPENCODE_CONFIG_EXTRA env is unset.",
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "openrouter": {
+      "options": { "apiKey": "{env:OPENROUTER_API_KEY}" }
+    },
+    "openai": {
+      "options": { "apiKey": "{env:OPENAI_API_KEY}" }
+    },
+    "anthropic": {
+      "options": { "apiKey": "{env:ANTHROPIC_API_KEY}" }
+    }
+  },
+  "model": "anthropic/claude-sonnet-4-6"
+}
