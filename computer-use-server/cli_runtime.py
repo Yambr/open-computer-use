@@ -17,9 +17,13 @@ NOT the reverse. docker_manager owns the constant; cli_runtime consumes it.
 """
 
 import asyncio
+import json
+import logging
 import os
 import shlex
 from enum import StrEnum
+
+_LOG = logging.getLogger("cli_runtime")
 
 from docker_manager import (
     SUBAGENT_CLI,
@@ -96,6 +100,45 @@ _OPENCODE_ALIAS_MAP = {
 }
 
 
+def _merge_opencode_alias_map() -> dict[str, str]:
+    """Return _OPENCODE_ALIAS_MAP merged with operator overrides from
+    OPENCODE_MODEL_ALIASES env (JSON object string).
+
+    Built-in keys remain as the Anthropic baseline unless overridden. Malformed
+    JSON, non-dict payloads, or non-string values are logged and ignored — never
+    silently half-merged. Read at call time so env changes take effect without
+    restart. See D-07 (CONTEXT.md) and OPENCODE_MODEL_ALIASES note in
+    docs/multi-cli.md (deferred docs phase).
+    """
+    merged = dict(_OPENCODE_ALIAS_MAP)
+    raw = os.getenv("OPENCODE_MODEL_ALIASES", "").strip()
+    if not raw:
+        return merged
+    try:
+        overrides = json.loads(raw)
+    except json.JSONDecodeError as e:
+        _LOG.warning(
+            "OPENCODE_MODEL_ALIASES is not valid JSON (%s); using built-in map only",
+            e,
+        )
+        return merged
+    if not isinstance(overrides, dict):
+        _LOG.warning(
+            "OPENCODE_MODEL_ALIASES must be a JSON object, got %s; using built-in map only",
+            type(overrides).__name__,
+        )
+        return merged
+    for k, v in overrides.items():
+        if not isinstance(k, str) or not isinstance(v, str) or not k or not v:
+            _LOG.warning(
+                "OPENCODE_MODEL_ALIASES entry skipped (key=%r value=%r): both must be non-empty strings",
+                k, v,
+            )
+            continue
+        merged[k] = v
+    return merged
+
+
 def _resolve_claude(requested: str, key: str) -> tuple[str, str]:
     if key in _CLAUDE_ALIAS_MAP:
         return _CLAUDE_ALIAS_MAP[key](), key
@@ -128,8 +171,9 @@ def _resolve_opencode(requested: str, key: str) -> tuple[str, str]:
         or os.getenv("OPENCODE_MODEL", "")
         or "anthropic/claude-sonnet-4-6"
     )
-    if key in _OPENCODE_ALIAS_MAP:
-        return _OPENCODE_ALIAS_MAP[key], key
+    alias_map = _merge_opencode_alias_map()
+    if key in alias_map:
+        return alias_map[key], key
     if requested:
         if "/" not in requested:
             # Soft warning (Pitfall 3 doesn't apply here — opencode just needs
