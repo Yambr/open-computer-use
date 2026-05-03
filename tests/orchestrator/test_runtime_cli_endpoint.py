@@ -70,21 +70,24 @@ class RuntimeCliEndpointContract(unittest.TestCase):
         self.assertEqual(resp.headers.get("cache-control"), "no-store")
 
     def test_codex(self):
+        # Phase 2: codex has no hardcoded default — without
+        # CODEX_SUB_AGENT_DEFAULT_MODEL env, default_model is null. The
+        # endpoint surfaces this as None instead of crashing on the
+        # ValueError raised by resolve_subagent_model.
         client = _client_with_cli("codex")
         body = client.get("/api/runtime/cli").json()
         self.assertEqual(body["cli"], "codex")
         self.assertIs(body["supports_cost"], False)
-        self.assertTrue(body["default_model"])
+        self.assertIsNone(body["default_model"])
 
     def test_opencode(self):
+        # Phase 2: opencode has no hardcoded default — without
+        # OPENCODE_SUB_AGENT_DEFAULT_MODEL env, default_model is null.
         client = _client_with_cli("opencode")
         body = client.get("/api/runtime/cli").json()
         self.assertEqual(body["cli"], "opencode")
         self.assertIs(body["supports_cost"], False)
-        self.assertTrue(body["default_model"])
-        # opencode default must include the provider/ prefix or the adapter
-        # warns at runtime — guard the contract.
-        self.assertIn("/", body["default_model"])
+        self.assertIsNone(body["default_model"])
 
     def test_method_allowlist(self):
         client = _client_with_cli("claude")
