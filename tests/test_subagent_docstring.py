@@ -176,8 +176,17 @@ class TestMcpToolsStructure(unittest.TestCase):
         )
 
     def test_resolve_subagent_model_used(self):
-        """resolve_subagent_model('', resolve_cli()) must be the fallback."""
-        assert 'resolve_subagent_model("", resolve_cli())' in self.src
+        """resolve_subagent_model with empty string and resolved cli must be the fallback.
+
+        WR-03: the call was moved inside the try block and now uses the already-resolved
+        cli variable (resolve_subagent_model("", cli)) rather than calling resolve_cli()
+        a second time inline.
+        """
+        # Accept either form: original inline call or the refactored cli-variable form
+        assert (
+            'resolve_subagent_model("", resolve_cli())' in self.src
+            or 'resolve_subagent_model("", cli)' in self.src
+        ), "resolve_subagent_model with empty string fallback not found in sub_agent"
 
 
 if __name__ == "__main__":
