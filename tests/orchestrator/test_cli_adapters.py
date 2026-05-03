@@ -346,5 +346,221 @@ def test_claude_parse_result_happy_path_returncode_zero():
     assert result.returncode == 0
 
 
+# ===========================================================================
+# CodexAdapter — gap-closure tests (D-17 / D-18, plan 02-07)
+# ===========================================================================
+
+def test_codex_parse_result_usage_cost_extraction():
+    """Codex adapter tracks token counts from turn.completed usage events.
+
+    The codex protocol does NOT surface a USD cost (cost_usd is always None
+    per the adapter docstring and Pitfall 4). Instead, the adapter accumulates
+    tokens_in / tokens_out from turn.completed events. This test verifies that
+    a turn.completed event with a usage block does NOT crash the parser and
+    that cost_usd stays None (the documented behaviour — not a gap to fix here).
+    Token counters are internal locals; we assert the visible field that IS
+    documented: cost_usd == None.
+    """
+    from cli_adapters.codex import CodexAdapter
+    stdout = "\n".join([
+        json.dumps({"type": "turn.completed", "turn_id": "t-1",
+                    "usage": {"input_tokens": 500, "output_tokens": 20}}),
+        json.dumps({"type": "item.completed", "item": {
+            "type": "message",
+            "content": [{"type": "text", "text": "result with tokens"}],
+        }}),
+    ])
+    result = CodexAdapter().parse_result(stdout=stdout, stderr="", returncode=0)
+    # Codex never computes USD cost — cost_usd must remain None.
+    assert result.cost_usd is None
+    assert result.text == "result with tokens"
+    assert result.is_error is False
+
+
+def test_codex_parse_result_empty_event_stream():
+    """Empty stdout with rc=0 should not raise and should produce is_error=False.
+
+    Codex uses rc-based error detection only; rc=0 with no events is not
+    classified as an error. text falls back to stdout (empty string).
+    """
+    from cli_adapters.codex import CodexAdapter
+    result = CodexAdapter().parse_result(stdout="", stderr="", returncode=0)
+    assert result.is_error is False
+    assert result.returncode == 0
+    assert result.text == ""
+
+
+def test_codex_parse_result_error_event_in_stream():
+    """Codex protocol has no application-level error event type.
+
+    The adapter does not handle a codex 'error' event specially; rc=0 with
+    any non-recognised event type produces is_error=False. This test documents
+    the current behaviour explicitly so future maintainers know that codex
+    error detection is entirely rc-based (unlike opencode which has et=='error').
+
+    If a future codex protocol version emits error events, this test will fail
+    and an adapter update will be required (follow-up: REQ-MCP-14 or newer).
+    """
+    from cli_adapters.codex import CodexAdapter
+    # Construct a synthetic 'error' event in codex-style JSONL.
+    stdout = json.dumps({"type": "error", "message": "model unavailable"})
+    result = CodexAdapter().parse_result(stdout=stdout, stderr="", returncode=0)
+    # Current behaviour: no special handling → is_error driven by rc only.
+    assert result.is_error is False  # rc=0, no rc-based error gate triggered
+    assert result.returncode == 0
+
+
+# ===========================================================================
+# OpenCodeAdapter — gap-closure tests (D-17 / D-18, plan 02-07)
+# ===========================================================================
+
+def test_opencode_parse_result_multi_event_stream():
+    """Multi-event stdout: assistant-message-completed + step-finish + message-completed.
+
+    The adapter uses "last seen wins" for text extraction across all three
+    event types. A step-finish event in between should update text only if
+    it has a text/content field; message-completed with text sets the final.
+    """
+    from cli_adapters.opencode import OpenCodeAdapter
+    stdout = "\n".join([
+        json.dumps({"type": "assistant-message-completed", "text": "first message"}),
+        json.dumps({"type": "step-finish", "cost": 0.001}),
+        json.dumps({"type": "message-completed", "text": "final answer"}),
+    ])
+    result = OpenCodeAdapter().parse_result(stdout=stdout, stderr="", returncode=0)
+    assert result.is_error is False
+    assert result.text == "final answer"
+    assert result.cost_usd is not None
+    assert abs(result.cost_usd - 0.001) < 1e-9
+
+
+def test_opencode_parse_result_empty_stdout():
+    """Empty stdout with rc=0: adapter should not raise.
+
+    is_error is driven by returncode != 0 initially (rc=0 → False).
+    text falls back through last_message_text (empty) → stdout (empty) → stderr (empty).
+    """
+    from cli_adapters.opencode import OpenCodeAdapter
+    result = OpenCodeAdapter().parse_result(stdout="", stderr="", returncode=0)
+    assert result.is_error is False
+    assert result.returncode == 0
+    assert result.text == ""
+
+
+def test_opencode_parse_result_malformed_json_between_valid_events():
+    """A malformed JSON line between valid events must not stop parsing.
+
+    The adapter skips json.JSONDecodeError and continues to the next line.
+    The final valid event must still be extracted.
+    """
+    from cli_adapters.opencode import OpenCodeAdapter
+    stdout = "\n".join([
+        json.dumps({"type": "assistant-message-completed", "text": "a"}),
+        "{not valid json",
+        json.dumps({"type": "message-completed", "text": "b"}),
+    ])
+    result = OpenCodeAdapter().parse_result(stdout=stdout, stderr="", returncode=0)
+    assert result.text == "b"
+    assert result.is_error is False
+
+
+def test_opencode_parse_result_error_event_message_extraction():
+    """Phase 1 D-11 regression guard: et=='error' sets is_error=True.
+
+    opencode exits with rc=0 on application-level errors but emits an
+    {"type": "error", "data": {"message": "..."}} event. The adapter must
+    detect this, set is_error=True, and surface the error message prefixed
+    with 'opencode error: '.
+    """
+    from cli_adapters.opencode import OpenCodeAdapter
+    stdout = json.dumps({"type": "error", "data": {"message": "upstream auth failed"}})
+    result = OpenCodeAdapter().parse_result(stdout=stdout, stderr="", returncode=0)
+    assert result.is_error is True
+    assert result.text == "opencode error: upstream auth failed"
+
+
+# ===========================================================================
+# ClaudeAdapter — gap-closure tests (D-17 / D-18, plan 02-07)
+# ===========================================================================
+
+def test_claude_parse_result_malformed_json():
+    """Non-JSON garbage in stdout: adapter must not raise and must not crash.
+
+    ClaudeAdapter wraps parsing in try/except; malformed stdout with rc=0
+    should produce is_error=False (no JSON result line found, returncode=0
+    so the BLOCKER-1 gate does not fire). text falls back to stdout raw.
+    """
+    from cli_adapters.claude import ClaudeAdapter
+    result = ClaudeAdapter().parse_result(
+        stdout="not-json garbage", stderr="", returncode=0
+    )
+    # No exception raised. text falls back to raw stdout.
+    assert result.is_error is False
+    assert result.returncode == 0
+    # The fallback text is the raw stdout when no JSON result line is found.
+    assert "garbage" in result.text
+
+
+def test_claude_parse_result_empty_stdout():
+    """Empty stdout with rc=0: is_error must be False.
+
+    The BLOCKER-1 gate in ClaudeAdapter is `is_error = is_error or (returncode != 0)`.
+    With rc=0 and no parseable result line, is_error stays False.
+    text is the empty stdout string (the raw fallback).
+    """
+    from cli_adapters.claude import ClaudeAdapter
+    result = ClaudeAdapter().parse_result(stdout="", stderr="", returncode=0)
+    assert result.is_error is False
+    assert result.returncode == 0
+    # text fallback: response_text="" → stdout="" is the assigned value
+    assert result.text == ""
+
+
+def test_claude_parse_result_event_without_content():
+    """Result JSON with null 'result' field: adapter must not crash.
+
+    If the result line has type=='result' but result==null (or missing),
+    response_text remains "" and the fallback logic kicks in. session_id
+    and cost fields should still be extracted when present.
+    """
+    from cli_adapters.claude import ClaudeAdapter
+    stdout = json.dumps({
+        "type": "result",
+        "result": None,
+        "total_cost_usd": 0.0,
+        "num_turns": 0,
+        "is_error": False,
+        "session_id": "sess-abc",
+    })
+    result = ClaudeAdapter().parse_result(stdout=stdout, stderr="", returncode=0)
+    # result field is None → response_text stays "" → fallback to stdout
+    assert result.is_error is False
+    assert result.returncode == 0
+    # session_id="sess-abc" is extracted from the JSON
+    assert result.session_id == "sess-abc"
+    # cost=0.0 → None (Pitfall 4)
+    assert result.cost_usd is None
+
+
+def test_codex_parse_result_partial_truncated_json():
+    """Truncated last line (partial JSON) must be skipped without crashing.
+
+    If the codex stream is cut off mid-event (e.g. timeout kills the process
+    mid-write), the adapter should parse all complete events before the
+    truncated line and return whatever text was accumulated so far.
+    """
+    from cli_adapters.codex import CodexAdapter
+    stdout = "\n".join([
+        json.dumps({"type": "item.completed", "item": {
+            "type": "message",
+            "content": [{"type": "text", "text": "partial run result"}],
+        }}),
+        '{"type": "turn.completed", "usage": {"input_tokens": 100,',  # truncated
+    ])
+    result = CodexAdapter().parse_result(stdout=stdout, stderr="", returncode=0)
+    assert result.text == "partial run result"
+    assert result.is_error is False
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
