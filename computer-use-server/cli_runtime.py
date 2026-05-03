@@ -83,9 +83,9 @@ def get_adapter(cli: Cli | None = None) -> CliAdapter:
 # Claude path preserves v0.9.2.0 ALIAS_MAP behaviour from mcp_tools.py:909-924.
 # Codex path hard-fails on Claude-only aliases (Pitfall 3 in PITFALLS.md) —
 # silently letting "sonnet" through to codex would produce a remote 400.
-# OpenCode path expands aliases to provider/model form ("sonnet" ->
-# "anthropic/claude-sonnet-4-6") and warns (does not raise) when a
-# direct id is missing the "provider/" prefix.
+# OpenCode path (D-05/D-06): alias map starts empty; operator must supply
+# aliases via OPENCODE_MODEL_ALIASES env. Raises ValueError when alias not
+# found or no default configured. Provider/model ids (containing '/') pass through.
 
 _CLAUDE_ALIAS_MAP = {
     "sonnet": lambda: ANTHROPIC_DEFAULT_SONNET_MODEL or "claude-sonnet-4-6",
@@ -93,11 +93,11 @@ _CLAUDE_ALIAS_MAP = {
     "haiku":  lambda: ANTHROPIC_DEFAULT_HAIKU_MODEL  or "claude-haiku-4-5",
 }
 
-_OPENCODE_ALIAS_MAP = {
-    "sonnet": "anthropic/claude-sonnet-4-6",
-    "opus":   "anthropic/claude-opus-4-6",
-    "haiku":  "anthropic/claude-haiku-4-5",
-}
+# D-05: no Anthropic baseline. Aliases come exclusively from
+# OPENCODE_MODEL_ALIASES env (merged in _merge_opencode_alias_map below).
+# The previous Anthropic defaults were a silent fallback that masked the
+# operator's actual provider choice.
+_OPENCODE_ALIAS_MAP: dict[str, str] = {}
 
 
 def _merge_opencode_alias_map() -> dict[str, str]:
@@ -166,25 +166,38 @@ def _resolve_codex(requested: str, key: str) -> tuple[str, str]:
 
 
 def _resolve_opencode(requested: str, key: str) -> tuple[str, str]:
-    default = (
-        os.getenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "")
-        or os.getenv("OPENCODE_MODEL", "")
-        or "anthropic/claude-sonnet-4-6"
-    )
+    # D-02 / D-06: opencode has NO hardcoded default. Resolution order:
+    #   1. caller-passed `requested` (when truthy)
+    #   2. OPENCODE_SUB_AGENT_DEFAULT_MODEL env (or legacy OPENCODE_MODEL)
+    #   3. raise ValueError pointing to list-subagent-models + env vars
+    # The alias map (D-05) starts empty; entries come from
+    # OPENCODE_MODEL_ALIASES env via _merge_opencode_alias_map().
     alias_map = _merge_opencode_alias_map()
     if key in alias_map:
         return alias_map[key], key
     if requested:
         if "/" not in requested:
-            # Soft warning (Pitfall 3 doesn't apply here — opencode just needs
-            # provider/model form; we let it through and surface the failure
-            # at runtime via opencode's own error path).
-            print(
-                f"[SUB-AGENT] WARNING: opencode model {requested!r} has no "
-                f"provider prefix — may fail at runtime."
+            # Caller passed an alias-shaped string that is not in the map.
+            # Per D-06, fail loud rather than silently letting opencode 4xx.
+            raise ValueError(
+                f"Model alias {key!r} is not defined for SUBAGENT_CLI=opencode. "
+                f"Either pass a fully-qualified provider/model id "
+                f"(e.g. '<provider>/<model-id>') or add the alias to "
+                f"OPENCODE_MODEL_ALIASES env (JSON object). "
+                f"Run list-subagent-models to discover available ids."
             )
         return requested, requested
-    return default, default
+    default = (
+        os.getenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "").strip()
+        or os.getenv("OPENCODE_MODEL", "").strip()
+    )
+    if default:
+        return default, default
+    raise ValueError(
+        "SUBAGENT_CLI=opencode requires either a caller-passed model id or "
+        "OPENCODE_SUB_AGENT_DEFAULT_MODEL env var. "
+        "Run list-subagent-models to discover valid ids for this CLI."
+    )
 
 
 def resolve_subagent_model(alias_or_id: str, cli: Cli) -> tuple[str, str]:
