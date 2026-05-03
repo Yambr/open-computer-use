@@ -1,0 +1,7 @@
+{
+  "_spdx": "BUSL-1.1",
+  "_copyright": "Copyright (c) 2025 Open Computer Use Contributors",
+  "_doc": "Canonical codex default config. Empty 'model_providers' means codex uses public OpenAI defaults. The Dockerfile entrypoint synthesizes a 'custom' gateway block when OPENAI_BASE_URL is set; this file documents the no-OPENAI_BASE_URL baseline. list-subagent-models reads this file when CODEX_CONFIG_EXTRA env is unset.",
+  "model_providers": {},
+  "default_model": null
+}
