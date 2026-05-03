@@ -74,7 +74,7 @@ Review [SCOPE] for [TYPE] issues and create report.
 - Include file:line references
 """,
     description="[Brief description]",
-    model="opus",
+    model="<discover via list-subagent-models, then pick a high-reasoning option for code review>",
     max_turns=40
 )
 ```
@@ -171,10 +171,12 @@ task="Add docstrings to functions"
 
 ## Model Selection
 
-| Model | Use When |
-|-------|----------|
-| `sonnet` | Default. Fast. Refactoring, file processing, test-fix cycles |
-| `opus` | Complex reasoning: debugging, architecture, security analysis |
+Run `list-subagent-models` first; it prints the available ids for the active CLI. As guidance for picking among them:
+
+- **Fast / cheaper models**: refactoring, file processing, test-fix cycles, anything iterative.
+- **High-reasoning / more capable models**: complex debugging, architecture decisions, security analysis, anything single-shot needing depth.
+
+For claude, the canonical baseline alias is <!-- canonical-example -->`sonnet`<!-- /canonical-example --> (fast); the CLI internally resolves it. For opencode and codex, you MUST pass a concrete `<provider>/<model-id>` from the discovery output — there is no implicit fallback.
 
 ---
 
