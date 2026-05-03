@@ -910,7 +910,8 @@ Args:
     description: Why you are delegating this task to a sub-agent
     model: codex model id (fully qualified — codex requires concrete ids, no aliases). Pass an
            empty string to use the per-CLI default (controlled by CODEX_SUB_AGENT_DEFAULT_MODEL
-           env; falls back to `gpt-5-codex`).
+           env). If neither a caller model nor the env var is set, the tool returns an error
+           pointing to list-subagent-models for discovery.
     max_turns: Maximum number of agentic turns (default from env, typically 25)
     working_directory: Working directory for the agent (default: /home/assistant)
     resume_session_id: Session ID to resume a previous sub-agent session (from previous result)
