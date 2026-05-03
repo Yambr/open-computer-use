@@ -951,15 +951,15 @@ async def sub_agent(
 
     user_email = current_user_email.get()
 
-    # Use defaults from env if not specified
-    if not model:
-        model, _display_name = resolve_subagent_model("", resolve_cli())
     if max_turns <= 0:
         max_turns = SUB_AGENT_MAX_TURNS
     # Resolve the active CLI runtime — single source of truth.
     cli = resolve_cli()
 
     try:
+        # Resolve default model inside try so ValueError surfaces as "Sub-agent error: ..."
+        if not model:
+            model, _display_name = resolve_subagent_model("", cli)
         await _ensure_gitlab_token()
         container = await asyncio.to_thread(_get_or_create_container, chat_id)
 
