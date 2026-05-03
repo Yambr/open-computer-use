@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
+"""list-subagent-models — enumerate valid sub-agent models for the active SUBAGENT_CLI.
+
+Stable JSON output to stdout on success; structured JSON error to stderr on failure.
+See .planning/phases/01-sub-agent-cli-aware-surface-dynamic-model-discovery/01-CONTEXT.md
+(D-01..D-04) and 01-RESEARCH.md (CLI Model-Listing Subcommand Reference) for rationale.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+from typing import Any
+
+VALID_CLIS = ("claude", "opencode", "codex")
+
+# Mirror of _CLAUDE_ALIAS_MAP keys in computer-use-server/cli_runtime.py.
+# claude has no native model-listing subcommand (verified against
+# @anthropic-ai/claude-code@2.1.112), so this is the canonical claude vocabulary.
+_CLAUDE_ALIASES = ("sonnet", "opus", "haiku")
+_CLAUDE_DEFAULT = "sonnet"
+
+
+def _emit_error(cli: str, error: str, hint: str, code: int) -> None:
+    json.dump({"error": error, "cli": cli, "hint": hint}, sys.stderr)
+    sys.stderr.write("\n")
+    sys.exit(code)
+
+
+def _emit_success(payload: dict) -> None:
+    json.dump(payload, sys.stdout)
+    sys.stdout.write("\n")
+    sys.exit(0)
+
+
+def _list_claude() -> None:
+    if shutil.which("claude") is None:
+        _emit_error(
+            "claude",
+            "claude CLI not found on $PATH",
+            "install @anthropic-ai/claude-code or set SUBAGENT_CLI to a different CLI",
+            2,
+        )
+    models = [
+        {"id": alias, "label": alias, "default": (alias == _CLAUDE_DEFAULT)}
+        for alias in _CLAUDE_ALIASES
+    ]
+    _emit_success({
+        "cli": "claude",
+        "models": models,
+        "default_model": _CLAUDE_DEFAULT,
+        "source": "alias_map",
+    })
+
+
+def _list_opencode() -> None:
+    if shutil.which("opencode") is None:
+        _emit_error(
+            "opencode",
+            "opencode CLI not found on $PATH",
+            "install opencode-ai or set SUBAGENT_CLI to a different CLI",
+            2,
+        )
+    try:
+        proc = subprocess.run(
+            ["opencode", "models"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        _emit_error("opencode", "opencode models timed out after 30s", "check opencode connectivity", 3)
+        return
+    if proc.returncode != 0:
+        _emit_error(
+            "opencode",
+            f"opencode models exited {proc.returncode}: {proc.stderr.strip()[:200]}",
+            "run `opencode auth login` and verify provider config",
+            3,
+        )
+    ids = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if not ids:
+        _emit_error(
+            "opencode",
+            "opencode models returned empty output",
+            "configure at least one provider (e.g. `opencode auth login anthropic`)",
+            3,
+        )
+    models = [{"id": mid, "label": mid, "default": (i == 0)} for i, mid in enumerate(ids)]
+    _emit_success({
+        "cli": "opencode",
+        "models": models,
+        "default_model": ids[0],
+        "source": "opencode models",
+    })
+
+
+def _walk_for_model_ids(node: Any, found: list) -> None:
+    """Defensive walker — codex debug models JSON schema is undocumented for v0.125.x.
+    Collect string values keyed by 'id', 'model', or 'name' at any depth.
+    """
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in ("id", "model", "name") and isinstance(v, str) and v:
+                found.append(v)
+            else:
+                _walk_for_model_ids(v, found)
+    elif isinstance(node, list):
+        for item in node:
+            _walk_for_model_ids(item, found)
+
+
+def _list_codex() -> None:
+    if shutil.which("codex") is None:
+        _emit_error(
+            "codex",
+            "codex CLI not found on $PATH",
+            "install @openai/codex or set SUBAGENT_CLI to a different CLI",
+            2,
+        )
+    try:
+        proc = subprocess.run(
+            ["codex", "debug", "models", "--bundled"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        _emit_error("codex", "codex debug models timed out after 30s", "check codex install", 3)
+        return
+    if proc.returncode != 0:
+        _emit_error(
+            "codex",
+            f"codex debug models exited {proc.returncode}: {proc.stderr.strip()[:200]}",
+            "verify @openai/codex >= 0.125.0 is installed",
+            3,
+        )
+    try:
+        catalog = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        _emit_error(
+            "codex",
+            f"codex debug models output is not valid JSON: {e}",
+            "the codex debug models schema may have changed; check codex CLI version",
+            3,
+        )
+        return
+    found: list = []
+    _walk_for_model_ids(catalog, found)
+    # Dedupe preserving order
+    seen = set()
+    ids = []
+    for mid in found:
+        if mid not in seen:
+            seen.add(mid)
+            ids.append(mid)
+    if not ids:
+        _emit_error(
+            "codex",
+            "no model ids found in codex debug models JSON",
+            "the codex debug models schema may have changed; inspect raw output",
+            3,
+        )
+    models = [{"id": mid, "label": mid, "default": (i == 0)} for i, mid in enumerate(ids)]
+    _emit_success({
+        "cli": "codex",
+        "models": models,
+        "default_model": ids[0],
+        "source": "codex debug models --bundled",
+    })
+
+
+def main() -> None:
+    cli = os.getenv("SUBAGENT_CLI", "claude").strip() or "claude"
+    if cli not in VALID_CLIS:
+        _emit_error(
+            cli,
+            f"unknown SUBAGENT_CLI: {cli}",
+            f"valid values: {', '.join(VALID_CLIS)}",
+            2,
+        )
+    if cli == "claude":
+        _list_claude()
+    elif cli == "opencode":
+        _list_opencode()
+    elif cli == "codex":
+        _list_codex()
+
+
+if __name__ == "__main__":
+    main()
