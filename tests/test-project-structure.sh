@@ -159,13 +159,26 @@ else
     pass "No werf.yaml"
 fi
 
-# 13. Sub-agent runtime tests (Phase 1)
+# 13. Sub-agent runtime — shell-only sub-tests (Phase 1 + Phase 2)
+# NB: pytest sub-tests live in tests/orchestrator/ and are run by the
+# "Pytest — orchestrator" CI job which installs Python deps. The Test job
+# (this script) runs ONLY bash sub-tests so it stays self-contained and
+# doesn't require a Python toolchain. The full umbrella
+# (tests/test-subagent-runtime.sh) is for local dev convenience only.
 echo ""
-echo "[13/13] Sub-agent runtime tests (Phase 1)"
-if bash "$(dirname "$0")/test-subagent-runtime.sh" >/tmp/subagent-runtime.log 2>&1; then
-    pass "test-subagent-runtime.sh exits 0"
+echo "[13/14] Sub-agent skill audit (no hardcoded model names)"
+if bash "$(dirname "$0")/test-skill-no-hardcoded-models.sh" >/tmp/skill-audit.log 2>&1; then
+    pass "test-skill-no-hardcoded-models.sh exits 0"
 else
-    fail "test-subagent-runtime.sh exits non-zero — see /tmp/subagent-runtime.log"
+    fail "test-skill-no-hardcoded-models.sh exits non-zero — see /tmp/skill-audit.log"
+fi
+
+echo ""
+echo "[14/14] list-subagent-models script invocation"
+if bash "$(dirname "$0")/test-list-subagent-models.sh" >/tmp/list-subagent.log 2>&1; then
+    pass "test-list-subagent-models.sh exits 0"
+else
+    fail "test-list-subagent-models.sh exits non-zero — see /tmp/list-subagent.log"
 fi
 
 # Summary
