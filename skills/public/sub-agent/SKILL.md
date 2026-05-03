@@ -1,6 +1,6 @@
 ---
 name: sub-agent
-description: "COSTLY: Spawns separate CLI session (claude/opencode/codex). Use ONLY for complex CODE tasks requiring 10+ iterative tool calls (multi-file refactoring with tests, code review with fixes, test-fix cycles). IMPORTANT: Always run the model discovery script first before any sub_agent call. Do NOT use for presentations, research, documentation, or any task completable in fewer than 10 tool calls."
+description: "COSTLY: Spawns a separate sub-agent CLI session. Use ONLY for complex CODE tasks requiring 10+ iterative tool calls (multi-file refactoring with tests, code review with fixes, test-fix cycles). IMPORTANT: Always run the model discovery script first before any sub_agent call. Do NOT use for presentations, research, documentation, or any task completable in fewer than 10 tool calls."
 ---
 
 # Sub-Agent Skill
@@ -17,16 +17,13 @@ bash /mnt/skills/public/sub-agent/scripts/list_subagent_models.sh
 
 This script will:
 - Detect `SUBAGENT_CLI` (default `claude`)
-- Enumerate valid model identifiers via the CLI's native model-listing mechanism (or, for claude, return the canonical alias set: `sonnet` / `opus` / `haiku`)
+- Enumerate valid model identifiers via the CLI's native model-listing mechanism (or, for claude, return the canonical alias set: <!-- canonical-example -->`sonnet` / `opus` / `haiku`<!-- /canonical-example -->)
 - Output stable JSON with `cli` / `models[]` / `default_model` / `source` fields
 - Fail with a structured JSON error to stderr (exit 2 or 3) if the CLI is missing or its command fails — never silently falls back to a stale list
 
-**Why this matters:** Model identifiers differ per CLI. `claude` accepts the aliases `sonnet` / `opus` / `haiku` (resolved internally by the CLI). `opencode` requires `provider/model` form (e.g., `anthropic/claude-sonnet-4-6`, `openrouter/qwen/qwen-3-coder`); operators may extend the alias vocabulary via the `OPENCODE_MODEL_ALIASES` env var (JSON object string mapping alias to provider/model). `codex` requires fully-qualified model ids — no aliases are supported by the CLI.
+**Why this matters:** Model identifiers differ per CLI. Some CLIs accept short aliases that the CLI resolves internally; others require fully-qualified `<provider>/<model-id>` strings; others accept only concrete fully-qualified ids with no aliases at all. Operators may extend the alias vocabulary for some CLIs via the `OPENCODE_MODEL_ALIASES` env var (JSON object string mapping alias to `<provider>/<model-id>`). The discovery script is the only authoritative source for what works in the current container.
 
-**Default behavior when `model` is omitted:**
-- `claude` → `sonnet`
-- `opencode` → value of `OPENCODE_SUB_AGENT_DEFAULT_MODEL` env, else the alias map's expansion of `sonnet`
-- `codex` → value of `CODEX_SUB_AGENT_DEFAULT_MODEL` env, else `gpt-5-codex`
+**Default behavior when `model` is omitted:** Run `list-subagent-models` to discover the active default for the current `SUBAGENT_CLI`. The claude runtime has a hardcoded baseline alias <!-- canonical-example -->(`sonnet`)<!-- /canonical-example -->; opencode and codex require explicit configuration via the per-CLI `<CLI>_SUB_AGENT_DEFAULT_MODEL` env var or a caller-passed `model` argument — they raise an actionable error otherwise.
 
 After running the script, pass a concrete model id from the JSON output to `sub_agent(model=...)`. Never assume Claude aliases work for non-claude CLIs.
 
@@ -135,7 +132,7 @@ and fixture mocks that still reference the old name.
 | `task` | required | Structured task with ROLE/DIRECTIVE/CONSTRAINTS/PROCESS/OUTPUT |
 | `description` | required | Why you're delegating this task |
 | `mode` | "act" | "act" (execute) or "plan" (plan only, no changes) |
-| `model` | "sonnet" | "sonnet" (fast) or "opus" (complex reasoning) |
+| `model` | "discover via list-subagent-models" | Concrete model id from list-subagent-models output. Pass empty string for the per-CLI default (claude → baseline; opencode/codex → requires env). |
 | `max_turns` | 25 | Max iterations (default; raise to 50-80 for large multi-file refactors) |
 | `working_directory` | /home/assistant | Agent's working directory |
 | `resume_session_id` | "" | Session ID to resume (from previous result) |
@@ -185,5 +182,5 @@ sub_agent(
 - **Task template** for your specific task type (refactoring, code review, test-fix cycles)
 - **Anti-patterns** - common mistakes that cause sub-agent to fail
 - **Max turns guide** - how to choose the right value (10-20 for simple, 50+ for large refactors)
-- **Model selection** - when to use `opus` instead of `sonnet`
+- **Model selection** - how to pick the right model from `list-subagent-models` output
 - **Environment details** - what paths and tools are available
