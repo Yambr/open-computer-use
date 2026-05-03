@@ -68,25 +68,12 @@ BASE_DATA_DIR = Path(os.getenv("BASE_DATA_DIR", "/data"))
 MCP_TOKENS_URL = os.getenv("MCP_TOKENS_URL", "")
 MCP_TOKENS_API_KEY = os.getenv("MCP_TOKENS_API_KEY", "")
 
-# Sub-agent configuration
-SUB_AGENT_DEFAULT_MODEL = os.getenv("SUB_AGENT_DEFAULT_MODEL", "sonnet")
-# SUB_AGENT_DEFAULT_MODEL is deprecated for non-claude CLIs. For non-claude CLIs, use
-# <CLI>_SUB_AGENT_DEFAULT_MODEL (e.g. OPENCODE_SUB_AGENT_DEFAULT_MODEL,
-# CODEX_SUB_AGENT_DEFAULT_MODEL). The value here is now used only as a Claude-only
-# fallback. Warn once at import time when an operator has set this env AND is
-# running a non-claude CLI.
-if "SUB_AGENT_DEFAULT_MODEL" in os.environ and os.getenv("SUBAGENT_CLI", "claude") not in ("claude", ""):
-    import logging
-    logging.getLogger("docker_manager").warning(
-        "SUB_AGENT_DEFAULT_MODEL=%r is deprecated for SUBAGENT_CLI=%r; "
-        "use %s_SUB_AGENT_DEFAULT_MODEL instead.",
-        os.environ["SUB_AGENT_DEFAULT_MODEL"],
-        os.environ.get("SUBAGENT_CLI", ""),
-        os.environ.get("SUBAGENT_CLI", "").upper(),
-    )
-# Per-CLI sub-agent default models (ADAPT-06 / Phase 5).
-# Empty string = "no override"; cli_runtime.resolve_subagent_model falls back
-# to the CLI-native default (gpt-5-codex / anthropic/claude-sonnet-4-6).
+# Sub-agent configuration — per-CLI default models only (D-03/D-04).
+# The legacy single SUB_AGENT_DEFAULT_MODEL global was removed in Phase 2;
+# the deprecation grace window from Phase 1 D-10 is over. Use the per-CLI
+# vars below; the resolver in cli_runtime.py raises if none are set for
+# opencode/codex.
+CLAUDE_SUB_AGENT_DEFAULT_MODEL = os.getenv("CLAUDE_SUB_AGENT_DEFAULT_MODEL", "")
 CODEX_SUB_AGENT_DEFAULT_MODEL = os.getenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "")
 OPENCODE_SUB_AGENT_DEFAULT_MODEL = os.getenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "")
 SUB_AGENT_MAX_TURNS = int(os.getenv("SUB_AGENT_MAX_TURNS", "25"))

@@ -37,7 +37,9 @@ Environment Variables (computer-use-orchestrator defaults):
 - MCP_TOKENS_API_KEY: Internal API key for MCP Tokens Wrapper
 - ANTHROPIC_AUTH_TOKEN: Shared LiteLLM proxy key for Claude Code sub-agent
 - ANTHROPIC_BASE_URL: LLM API base URL (default: https://api.anthropic.com)
-- SUB_AGENT_DEFAULT_MODEL: Default model for sub_agent (sonnet/opus, default: sonnet)
+- CLAUDE_SUB_AGENT_DEFAULT_MODEL: Default model for sub_agent when SUBAGENT_CLI=claude (default: sonnet)
+- OPENCODE_SUB_AGENT_DEFAULT_MODEL: Default model for sub_agent when SUBAGENT_CLI=opencode (no default — required)
+- CODEX_SUB_AGENT_DEFAULT_MODEL: Default model for sub_agent when SUBAGENT_CLI=codex (no default — required)
 - SUB_AGENT_MAX_TURNS: Default max turns for sub_agent (default: 25)
 - SUB_AGENT_TIMEOUT: Timeout for sub_agent execution in seconds (default: 3600)
 

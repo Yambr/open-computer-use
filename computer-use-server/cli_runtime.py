@@ -140,29 +140,43 @@ def _merge_opencode_alias_map() -> dict[str, str]:
 
 
 def _resolve_claude(requested: str, key: str) -> tuple[str, str]:
+    # D-01: claude default stays `sonnet` when no caller model and no env.
+    # Resolution order: caller > CLAUDE_SUB_AGENT_DEFAULT_MODEL env > 'sonnet'.
     if key in _CLAUDE_ALIAS_MAP:
         return _CLAUDE_ALIAS_MAP[key](), key
     if requested:
         return requested, requested
+    env_default = os.getenv("CLAUDE_SUB_AGENT_DEFAULT_MODEL", "").strip()
+    if env_default:
+        env_key = env_default.lower()
+        if env_key in _CLAUDE_ALIAS_MAP:
+            return _CLAUDE_ALIAS_MAP[env_key](), env_key
+        return env_default, env_default
     return _CLAUDE_ALIAS_MAP["sonnet"](), "sonnet"
 
 
 def _resolve_codex(requested: str, key: str) -> tuple[str, str]:
-    # CODEX_SUB_AGENT_DEFAULT_MODEL > CODEX_MODEL > "gpt-5-codex".
-    default = (
-        os.getenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "")
-        or os.getenv("CODEX_MODEL", "")
-        or "gpt-5-codex"
-    )
-    # Pitfall 3: Claude-only alias on codex => fail loud, do not silently 400.
+    # D-02: codex has NO hardcoded default. Caller > CODEX_SUB_AGENT_DEFAULT_MODEL
+    # > CODEX_MODEL > raise. Pitfall 3: Claude-only aliases still fail loud.
     if key in _CLAUDE_ALIAS_MAP:
         raise ValueError(
             f"Model alias {key!r} is Claude-only; SUBAGENT_CLI=codex requires a "
-            f"GPT model id (e.g. 'gpt-5-codex') or set CODEX_SUB_AGENT_DEFAULT_MODEL."
+            f"concrete model id. Run list-subagent-models to discover valid ids "
+            f"or set CODEX_SUB_AGENT_DEFAULT_MODEL env."
         )
     if requested:
         return requested, requested
-    return default, default
+    default = (
+        os.getenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "").strip()
+        or os.getenv("CODEX_MODEL", "").strip()
+    )
+    if default:
+        return default, default
+    raise ValueError(
+        "SUBAGENT_CLI=codex requires either a caller-passed model id or "
+        "CODEX_SUB_AGENT_DEFAULT_MODEL env var. "
+        "Run list-subagent-models to discover valid ids for this CLI."
+    )
 
 
 def _resolve_opencode(requested: str, key: str) -> tuple[str, str]:
