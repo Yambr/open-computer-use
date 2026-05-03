@@ -1,11 +1,34 @@
 ---
 name: sub-agent
-description: "COSTLY: Spawns separate Claude CLI session. Use ONLY for complex CODE tasks requiring 10+ iterative tool calls (multi-file refactoring with tests, code review with fixes, test-fix cycles). Do NOT use for presentations, research, documentation, or any task completable in fewer than 10 tool calls."
+description: "COSTLY: Spawns separate CLI session (claude/opencode/codex). Use ONLY for complex CODE tasks requiring 10+ iterative tool calls (multi-file refactoring with tests, code review with fixes, test-fix cycles). IMPORTANT: Always run the model discovery script first before any sub_agent call. Do NOT use for presentations, research, documentation, or any task completable in fewer than 10 tool calls."
 ---
 
 # Sub-Agent Skill
 
 Delegate complex, multi-step tasks to an autonomous sub-agent that can iterate until completion.
+
+## Before Any sub_agent Call
+
+**ALWAYS run the model discovery script first:**
+
+```bash
+bash /mnt/skills/public/sub-agent/scripts/list_subagent_models.sh
+```
+
+This script will:
+- Detect `SUBAGENT_CLI` (default `claude`)
+- Enumerate valid model identifiers via the CLI's native model-listing mechanism (or, for claude, return the canonical alias set: `sonnet` / `opus` / `haiku`)
+- Output stable JSON with `cli` / `models[]` / `default_model` / `source` fields
+- Fail with a structured JSON error to stderr (exit 2 or 3) if the CLI is missing or its command fails — never silently falls back to a stale list
+
+**Why this matters:** Model identifiers differ per CLI. `claude` accepts the aliases `sonnet` / `opus` / `haiku` (resolved internally by the CLI). `opencode` requires `provider/model` form (e.g., `anthropic/claude-sonnet-4-6`, `openrouter/qwen/qwen-3-coder`); operators may extend the alias vocabulary via the `OPENCODE_MODEL_ALIASES` env var (JSON object string mapping alias to provider/model). `codex` requires fully-qualified model ids — no aliases are supported by the CLI.
+
+**Default behavior when `model` is omitted:**
+- `claude` → `sonnet`
+- `opencode` → value of `OPENCODE_SUB_AGENT_DEFAULT_MODEL` env, else the alias map's expansion of `sonnet`
+- `codex` → value of `CODEX_SUB_AGENT_DEFAULT_MODEL` env, else `gpt-5-codex`
+
+After running the script, pass a concrete model id from the JSON output to `sub_agent(model=...)`. Never assume Claude aliases work for non-claude CLIs.
 
 ## When to Use (ONLY complex CODE tasks requiring 10+ iterative tool calls)
 
