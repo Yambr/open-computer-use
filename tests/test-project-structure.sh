@@ -152,11 +152,20 @@ fi
 
 # 12. No werf.yaml (not needed for GitHub)
 echo ""
-echo "[12/12] No werf.yaml"
+echo "[12/13] No werf.yaml"
 if [ -f "$ROOT/werf.yaml" ]; then
     fail "werf.yaml should not exist in community version"
 else
     pass "No werf.yaml"
+fi
+
+# 13. Sub-agent runtime tests (Phase 1)
+echo ""
+echo "[13/13] Sub-agent runtime tests (Phase 1)"
+if bash "$(dirname "$0")/test-subagent-runtime.sh" >/tmp/subagent-runtime.log 2>&1; then
+    pass "test-subagent-runtime.sh exits 0"
+else
+    fail "test-subagent-runtime.sh exits non-zero — see /tmp/subagent-runtime.log"
 fi
 
 # Summary
