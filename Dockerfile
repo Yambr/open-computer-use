@@ -508,6 +508,11 @@ CXEOF\n\
                 # D-09: read canonical JSON, convert to TOML. Empty model_providers baseline = public OpenAI defaults.\n\
                 python3 -c "\n\
 import json,sys\n\
+def _to_toml_value(v):\n\
+    if isinstance(v,dict):\n\
+        inner='"'"', '"'"'.join(k+'"'"' = '"'"'+_to_toml_value(val) for k,val in v.items())\n\
+        return '"'"'{'"'"'+inner+'"'"'}'"'"'\n\
+    return json.dumps(v)\n\
 d=json.load(open('"'"'/opt/cli-defaults/codex.json'"'"'))\n\
 [d.pop(k,None) for k in list(d) if k.startswith('"'"'_'"'"')]\n\
 providers=d.get('"'"'model_providers'"'"',{}) or {}\n\
@@ -522,7 +527,7 @@ if providers:\n\
     for name,cfg in providers.items():\n\
         lines.append('"'"'[model_providers.'"'"' + name + '"'"']'"'"')\n\
         for ck,cv in cfg.items():\n\
-            lines.append(ck + '"'"' = '"'"' + json.dumps(cv))\n\
+            lines.append(ck + '"'"' = '"'"' + _to_toml_value(cv))\n\
         lines.append('"'"''"'"')\n\
 print('"'"'\\n'"'"'.join(lines))\n\
 " > /home/assistant/.codex/config.toml\n\
