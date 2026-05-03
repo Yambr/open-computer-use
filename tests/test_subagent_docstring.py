@@ -155,15 +155,25 @@ class TestMcpToolsStructure(unittest.TestCase):
                          f"Expected exactly 1 mcp.add_tool(sub_agent) call, found: {code_lines}")
 
     def test_no_sub_agent_default_model_usage(self):
-        """SUB_AGENT_DEFAULT_MODEL must not be used as a model fallback in function body."""
-        # Allow it in comments/docstrings at known line numbers but not as code
-        for line in self.src.splitlines():
-            stripped = line.strip()
-            if "SUB_AGENT_DEFAULT_MODEL" in stripped and not stripped.startswith("#"):
-                # It might appear in the module-level docstring (lines 1-68) or as
-                # a reference in a docstring constant — check for actual assignment
-                if "model = SUB_AGENT_DEFAULT_MODEL" in stripped:
-                    self.fail(f"Found legacy model fallback: {line!r}")
+        """Legacy bare SUB_AGENT_DEFAULT_MODEL must be absent; per-CLI env must be documented.
+
+        Phase 2 D-03: the legacy global is removed from docker_manager.py and the
+        module docstring is updated to document the three per-CLI env vars instead.
+        This assertion verifies the docstring update happened.
+
+        Note: check for the bare legacy name without a CLI prefix (CLAUDE_/OPENCODE_/CODEX_).
+        The per-CLI variants CLAUDE_SUB_AGENT_DEFAULT_MODEL etc. are expected and fine.
+        """
+        import re
+        # The legacy line was "- SUB_AGENT_DEFAULT_MODEL: Default model ..."
+        # Per-CLI lines like "- CLAUDE_SUB_AGENT_DEFAULT_MODEL: ..." are OK.
+        legacy_pattern = re.compile(r'(?<![A-Z_])SUB_AGENT_DEFAULT_MODEL: Default model')
+        assert not legacy_pattern.search(self.src), (
+            "Legacy bare SUB_AGENT_DEFAULT_MODEL docstring entry still present in mcp_tools.py"
+        )
+        assert "CLAUDE_SUB_AGENT_DEFAULT_MODEL" in self.src, (
+            "CLAUDE_SUB_AGENT_DEFAULT_MODEL must be documented in mcp_tools.py module docstring"
+        )
 
     def test_resolve_subagent_model_used(self):
         """resolve_subagent_model('', resolve_cli()) must be the fallback."""

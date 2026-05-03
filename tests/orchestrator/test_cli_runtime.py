@@ -342,14 +342,18 @@ def test_resolve_codex_claude_alias_raises(alias):
     assert "CODEX_SUB_AGENT_DEFAULT_MODEL" in str(exc.value)
 
 
-def test_resolve_codex_empty_returns_default(monkeypatch):
+def test_resolve_codex_empty_no_env_raises(monkeypatch):
+    """D-02: codex has no hardcoded default — raises ValueError when no env set."""
     monkeypatch.delenv("CODEX_SUB_AGENT_DEFAULT_MODEL", raising=False)
     monkeypatch.delenv("CODEX_MODEL", raising=False)
     cli_runtime = _import_resolver()
     from cli_runtime import Cli
-    model_id, display = cli_runtime.resolve_subagent_model("", Cli.CODEX)
-    assert model_id == "gpt-5-codex"
-    assert display == "gpt-5-codex"
+    with pytest.raises(ValueError) as exc_info:
+        cli_runtime.resolve_subagent_model("", Cli.CODEX)
+    msg = str(exc_info.value)
+    assert "SUBAGENT_CLI=codex" in msg
+    assert "CODEX_SUB_AGENT_DEFAULT_MODEL" in msg
+    assert "list-subagent-models" in msg
 
 
 def test_resolve_codex_honors_codex_sub_agent_default_model_env(monkeypatch):
