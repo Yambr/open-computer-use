@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright (c) 2025 Open Computer Use Contributors
-"""Unit tests for cli_runtime.resolve_subagent_model resolution order (D-08/D-09).
+"""Unit tests for cli_runtime.resolve_subagent_model resolution order.
 
-Resolution priority (per CONTEXT.md D-08):
-  caller-supplied alias/id > <CLI>_SUB_AGENT_DEFAULT_MODEL env > per-CLI hardcoded default
+Phase 1 D-08/D-09 introduced per-CLI defaults. Phase 2 D-01/D-02 (CONTEXT.md
+phases/02-...) DROPPED the hardcoded defaults for opencode and codex; only
+claude retains a hardcoded fallback.
 
-Covers all three CLIs:
-  - claude  → default alias 'sonnet', fallback via _CLAUDE_ALIAS_MAP
-  - opencode → default 'anthropic/claude-sonnet-4-6', env OPENCODE_SUB_AGENT_DEFAULT_MODEL
-  - codex   → default 'gpt-5-codex', env CODEX_SUB_AGENT_DEFAULT_MODEL
+Updated resolution priority:
+  caller-supplied alias/id > <CLI>_SUB_AGENT_DEFAULT_MODEL env > per-CLI fallback
+
+Per-CLI fallback behavior (Phase 2):
+  - claude  → expansion of 'sonnet' via _CLAUDE_ALIAS_MAP (hardcoded baseline preserved)
+  - opencode → raises ValueError (no hardcoded baseline; explicit error guides operator)
+  - codex   → raises ValueError (no hardcoded baseline; explicit error guides operator)
 """
 
 import os
@@ -53,15 +57,20 @@ def test_claude_caller_wins(monkeypatch):
 # opencode
 # ===========================================================================
 
-def test_opencode_hardcoded_default(monkeypatch):
-    """Without env override, opencode defaults to anthropic/claude-sonnet-4-6."""
+def test_opencode_no_default_raises(monkeypatch):
+    """Phase 2 D-02: opencode has NO hardcoded default; raises ValueError when caller
+    passes empty alias and no OPENCODE_SUB_AGENT_DEFAULT_MODEL env is set.
+
+    The error message must point the operator at list-subagent-models and the env var.
+    """
     monkeypatch.delenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", raising=False)
     monkeypatch.delenv("OPENCODE_MODEL", raising=False)
     monkeypatch.delenv("OPENCODE_MODEL_ALIASES", raising=False)
-    model_id, _display = resolve_subagent_model("", Cli.OPENCODE)
-    assert model_id == "anthropic/claude-sonnet-4-6", (
-        f"Expected opencode hardcoded default 'anthropic/claude-sonnet-4-6', got '{model_id}'"
-    )
+    with pytest.raises(ValueError) as exc_info:
+        resolve_subagent_model("", Cli.OPENCODE)
+    msg = str(exc_info.value)
+    assert "OPENCODE_SUB_AGENT_DEFAULT_MODEL" in msg, msg
+    assert "list-subagent-models" in msg, msg
 
 
 def test_opencode_env_default(monkeypatch):
@@ -92,14 +101,19 @@ def test_opencode_alias_override_via_env(monkeypatch):
 # codex
 # ===========================================================================
 
-def test_codex_hardcoded_default(monkeypatch):
-    """Without env override, codex defaults to gpt-5-codex."""
+def test_codex_no_default_raises(monkeypatch):
+    """Phase 2 D-02: codex has NO hardcoded default; raises ValueError when caller
+    passes empty alias and no CODEX_SUB_AGENT_DEFAULT_MODEL env is set.
+
+    The error message must point the operator at list-subagent-models and the env var.
+    """
     monkeypatch.delenv("CODEX_SUB_AGENT_DEFAULT_MODEL", raising=False)
     monkeypatch.delenv("CODEX_MODEL", raising=False)
-    model_id, _display = resolve_subagent_model("", Cli.CODEX)
-    assert model_id == "gpt-5-codex", (
-        f"Expected codex hardcoded default 'gpt-5-codex', got '{model_id}'"
-    )
+    with pytest.raises(ValueError) as exc_info:
+        resolve_subagent_model("", Cli.CODEX)
+    msg = str(exc_info.value)
+    assert "CODEX_SUB_AGENT_DEFAULT_MODEL" in msg, msg
+    assert "list-subagent-models" in msg, msg
 
 
 def test_codex_env_default(monkeypatch):
