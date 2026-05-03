@@ -89,6 +89,12 @@ for tool in mmdc tsc tsx claude codex opencode; do
     echo "$VRESULT" | grep -q "OK" && pass "$tool --version exit 0" || fail "$tool --version failed"
 done
 
+# list-subagent-models presence + executability (Phase 1 / Plan 01-05 install line)
+RESULT=$(run_in_container "which list-subagent-models >/dev/null 2>&1 && echo OK || echo MISSING") || RESULT=""
+echo "$RESULT" | grep -q "OK" && pass "list-subagent-models in PATH" || fail "list-subagent-models not found in PATH"
+RESULT=$(run_in_container "test -x \$(which list-subagent-models 2>/dev/null || echo /nonexistent) && echo OK || echo FAIL") || RESULT=""
+echo "$RESULT" | grep -q "OK" && pass "list-subagent-models is executable" || fail "list-subagent-models is not executable inside image"
+
 # 6. Python packages
 echo ""
 echo "[6/12] Python packages"

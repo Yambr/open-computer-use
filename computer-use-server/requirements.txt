@@ -12,3 +12,6 @@ mcp==1.27.0
 docker>=7.0.0
 requests>=2.31.0
 pydantic>=2.0.0
+
+# Testing (Phase 1 — sub-agent multi-CLI cleanup)
+pytest>=8.0.0
