@@ -590,6 +590,10 @@ WORKDIR /home/assistant
 COPY --chown=root:root vendor/extract-text/extract-text /usr/local/bin/extract-text
 RUN chmod +x /usr/local/bin/extract-text
 
+# list-subagent-models — canonical Python tool for the sub-agent skill (REQ-MCP-04)
+COPY --chown=root:root computer-use-server/bin/list-subagent-models /usr/local/bin/list-subagent-models
+RUN chmod +x /usr/local/bin/list-subagent-models
+
 # Copy skills into image (available in all containers)
 # Placed late in Dockerfile so skill file changes don't invalidate heavy layers above
 COPY --chown=root:root ./skills /mnt/skills/
