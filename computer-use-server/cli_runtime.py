@@ -17,9 +17,13 @@ NOT the reverse. docker_manager owns the constant; cli_runtime consumes it.
 """
 
 import asyncio
+import json
+import logging
 import os
 import shlex
 from enum import StrEnum
+
+_LOG = logging.getLogger("cli_runtime")
 
 from docker_manager import (
     SUBAGENT_CLI,
@@ -79,9 +83,9 @@ def get_adapter(cli: Cli | None = None) -> CliAdapter:
 # Claude path preserves v0.9.2.0 ALIAS_MAP behaviour from mcp_tools.py:909-924.
 # Codex path hard-fails on Claude-only aliases (Pitfall 3 in PITFALLS.md) —
 # silently letting "sonnet" through to codex would produce a remote 400.
-# OpenCode path expands aliases to provider/model form ("sonnet" ->
-# "anthropic/claude-sonnet-4-6") and warns (does not raise) when a
-# direct id is missing the "provider/" prefix.
+# OpenCode path (D-05/D-06): alias map starts empty; operator must supply
+# aliases via OPENCODE_MODEL_ALIASES env. Raises ValueError when alias not
+# found or no default configured. Provider/model ids (containing '/') pass through.
 
 _CLAUDE_ALIAS_MAP = {
     "sonnet": lambda: ANTHROPIC_DEFAULT_SONNET_MODEL or "claude-sonnet-4-6",
@@ -89,58 +93,125 @@ _CLAUDE_ALIAS_MAP = {
     "haiku":  lambda: ANTHROPIC_DEFAULT_HAIKU_MODEL  or "claude-haiku-4-5",
 }
 
-_OPENCODE_ALIAS_MAP = {
-    "sonnet": "anthropic/claude-sonnet-4-6",
-    "opus":   "anthropic/claude-opus-4-6",
-    "haiku":  "anthropic/claude-haiku-4-5",
-}
+# D-05: no Anthropic baseline. Aliases come exclusively from
+# OPENCODE_MODEL_ALIASES env (merged in _merge_opencode_alias_map below).
+# The previous Anthropic defaults were a silent fallback that masked the
+# operator's actual provider choice.
+_OPENCODE_ALIAS_MAP: dict[str, str] = {}
+
+
+def _merge_opencode_alias_map() -> dict[str, str]:
+    """Return _OPENCODE_ALIAS_MAP merged with operator overrides from
+    OPENCODE_MODEL_ALIASES env (JSON object string).
+
+    Built-in keys remain as the Anthropic baseline unless overridden. Malformed
+    JSON, non-dict payloads, or non-string values are logged and ignored — never
+    silently half-merged. Read at call time so env changes take effect without
+    restart. See D-07 (CONTEXT.md) and OPENCODE_MODEL_ALIASES note in
+    docs/multi-cli.md (deferred docs phase).
+    """
+    merged = dict(_OPENCODE_ALIAS_MAP)
+    raw = os.getenv("OPENCODE_MODEL_ALIASES", "").strip()
+    if not raw:
+        return merged
+    try:
+        overrides = json.loads(raw)
+    except json.JSONDecodeError as e:
+        _LOG.warning(
+            "OPENCODE_MODEL_ALIASES is not valid JSON (%s); using built-in map only",
+            e,
+        )
+        return merged
+    if not isinstance(overrides, dict):
+        _LOG.warning(
+            "OPENCODE_MODEL_ALIASES must be a JSON object, got %s; using built-in map only",
+            type(overrides).__name__,
+        )
+        return merged
+    for k, v in overrides.items():
+        if not isinstance(k, str) or not isinstance(v, str) or not k or not v:
+            _LOG.warning(
+                "OPENCODE_MODEL_ALIASES entry skipped (key=%r value=%r): both must be non-empty strings",
+                k, v,
+            )
+            continue
+        merged[k] = v
+    return merged
 
 
 def _resolve_claude(requested: str, key: str) -> tuple[str, str]:
+    # D-01: claude default stays `sonnet` when no caller model and no env.
+    # Resolution order: caller > CLAUDE_SUB_AGENT_DEFAULT_MODEL env > 'sonnet'.
     if key in _CLAUDE_ALIAS_MAP:
         return _CLAUDE_ALIAS_MAP[key](), key
     if requested:
         return requested, requested
+    env_default = os.getenv("CLAUDE_SUB_AGENT_DEFAULT_MODEL", "").strip()
+    if env_default:
+        env_key = env_default.lower()
+        if env_key in _CLAUDE_ALIAS_MAP:
+            return _CLAUDE_ALIAS_MAP[env_key](), env_key
+        return env_default, env_default
     return _CLAUDE_ALIAS_MAP["sonnet"](), "sonnet"
 
 
 def _resolve_codex(requested: str, key: str) -> tuple[str, str]:
-    # CODEX_SUB_AGENT_DEFAULT_MODEL > CODEX_MODEL > "gpt-5-codex".
-    default = (
-        os.getenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "")
-        or os.getenv("CODEX_MODEL", "")
-        or "gpt-5-codex"
-    )
-    # Pitfall 3: Claude-only alias on codex => fail loud, do not silently 400.
+    # D-02: codex has NO hardcoded default. Caller > CODEX_SUB_AGENT_DEFAULT_MODEL
+    # > CODEX_MODEL > raise. Pitfall 3: Claude-only aliases still fail loud.
     if key in _CLAUDE_ALIAS_MAP:
         raise ValueError(
             f"Model alias {key!r} is Claude-only; SUBAGENT_CLI=codex requires a "
-            f"GPT model id (e.g. 'gpt-5-codex') or set CODEX_SUB_AGENT_DEFAULT_MODEL."
+            f"concrete model id. Run list-subagent-models to discover valid ids "
+            f"or set CODEX_SUB_AGENT_DEFAULT_MODEL env."
         )
     if requested:
         return requested, requested
-    return default, default
+    default = (
+        os.getenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "").strip()
+        or os.getenv("CODEX_MODEL", "").strip()
+    )
+    if default:
+        return default, default
+    raise ValueError(
+        "SUBAGENT_CLI=codex requires either a caller-passed model id or "
+        "CODEX_SUB_AGENT_DEFAULT_MODEL env var. "
+        "Run list-subagent-models to discover valid ids for this CLI."
+    )
 
 
 def _resolve_opencode(requested: str, key: str) -> tuple[str, str]:
-    default = (
-        os.getenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "")
-        or os.getenv("OPENCODE_MODEL", "")
-        or "anthropic/claude-sonnet-4-6"
-    )
-    if key in _OPENCODE_ALIAS_MAP:
-        return _OPENCODE_ALIAS_MAP[key], key
+    # D-02 / D-06: opencode has NO hardcoded default. Resolution order:
+    #   1. caller-passed `requested` (when truthy)
+    #   2. OPENCODE_SUB_AGENT_DEFAULT_MODEL env (or legacy OPENCODE_MODEL)
+    #   3. raise ValueError pointing to list-subagent-models + env vars
+    # The alias map (D-05) starts empty; entries come from
+    # OPENCODE_MODEL_ALIASES env via _merge_opencode_alias_map().
+    alias_map = _merge_opencode_alias_map()
+    if key in alias_map:
+        return alias_map[key], key
     if requested:
         if "/" not in requested:
-            # Soft warning (Pitfall 3 doesn't apply here — opencode just needs
-            # provider/model form; we let it through and surface the failure
-            # at runtime via opencode's own error path).
-            print(
-                f"[SUB-AGENT] WARNING: opencode model {requested!r} has no "
-                f"provider prefix — may fail at runtime."
+            # Caller passed an alias-shaped string that is not in the map.
+            # Per D-06, fail loud rather than silently letting opencode 4xx.
+            raise ValueError(
+                f"Model alias {key!r} is not defined for SUBAGENT_CLI=opencode. "
+                f"Either pass a fully-qualified provider/model id "
+                f"(e.g. '<provider>/<model-id>') or add the alias to "
+                f"OPENCODE_MODEL_ALIASES env (JSON object). "
+                f"Run list-subagent-models to discover available ids."
             )
         return requested, requested
-    return default, default
+    default = (
+        os.getenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "").strip()
+        or os.getenv("OPENCODE_MODEL", "").strip()
+    )
+    if default:
+        return default, default
+    raise ValueError(
+        "SUBAGENT_CLI=opencode requires either a caller-passed model id or "
+        "OPENCODE_SUB_AGENT_DEFAULT_MODEL env var. "
+        "Run list-subagent-models to discover valid ids for this CLI."
+    )
 
 
 def resolve_subagent_model(alias_or_id: str, cli: Cli) -> tuple[str, str]:

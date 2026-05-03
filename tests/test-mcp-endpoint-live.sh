@@ -56,3 +56,37 @@ if ! grep -qi '^mcp-session-id:' "$HDRS"; then
 fi
 
 echo "PASS: POST /mcp -> 200 with instructions field"
+
+# Phase 2 smoke: /api/runtime/cli endpoint stays 200 even when SUBAGENT_CLI is
+# opencode/codex with no per-CLI default env (Phase 2 D-02 dropped the
+# hardcoded fallback; the endpoint must catch ValueError and return
+# default_model: null instead of crashing 500).
+RUNTIME_BODY=$(mktemp)
+trap 'rm -f "$HDRS" "$BODY" "$RUNTIME_BODY"' EXIT
+RUNTIME_STATUS=$(curl -sS -o "$RUNTIME_BODY" -w '%{http_code}' "${SERVER_URL}/api/runtime/cli" || echo "curl-failed")
+
+if [ "$RUNTIME_STATUS" != "200" ]; then
+  echo "FAIL: GET /api/runtime/cli returned $RUNTIME_STATUS (expected 200)"
+  head -c 1000 "$RUNTIME_BODY"; echo
+  exit 1
+fi
+
+# Body must be valid JSON with the contract keys: cli, default_model, supports_cost.
+# default_model is allowed to be null (codex/opencode w/ no env).
+if ! python3 -c "
+import json
+d = json.load(open('$RUNTIME_BODY'))
+assert 'cli' in d, f'missing cli key: {d}'
+assert 'default_model' in d, f'missing default_model key: {d}'
+assert 'supports_cost' in d, f'missing supports_cost key: {d}'
+assert d['cli'] in ('claude', 'codex', 'opencode'), f'bad cli value: {d[\"cli\"]!r}'
+assert isinstance(d['supports_cost'], bool), f'supports_cost must be bool: {d}'
+assert d['default_model'] is None or isinstance(d['default_model'], str), f'default_model must be str|null: {d}'
+print('OK')
+" 2>&1; then
+  echo "FAIL: GET /api/runtime/cli returned malformed body"
+  head -c 1000 "$RUNTIME_BODY"; echo
+  exit 1
+fi
+
+echo "PASS: GET /api/runtime/cli -> 200 with contract-stable JSON"

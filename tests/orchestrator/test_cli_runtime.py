@@ -342,14 +342,18 @@ def test_resolve_codex_claude_alias_raises(alias):
     assert "CODEX_SUB_AGENT_DEFAULT_MODEL" in str(exc.value)
 
 
-def test_resolve_codex_empty_returns_default(monkeypatch):
+def test_resolve_codex_empty_no_env_raises(monkeypatch):
+    """D-02: codex has no hardcoded default — raises ValueError when no env set."""
     monkeypatch.delenv("CODEX_SUB_AGENT_DEFAULT_MODEL", raising=False)
     monkeypatch.delenv("CODEX_MODEL", raising=False)
     cli_runtime = _import_resolver()
     from cli_runtime import Cli
-    model_id, display = cli_runtime.resolve_subagent_model("", Cli.CODEX)
-    assert model_id == "gpt-5-codex"
-    assert display == "gpt-5-codex"
+    with pytest.raises(ValueError) as exc_info:
+        cli_runtime.resolve_subagent_model("", Cli.CODEX)
+    msg = str(exc_info.value)
+    assert "SUBAGENT_CLI=codex" in msg
+    assert "CODEX_SUB_AGENT_DEFAULT_MODEL" in msg
+    assert "list-subagent-models" in msg
 
 
 def test_resolve_codex_honors_codex_sub_agent_default_model_env(monkeypatch):
@@ -379,20 +383,28 @@ def test_resolve_codex_direct_id_passthrough():
     assert display == "gpt-5-codex"
 
 
-def test_resolve_opencode_alias_sonnet():
+def test_resolve_opencode_alias_sonnet_raises_without_env(monkeypatch):
+    """D-05 / D-06: 'sonnet' is no longer a built-in alias — raises ValueError."""
+    monkeypatch.delenv("OPENCODE_MODEL_ALIASES", raising=False)
+    cli_runtime = _import_resolver()
+    from cli_runtime import Cli
+    with pytest.raises(ValueError) as exc_info:
+        cli_runtime.resolve_subagent_model("sonnet", Cli.OPENCODE)
+    assert "alias 'sonnet' is not defined" in str(exc_info.value)
+    assert "OPENCODE_MODEL_ALIASES" in str(exc_info.value)
+
+
+def test_resolve_opencode_alias_sonnet_via_env(monkeypatch):
+    """D-05: operator can supply sonnet alias via OPENCODE_MODEL_ALIASES env."""
+    monkeypatch.setenv(
+        "OPENCODE_MODEL_ALIASES",
+        '{"sonnet": "anthropic/claude-sonnet-4-6"}',
+    )
     cli_runtime = _import_resolver()
     from cli_runtime import Cli
     model_id, display = cli_runtime.resolve_subagent_model("sonnet", Cli.OPENCODE)
     assert model_id == "anthropic/claude-sonnet-4-6"
     assert display == "sonnet"
-
-
-def test_resolve_opencode_alias_opus():
-    cli_runtime = _import_resolver()
-    from cli_runtime import Cli
-    model_id, display = cli_runtime.resolve_subagent_model("opus", Cli.OPENCODE)
-    assert model_id == "anthropic/claude-opus-4-6"
-    assert display == "opus"
 
 
 def test_resolve_opencode_provider_model_passthrough():
@@ -405,22 +417,26 @@ def test_resolve_opencode_provider_model_passthrough():
     assert display == "openrouter/qwen/qwen-3-coder"
 
 
-def test_resolve_opencode_bare_id_warns_but_returns(capsys):
+def test_resolve_opencode_bare_id_raises(monkeypatch):
+    """D-06: bare alias-shaped id (no '/') not in map -> raises ValueError."""
+    monkeypatch.delenv("OPENCODE_MODEL_ALIASES", raising=False)
     cli_runtime = _import_resolver()
     from cli_runtime import Cli
-    model_id, _ = cli_runtime.resolve_subagent_model("bareid", Cli.OPENCODE)
-    assert model_id == "bareid"
-    out = capsys.readouterr().out
-    assert "no provider prefix" in out
+    with pytest.raises(ValueError) as exc_info:
+        cli_runtime.resolve_subagent_model("bareid", Cli.OPENCODE)
+    assert "list-subagent-models" in str(exc_info.value)
 
 
-def test_resolve_opencode_empty_default(monkeypatch):
+def test_resolve_opencode_empty_raises_without_default_env(monkeypatch):
+    """D-02: no caller model + no env default -> ValueError (no hardcoded fallback)."""
     monkeypatch.delenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", raising=False)
     monkeypatch.delenv("OPENCODE_MODEL", raising=False)
     cli_runtime = _import_resolver()
     from cli_runtime import Cli
-    model_id, _ = cli_runtime.resolve_subagent_model("", Cli.OPENCODE)
-    assert model_id == "anthropic/claude-sonnet-4-6"
+    with pytest.raises(ValueError) as exc_info:
+        cli_runtime.resolve_subagent_model("", Cli.OPENCODE)
+    assert "OPENCODE_SUB_AGENT_DEFAULT_MODEL" in str(exc_info.value)
+    assert "list-subagent-models" in str(exc_info.value)
 
 
 def test_resolve_opencode_honors_opencode_sub_agent_default_model_env(monkeypatch):

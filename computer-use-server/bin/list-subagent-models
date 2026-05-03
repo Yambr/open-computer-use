@@ -1,0 +1,449 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright (c) 2025 Open Computer Use Contributors
+"""list-subagent-models — enumerate valid sub-agent models for the active SUBAGENT_CLI.
+
+Default mode (Phase 2 D-11): host-friendly. Reads canonical config from
+/opt/cli-defaults/<cli>.json (or repo-local fallback during development) and
+merges OPENCODE_MODEL_ALIASES env entries.
+
+--inside-container (Phase 2 D-12): preserves the Phase 1 behavior of shelling
+to the actual CLI subcommand (opencode models / codex debug models --bundled).
+Useful as a debug/verification escape hatch when the canonical file is suspected
+to be stale.
+
+File-resolution precedence for host mode (opencode / codex):
+  1. *_CONFIG_EXTRA env (operator inline override JSON or TOML)
+  2. LIST_SUBAGENT_CLI_DEFAULTS_DIR/<cli>.json (test/dev path override)
+  3. /opt/cli-defaults/<cli>.json (image bake-in, Plan 04)
+  4. <repo>/computer-use-server/cli-defaults/<cli>.json (repo-local dev fallback)
+  5. structured stderr error, exit 3
+
+Output schema (stdout JSON):
+  {
+    "cli": "<claude|opencode|codex>",
+    "models": [{"id": "...", "label": "...", "default": bool}, ...],
+    "default_model": "<id|null>",
+    "aliases": {"<alias>": "<provider/model>", ...},   // opencode only; empty {} otherwise
+    "source": "<descriptor of where the data came from>"
+  }
+
+Failure schema (stderr JSON, exit non-zero):
+  {"error": "<reason>", "cli": "<name>", "hint": "<actionable next step>"}
+"""
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+VALID_CLIS = ("claude", "opencode", "codex")
+
+# Mirror of _CLAUDE_ALIAS_MAP keys in computer-use-server/cli_runtime.py.
+# claude has no native model-listing subcommand (verified against
+# @anthropic-ai/claude-code@2.1.112), so this is the canonical claude vocabulary.
+_CLAUDE_ALIASES = ("sonnet", "opus", "haiku")
+_CLAUDE_DEFAULT = "sonnet"
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_IMAGE_DEFAULTS_DIR = Path("/opt/cli-defaults")
+_REPO_DEFAULTS_DIR = _SCRIPT_DIR.parent / "cli-defaults"  # <repo>/computer-use-server/cli-defaults/
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _emit_error(cli: str, error: str, hint: str, code: int) -> None:
+    json.dump({"error": error, "cli": cli, "hint": hint}, sys.stderr)
+    sys.stderr.write("\n")
+    sys.exit(code)
+
+
+def _emit_success(payload: dict) -> None:
+    json.dump(payload, sys.stdout)
+    sys.stdout.write("\n")
+    sys.exit(0)
+
+
+def _strip_spdx(d: dict) -> dict:
+    """Remove SPDX convention keys (_spdx, _copyright, _doc) before consuming JSON."""
+    for k in ("_spdx", "_copyright", "_doc"):
+        d.pop(k, None)
+    return d
+
+
+def _resolve_defaults_path(cli: str) -> "Path | None":
+    """Return path to cli-defaults/<cli>.json using 3-level fallback."""
+    # 1. LIST_SUBAGENT_CLI_DEFAULTS_DIR env (test/dev override)
+    env_dir = os.getenv("LIST_SUBAGENT_CLI_DEFAULTS_DIR", "").strip()
+    if env_dir:
+        candidate = Path(env_dir) / f"{cli}.json"
+        if candidate.is_file():
+            return candidate
+    # 2. /opt/cli-defaults/<cli>.json (image bake-in, Plan 04)
+    candidate = _IMAGE_DEFAULTS_DIR / f"{cli}.json"
+    if candidate.is_file():
+        return candidate
+    # 3. repo-local fallback (development on host)
+    candidate = _REPO_DEFAULTS_DIR / f"{cli}.json"
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _read_opencode_aliases() -> dict:
+    """Read OPENCODE_MODEL_ALIASES env (JSON object), mirror cli_runtime validation."""
+    raw = os.getenv("OPENCODE_MODEL_ALIASES", "").strip()
+    if not raw:
+        return {}
+    try:
+        overrides = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}  # silent in list-mode (read-only); resolver in cli_runtime warns
+    if not isinstance(overrides, dict):
+        return {}
+    result: dict = {}
+    for k, v in overrides.items():
+        if isinstance(k, str) and isinstance(v, str) and k and v:
+            result[k] = v
+    return result
+
+
+# ---------------------------------------------------------------------------
+# claude — static aliases (unchanged from Phase 1)
+# ---------------------------------------------------------------------------
+
+def _list_claude() -> None:
+    models = [
+        {"id": alias, "label": alias, "default": (alias == _CLAUDE_DEFAULT)}
+        for alias in _CLAUDE_ALIASES
+    ]
+    _emit_success({
+        "cli": "claude",
+        "models": models,
+        "default_model": _CLAUDE_DEFAULT,
+        "aliases": {},
+        "source": "alias_map",
+    })
+
+
+# ---------------------------------------------------------------------------
+# opencode — host-friendly mode (D-11)
+# ---------------------------------------------------------------------------
+
+def _list_opencode_host() -> None:
+    extra = os.getenv("OPENCODE_CONFIG_EXTRA", "").strip()
+    source = ""
+    cfg: dict
+    if extra:
+        try:
+            cfg = json.loads(extra)
+        except json.JSONDecodeError as e:
+            _emit_error(
+                "opencode",
+                f"OPENCODE_CONFIG_EXTRA is not valid JSON: {e}",
+                "Validate the JSON or unset to use cli-defaults/opencode.json",
+                2,
+            )
+            return
+        source = "OPENCODE_CONFIG_EXTRA env"
+    else:
+        path = _resolve_defaults_path("opencode")
+        if path is None:
+            _emit_error(
+                "opencode",
+                "Canonical default config missing: cli-defaults/opencode.json",
+                "Verify cli-defaults/opencode.json exists in the server installation. "
+                "Set LIST_SUBAGENT_CLI_DEFAULTS_DIR for a custom path.",
+                3,
+            )
+            return
+        try:
+            cfg = json.loads(path.read_text())
+        except json.JSONDecodeError as e:
+            _emit_error(
+                "opencode",
+                f"{path} is not valid JSON: {e}",
+                "Regenerate cli-defaults/opencode.json from the documented schema.",
+                3,
+            )
+            return
+        cfg = _strip_spdx(cfg)
+        source = str(path)
+
+    if extra:
+        cfg = _strip_spdx(cfg)
+
+    default_model = cfg.get("model")  # opencode native key
+
+    # Enumerate models: the opencode config surfaces a single default model.
+    # Without --inside-container we only know the configured default.
+    # Operator uses --inside-container to query the full provider catalog.
+    models: list = []
+    if default_model:
+        models.append({"id": default_model, "label": default_model, "default": True})
+
+    # Alias overlay (D-11): OPENCODE_MODEL_ALIASES entries surfaced separately.
+    aliases = _read_opencode_aliases()
+    for alias, mapped in aliases.items():
+        if mapped not in {m["id"] for m in models}:
+            models.append({"id": mapped, "label": f"{alias} -> {mapped}", "default": False})
+
+    _emit_success({
+        "cli": "opencode",
+        "models": models,
+        "default_model": default_model,
+        "aliases": aliases,
+        "source": source,
+    })
+
+
+# ---------------------------------------------------------------------------
+# opencode — inside-container mode (Phase 1 behavior preserved as D-12)
+# ---------------------------------------------------------------------------
+
+def _list_opencode_inside_container() -> None:
+    if shutil.which("opencode") is None:
+        _emit_error(
+            "opencode",
+            "opencode CLI not found on $PATH",
+            "install opencode-ai or set SUBAGENT_CLI to a different CLI",
+            2,
+        )
+    try:
+        proc = subprocess.run(
+            ["opencode", "models"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        _emit_error("opencode", "opencode models timed out after 30s", "check opencode connectivity", 3)
+        return
+    if proc.returncode != 0:
+        _emit_error(
+            "opencode",
+            f"opencode models exited {proc.returncode}: {proc.stderr.strip()[:200]}",
+            "run `opencode auth login` and verify provider config",
+            3,
+        )
+    ids = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if not ids:
+        _emit_error(
+            "opencode",
+            "opencode models returned empty output",
+            "configure at least one provider (e.g. `opencode auth login anthropic`)",
+            3,
+        )
+    models = [{"id": mid, "label": mid, "default": (i == 0)} for i, mid in enumerate(ids)]
+    _emit_success({
+        "cli": "opencode",
+        "models": models,
+        "default_model": ids[0],
+        "aliases": {},
+        "source": "opencode_subprocess",
+    })
+
+
+# ---------------------------------------------------------------------------
+# codex — host-friendly mode (D-11)
+# ---------------------------------------------------------------------------
+
+def _list_codex_host() -> None:
+    extra = os.getenv("CODEX_CONFIG_EXTRA", "").strip()
+    source = ""
+    cfg: dict
+    if extra:
+        try:
+            import tomllib  # Python 3.11+ stdlib
+        except ImportError:
+            _emit_error(
+                "codex",
+                "tomllib not available (requires Python 3.11+)",
+                "Upgrade Python or unset CODEX_CONFIG_EXTRA to use cli-defaults/codex.json",
+                3,
+            )
+            return
+        try:
+            cfg = tomllib.loads(extra)
+        except Exception as e:
+            _emit_error(
+                "codex",
+                f"CODEX_CONFIG_EXTRA is not valid TOML: {e}",
+                "Validate the TOML or unset to use cli-defaults/codex.json",
+                2,
+            )
+            return
+        source = "CODEX_CONFIG_EXTRA env"
+    else:
+        path = _resolve_defaults_path("codex")
+        if path is None:
+            _emit_error(
+                "codex",
+                "Canonical default config missing: cli-defaults/codex.json",
+                "Verify cli-defaults/codex.json exists in the server installation. "
+                "Set LIST_SUBAGENT_CLI_DEFAULTS_DIR for a custom path.",
+                3,
+            )
+            return
+        try:
+            cfg = json.loads(path.read_text())
+        except json.JSONDecodeError as e:
+            _emit_error(
+                "codex",
+                f"{path} is not valid JSON: {e}",
+                "Regenerate cli-defaults/codex.json from the documented schema.",
+                3,
+            )
+            return
+        cfg = _strip_spdx(cfg)
+        source = str(path)
+
+    # Codex TOML schema: top-level `model` key + `model_providers` dict.
+    # Codex JSON schema (cli-defaults/codex.json): `default_model` + `model_providers` dict.
+    default_model = cfg.get("model") or cfg.get("default_model") or None
+
+    models: list = []
+    if default_model:
+        models.append({"id": default_model, "label": default_model, "default": True})
+    # No nested model enumeration from codex config — providers are gateways, not catalogs.
+    # Operator uses --inside-container to query the actual codex catalog.
+
+    _emit_success({
+        "cli": "codex",
+        "models": models,
+        "default_model": default_model,
+        "aliases": {},
+        "source": source,
+    })
+
+
+# ---------------------------------------------------------------------------
+# codex — inside-container mode (Phase 1 behavior preserved as D-12)
+# ---------------------------------------------------------------------------
+
+def _walk_for_model_ids(node: Any, found: list) -> None:
+    """Defensive walker — codex debug models JSON schema is undocumented for v0.125.x.
+    Collect string values keyed by 'id', 'model', or 'name' at any depth.
+    """
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in ("id", "model", "name") and isinstance(v, str) and v:
+                found.append(v)
+            else:
+                _walk_for_model_ids(v, found)
+    elif isinstance(node, list):
+        for item in node:
+            _walk_for_model_ids(item, found)
+
+
+def _list_codex_inside_container() -> None:
+    if shutil.which("codex") is None:
+        _emit_error(
+            "codex",
+            "codex CLI not found on $PATH",
+            "install @openai/codex or set SUBAGENT_CLI to a different CLI",
+            2,
+        )
+    try:
+        proc = subprocess.run(
+            ["codex", "debug", "models", "--bundled"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        _emit_error("codex", "codex debug models timed out after 30s", "check codex install", 3)
+        return
+    if proc.returncode != 0:
+        _emit_error(
+            "codex",
+            f"codex debug models exited {proc.returncode}: {proc.stderr.strip()[:200]}",
+            "verify @openai/codex >= 0.125.0 is installed",
+            3,
+        )
+    try:
+        catalog = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        _emit_error(
+            "codex",
+            f"codex debug models output is not valid JSON: {e}",
+            "the codex debug models schema may have changed; check codex CLI version",
+            3,
+        )
+        return
+    found: list = []
+    _walk_for_model_ids(catalog, found)
+    # Dedupe preserving order
+    seen: set = set()
+    ids: list = []
+    for mid in found:
+        if mid not in seen:
+            seen.add(mid)
+            ids.append(mid)
+    if not ids:
+        _emit_error(
+            "codex",
+            "no model ids found in codex debug models JSON",
+            "the codex debug models schema may have changed; inspect raw output",
+            3,
+        )
+    models = [{"id": mid, "label": mid, "default": (i == 0)} for i, mid in enumerate(ids)]
+    _emit_success({
+        "cli": "codex",
+        "models": models,
+        "default_model": ids[0],
+        "aliases": {},
+        "source": "codex_subprocess",
+    })
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Enumerate valid sub-agent models for the active SUBAGENT_CLI.",
+    )
+    parser.add_argument(
+        "--inside-container",
+        action="store_true",
+        help=(
+            "Shell to the underlying CLI (opencode models / codex debug models --bundled). "
+            "Default: read /opt/cli-defaults/<cli>.json on host (host-friendly mode)."
+        ),
+    )
+    args = parser.parse_args()
+
+    cli = os.getenv("SUBAGENT_CLI", "claude").strip() or "claude"
+    if cli not in VALID_CLIS:
+        _emit_error(
+            cli,
+            f"unknown SUBAGENT_CLI: {cli}",
+            f"valid values: {', '.join(VALID_CLIS)}",
+            2,
+        )
+
+    if cli == "claude":
+        _list_claude()  # no --inside-container distinction; no shelling for claude
+    elif cli == "opencode":
+        if args.inside_container:
+            _list_opencode_inside_container()
+        else:
+            _list_opencode_host()
+    elif cli == "codex":
+        if args.inside_container:
+            _list_codex_inside_container()
+        else:
+            _list_codex_host()
+
+
+if __name__ == "__main__":
+    main()

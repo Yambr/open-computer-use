@@ -49,9 +49,12 @@ _DEV_ENV_VARS_TO_SCRUB = (
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-    "SUB_AGENT_DEFAULT_MODEL",
+    "CLAUDE_SUB_AGENT_DEFAULT_MODEL",
     "CODEX_SUB_AGENT_DEFAULT_MODEL",
     "OPENCODE_SUB_AGENT_DEFAULT_MODEL",
+    "CODEX_MODEL",
+    "OPENCODE_MODEL",
+    "OPENCODE_MODEL_ALIASES",
 )
 
 
@@ -189,6 +192,14 @@ def test_dispatch_routes_to_correct_adapter(
     """resolve_cli() inside the dispatch boundary must reflect SUBAGENT_CLI."""
     _scrub_dev_env(monkeypatch)
     monkeypatch.setenv("SUBAGENT_CLI", cli_value)
+    # Phase 2: opencode/codex no longer have hardcoded defaults — set the
+    # per-CLI default env so resolve_subagent_model("", ...) doesn't raise
+    # before fake_dispatch is reached. The actual id is irrelevant; the test
+    # only checks that dispatch was invoked with the right CLI.
+    if cli_value == "opencode":
+        monkeypatch.setenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "anthropic/claude-sonnet-4-6")
+    elif cli_value == "codex":
+        monkeypatch.setenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "gpt-5-codex")
     _reload_runtime()
     import cli_runtime
     import mcp_tools
@@ -249,6 +260,11 @@ def test_cost_rendering_unavailable_for_none(monkeypatch, cli_value):
     """
     _scrub_dev_env(monkeypatch)
     monkeypatch.setenv("SUBAGENT_CLI", cli_value)
+    # Phase 2: per-CLI default env required for opencode/codex.
+    if cli_value == "opencode":
+        monkeypatch.setenv("OPENCODE_SUB_AGENT_DEFAULT_MODEL", "anthropic/claude-sonnet-4-6")
+    elif cli_value == "codex":
+        monkeypatch.setenv("CODEX_SUB_AGENT_DEFAULT_MODEL", "gpt-5-codex")
     _reload_runtime()
     import mcp_tools
 

@@ -152,11 +152,35 @@ fi
 
 # 12. No werf.yaml (not needed for GitHub)
 echo ""
-echo "[12/12] No werf.yaml"
+echo "[12/14] No werf.yaml"
 if [ -f "$ROOT/werf.yaml" ]; then
     fail "werf.yaml should not exist in community version"
 else
     pass "No werf.yaml"
+fi
+
+# 13-14. Sub-agent runtime — bash sub-tests with stdlib python3 only
+# NB: pytest sub-tests (which need 'mcp', 'docker', 'fastmcp' deps) live in
+# tests/orchestrator/ and are run by the "Pytest — orchestrator" CI job
+# that installs the requirements.txt. This Test job invokes ONLY bash
+# scripts that may shell out to `python3` for JSON validation using the
+# stdlib (no third-party deps) — python3 is preinstalled on every
+# ubuntu-latest runner. The full umbrella (tests/test-subagent-runtime.sh)
+# is for local dev convenience and runs ALL sub-tests including pytest.
+echo ""
+echo "[13/14] Sub-agent skill audit (no hardcoded model names)"
+if bash "$(dirname "$0")/test-skill-no-hardcoded-models.sh" >/tmp/skill-audit.log 2>&1; then
+    pass "test-skill-no-hardcoded-models.sh exits 0"
+else
+    fail "test-skill-no-hardcoded-models.sh exits non-zero — see /tmp/skill-audit.log"
+fi
+
+echo ""
+echo "[14/14] list-subagent-models script invocation"
+if bash "$(dirname "$0")/test-list-subagent-models.sh" >/tmp/list-subagent.log 2>&1; then
+    pass "test-list-subagent-models.sh exits 0"
+else
+    fail "test-list-subagent-models.sh exits non-zero — see /tmp/list-subagent.log"
 fi
 
 # Summary

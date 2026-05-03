@@ -120,6 +120,19 @@ class OpenCodeAdapter:
             events.append(event)
             et = event.get("type", "")
 
+            # Application-level error events (opencode exits rc=0 but emits these).
+            # Must be checked first so the error branch wins over any text extraction
+            # that might otherwise overwrite last_message_text with empty/garbage.
+            if et == "error":
+                is_error = True
+                err_data = event.get("data", {}) or {}
+                if isinstance(err_data, dict):
+                    err_msg = err_data.get("message") or str(err_data)
+                else:
+                    err_msg = str(err_data)
+                last_message_text = f"opencode error: {err_msg}"
+                continue
+
             # Capture the final assistant text (last seen wins).
             if et in ("assistant-message-completed", "step-finish", "message-completed"):
                 text_field = (

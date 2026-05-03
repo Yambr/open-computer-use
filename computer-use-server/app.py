@@ -1414,7 +1414,15 @@ async def runtime_cli(response: Response):
     # CR PR#76 finding #1: do not duplicate the per-CLI fallback table here.
     from cli_runtime import Cli, resolve_cli, resolve_subagent_model
     cli = resolve_cli()
-    model_id, _display = resolve_subagent_model("", cli)
+    # Phase 2: opencode/codex no longer have a hardcoded fallback. When the
+    # operator hasn't set a per-CLI default env, resolve_subagent_model raises
+    # a ValueError pointing them at list-subagent-models. Surface that as
+    # default_model=null so the badge can render "no default — set
+    # <CLI>_SUB_AGENT_DEFAULT_MODEL" instead of crashing the endpoint.
+    try:
+        model_id, _display = resolve_subagent_model("", cli)
+    except ValueError:
+        model_id = None
     return {
         "cli": cli.value,
         "default_model": model_id,

@@ -479,26 +479,14 @@ if [ ! -f /tmp/.cli-runtime-initialised ]; then\n\
             mkdir -p /tmp\n\
             if [ -n "${OPENCODE_CONFIG_EXTRA:-}" ]; then\n\
                 printf "%s" "$OPENCODE_CONFIG_EXTRA" > /tmp/opencode.json\n\
-                echo "OpenCode config sourced from OPENCODE_CONFIG_EXTRA (operator override; canonical block skipped)"\n\
+                echo "OpenCode config sourced from OPENCODE_CONFIG_EXTRA (operator override; canonical file skipped)"\n\
+            elif [ -f /opt/cli-defaults/opencode.json ]; then\n\
+                # D-09/D-10: strip _spdx/_copyright underscore-prefixed keys before passing to opencode CLI.\n\
+                python3 -c "import json,sys; d=json.load(open('"'"'/opt/cli-defaults/opencode.json'"'"')); [d.pop(k,None) for k in list(d) if k.startswith('"'"'_'"'"')]; json.dump(d,sys.stdout)" > /tmp/opencode.json\n\
+                echo "OpenCode config sourced from /opt/cli-defaults/opencode.json (canonical default)"\n\
             else\n\
-                cat > /tmp/opencode.json <<'"'"'OCEOF'"'"'\n\
-{\n\
-  "$schema": "https://opencode.ai/config.json",\n\
-  "provider": {\n\
-    "openrouter": {\n\
-      "options": { "apiKey": "{env:OPENROUTER_API_KEY}" }\n\
-    },\n\
-    "openai": {\n\
-      "options": { "apiKey": "{env:OPENAI_API_KEY}" }\n\
-    },\n\
-    "anthropic": {\n\
-      "options": { "apiKey": "{env:ANTHROPIC_API_KEY}" }\n\
-    }\n\
-  },\n\
-  "model": "anthropic/claude-sonnet-4-6"\n\
-}\n\
-OCEOF\n\
-                echo "OpenCode config rendered to /tmp/opencode.json (env-substituted, no plaintext secrets)"\n\
+                echo "FATAL: /opt/cli-defaults/opencode.json missing and OPENCODE_CONFIG_EXTRA unset" >&2\n\
+                exit 1\n\
             fi\n\
             export OPENCODE_CONFIG=/tmp/opencode.json\n\
             ;;\n\
@@ -516,9 +504,39 @@ wire_api = "responses"\n\
 requires_openai_auth = true\n\
 CXEOF\n\
                 echo "Codex config rendered with custom gateway: $OPENAI_BASE_URL"\n\
+            elif [ -f /opt/cli-defaults/codex.json ]; then\n\
+                # D-09: read canonical JSON, convert to TOML. Empty model_providers baseline = public OpenAI defaults.\n\
+                python3 -c "\n\
+import json,sys\n\
+def _to_toml_value(v):\n\
+    if v is None:\n\
+        raise ValueError('"'"'TOML does not support null values; provider config must omit empty fields'"'"')\n\
+    if isinstance(v,dict):\n\
+        inner='"'"', '"'"'.join(k+'"'"' = '"'"'+_to_toml_value(val) for k,val in v.items())\n\
+        return '"'"'{'"'"'+inner+'"'"'}'"'"'\n\
+    return json.dumps(v)\n\
+d=json.load(open('"'"'/opt/cli-defaults/codex.json'"'"'))\n\
+[d.pop(k,None) for k in list(d) if k.startswith('"'"'_'"'"')]\n\
+providers=d.get('"'"'model_providers'"'"',{}) or {}\n\
+default_model=d.get('"'"'default_model'"'"')\n\
+lines=[]\n\
+if default_model:\n\
+    lines.append('"'"'model = \"'"'"' + default_model + '"'"'\"'"'"')\n\
+if providers:\n\
+    first=next(iter(providers))\n\
+    lines.append('"'"'model_provider = \"'"'"' + first + '"'"'\"'"'"')\n\
+    lines.append('"'"''"'"')\n\
+    for name,cfg in providers.items():\n\
+        lines.append('"'"'[model_providers.'"'"' + name + '"'"']'"'"')\n\
+        for ck,cv in cfg.items():\n\
+            lines.append(ck + '"'"' = '"'"' + _to_toml_value(cv))\n\
+        lines.append('"'"''"'"')\n\
+print('"'"'\\n'"'"'.join(lines))\n\
+" > /home/assistant/.codex/config.toml\n\
+                echo "Codex config sourced from /opt/cli-defaults/codex.json (canonical default; converted to TOML)"\n\
             else\n\
                 : > /home/assistant/.codex/config.toml\n\
-                echo "Codex config empty — public OpenAI defaults"\n\
+                echo "Codex config empty — public OpenAI defaults (no canonical file found)"\n\
             fi\n\
             if [ -n "${CODEX_CONFIG_EXTRA:-}" ]; then\n\
                 printf "\\n# === CODEX_CONFIG_EXTRA (operator-supplied) ===\\n%s\\n" "$CODEX_CONFIG_EXTRA" >> /home/assistant/.codex/config.toml\n\
@@ -589,6 +607,15 @@ WORKDIR /home/assistant
 # See vendor/extract-text/README.md for licensing and the followup to fetch it at build time.
 COPY --chown=root:root vendor/extract-text/extract-text /usr/local/bin/extract-text
 RUN chmod +x /usr/local/bin/extract-text
+
+# Phase 2 D-09: canonical CLI default configs as single source of truth.
+# The sandbox entrypoint reads these instead of inline heredocs.
+COPY computer-use-server/cli-defaults/ /opt/cli-defaults/
+RUN chmod -R a+r /opt/cli-defaults
+
+# list-subagent-models — canonical Python tool for the sub-agent skill (REQ-MCP-04)
+COPY --chown=root:root computer-use-server/bin/list-subagent-models /usr/local/bin/list-subagent-models
+RUN chmod +x /usr/local/bin/list-subagent-models
 
 # Copy skills into image (available in all containers)
 # Placed late in Dockerfile so skill file changes don't invalidate heavy layers above
