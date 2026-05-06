@@ -103,6 +103,20 @@ If you're upgrading from v4.0.0 / v3.x and saved `"artifact"` or `"both"` in you
 
 You are running stock Open WebUI — the markdown link stays a link. Either live with the click (fine on mobile/minimal deploys) or apply Path B (`fix_preview_url_detection` + `fix_artifacts_auto_show`) to get the inline artifact panel.
 
+### Filter cannot reach `computer-use-server` (cross-stack DNS)
+
+**Symptom:** Preview iframe never auto-opens even on the patched build, system-prompt injection silently falls back to stale cache, or OWUI container logs show DNS errors / connection-refused on `http://computer-use-server:8081`. Manually editing the `ORCHESTRATOR_URL` Valve to a host IP (e.g. `http://192.168.x.x:8081`) makes the symptom disappear.
+
+**Why:** `docker-compose.yml` and `docker-compose.webui.yml` reach each other through the **default Docker Compose network**, which only works when both stacks share a project name. Compose derives the project name from the parent directory (`open-computer-use`). If the two stacks end up with different project names — different parent directory, `-p custom-name` flag, `COMPOSE_PROJECT_NAME` env, `docker compose --project-directory`, or running them from separate clones — they get separate networks and `computer-use-server` no longer resolves from inside the OWUI container.
+
+**Fixes (pick one):**
+
+- **Restore the shared project name.** Keep both compose files in the same `open-computer-use/` directory and start them without `-p`. Verify with `docker network inspect open-computer-use_default` — both `computer-use-server` and `open-webui` should appear in the `Containers` section.
+- **Override the env before bringing OWUI up:** add `ORCHESTRATOR_URL=http://host.docker.internal:8081` to `.env`. On Linux, also append `extra_hosts: ["host.docker.internal:host-gateway"]` to the `open-webui` service in `docker-compose.webui.yml` (Docker Desktop / macOS / Windows resolve this automatically). Then re-seed the Valves so the new env reaches the persistent OWUI database: `docker exec <owui> rm /app/backend/data/.computer-use-initialized && docker restart <owui>`.
+- **Hard-set the Valve** via OWUI admin → Functions → Computer Use Filter → Valves → `ORCHESTRATOR_URL` to a host IP or hostname the OWUI container can reach. Quickest one-off fix, but it persists in the OWUI database and survives `.env` changes — easy to forget on the next deploy.
+
+The same root cause also breaks the matching `ORCHESTRATOR_URL` Valve on the **Tool** (`computer_use_tools.py`) and the env var read by the `fix_large_tool_results` patch — fix once at the env layer and all three pick it up via `init.sh`.
+
 ### "Non-http scheme" error in logs
 
 Caused by setting `ORCHESTRATOR_URL` to a `file://`, `ftp://`, or similarly non-http(s) URL. The filter rejects it and serves the stale cache if available, otherwise skips injection. Fix by pointing the Valve at an `http://` or `https://` endpoint.
