@@ -48,45 +48,64 @@ jobs:
             echo "BUG: helm lint should have failed with empty secrets" >&2
             exit 1
           fi
+          # storageClass is enforced by `required` in the PVC templates, not by the schema,
+          # so `helm lint` cannot see it — it validates values and never renders. The check
+          # belongs on `helm template`, and lives in the next step.
           # Should pass with all required keys set
           helm lint helm/computer-use-server \
+            --set secrets.create=true \
             --set secrets.mcpApiKey=test \
-            --set orchestrator.env.PUBLIC_BASE_URL=https://x.example.com
+            --set orchestrator.env.PUBLIC_BASE_URL=https://x.example.com \
+            --set persistence.userData.storageClass=standard \
+            --set persistence.data.storageClass=standard \
+            --set persistence.skillsCache.storageClass=standard \
+            --set persistence.podmanStorage.storageClass=standard
           # Examples must lint cleanly
           helm lint helm/computer-use-server -f examples/helm/standalone/values.yaml
           helm lint helm/computer-use-server -f examples/helm/with-open-webui/values-computer-use.yaml
 
-      - name: helm template (default Kata path + runc fallback)
+      - name: helm template (default rootless Podman + Kata opt-in)
         run: |
           set -e
-          # Default — Kata is the supported runtime; chart defaults render it.
+          # A missing storageClass must stop the render rather than produce a PVC that
+          # silently takes whichever class the cluster marks default. Enforced by
+          # `required` in the PVC templates, which is why this is a template-time check.
+          if helm template ocu helm/computer-use-server \
+               --set secrets.create=true \
+               --set secrets.mcpApiKey=test \
+               --set orchestrator.env.PUBLIC_BASE_URL=https://x.example.com \
+               >/dev/null 2>&1; then
+            echo "BUG: helm template should have failed with no storageClass" >&2
+            exit 1
+          fi
+          # Default — rootless Podman, on a stock node.
           helm template ocu helm/computer-use-server \
             -f examples/helm/standalone/values.yaml \
             > /tmp/render-default.yaml
-          grep -q "runtimeClassName: kata-qemu" /tmp/render-default.yaml
-          grep -q "privileged: true" /tmp/render-default.yaml
           grep -q "name: orchestrator" /tmp/render-default.yaml
-          grep -q "name: dind" /tmp/render-default.yaml
+          grep -q "name: podman" /tmp/render-default.yaml
           grep -q "name: cleanup" /tmp/render-default.yaml
-          # The Kata machinery must be present by default.
-          grep -q "dind-entrypoint.sh" /tmp/render-default.yaml
-          grep -q "volumeMode: Block" /tmp/render-default.yaml
-          grep -q "devicePath: /dev/var-lib-docker" /tmp/render-default.yaml
-          grep -q "storage-driver=fuse-overlayfs" /tmp/render-default.yaml
-          # Unsupported runc fallback — explicit opt-out of every Kata knob.
+          grep -q "podman-storage" /tmp/render-default.yaml
+          # None of what the chart used to demand of a cluster.
+          ! grep -q "privileged: true" /tmp/render-default.yaml
+          ! grep -q "runtimeClassName:" /tmp/render-default.yaml
+          ! grep -q "volumeMode: Block" /tmp/render-default.yaml
+          ! grep -q "var-lib-docker" /tmp/render-default.yaml
+          # NB: not `name: dind` — that also matches the dind-socket volume, whose name is
+          # historical (Podman serves the Docker API on that socket). Match the container.
+          ! grep -qE "^ {8}- name: dind$" /tmp/render-default.yaml
+          # An older values file naming the removed switch must not resurrect dind.
+          ! helm template ocu helm/computer-use-server \
+              -f examples/helm/standalone/values.yaml \
+              --set sandboxRuntime=docker \
+            | grep -qE "^ {8}- name: dind$"
+          # Kata opt-in still renders the VM boundary.
           helm template ocu helm/computer-use-server \
-            --set secrets.mcpApiKey=t \
-            --set orchestrator.env.PUBLIC_BASE_URL=https://x \
-            --set orchestrator.runtimeClassName="" \
-            --set dind.privileged=null \
-            --set dind.kataInit.enabled=false \
-            --set dind.storageDriver=overlay2 \
-            --set persistence.varLibDocker.persistentVolume.enabled=false \
-            > /tmp/render-runc.yaml
-          grep -q "privileged: true" /tmp/render-runc.yaml
-          ! grep -q "runtimeClassName:" /tmp/render-runc.yaml
-          ! grep -q "dind-entrypoint.sh" /tmp/render-runc.yaml
-          ! grep -q "volumeMode: Block" /tmp/render-runc.yaml
+            -f examples/helm/standalone/values.yaml \
+            --set orchestrator.runtimeClassName=kata-qemu-heavy \
+            > /tmp/render-kata.yaml
+          grep -q "runtimeClassName: kata-qemu-heavy" /tmp/render-kata.yaml
+          grep -q "name: podman" /tmp/render-kata.yaml
 
       - name: Install kubeconform and validate manifests against k8s schemas
         env:
@@ -95,7 +114,7 @@ jobs:
           curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
             | sudo tar -xz -C /usr/local/bin kubeconform
           kubeconform -strict -summary -kubernetes-version 1.30.0 /tmp/render-default.yaml
-          kubeconform -strict -summary -kubernetes-version 1.30.0 /tmp/render-runc.yaml
+          kubeconform -strict -summary -kubernetes-version 1.30.0 /tmp/render-kata.yaml
 
   release:
     name: Publish chart to gh-pages
