@@ -452,7 +452,7 @@ docker exec <postgres-container> psql -U openwebui -d openwebui -c \
 
 - **Docker socket**: The server needs Docker socket access to manage sandbox containers. This grants significant host access — run in a trusted environment only.
 - **MCP_API_KEY**: Set a strong random key in production. Without it, anyone with network access to port 8081 can execute arbitrary commands in containers.
-- **Sandbox isolation**: Each chat session runs in a separate container with resource limits (2GB RAM, 1 CPU). On Docker Compose, containers use the standard runtime (runc) and share the host kernel. For stronger isolation, run the [Kubernetes Helm chart](docs/kubernetes.md) with [Kata Containers](docs/kata-runtime.md) (hypervisor-grade, available today) — or, on Compose, switch to gVisor (see roadmap). Containers have network access by default.
+- **Sandbox isolation**: Each chat session runs in a separate container with resource limits (2GB RAM, 1 CPU). On Docker Compose, containers use the standard runtime (runc) and share the host kernel. The [Kubernetes Helm chart](docs/kubernetes.md) defaults to rootless Podman — user namespaces plus AppArmor, and no privileged container — and can opt into [Kata Containers](docs/kata-runtime.md) for a hypervisor-grade boundary. On Compose, switch to gVisor (see roadmap). Containers have network access by default.
 - **POSTGRES_PASSWORD**: Change the default password in `.env` for production.
 
 ### Known limitations

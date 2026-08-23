@@ -3,16 +3,18 @@
 #
 # Minimum-viable values for computer-use-server.
 #
-# The chart runs the inner Docker daemon under Kata Containers. Before installing:
-#   1. Install kata-deploy and confirm the RuntimeClass exists:
-#        kubectl get runtimeclass kata-qemu
-#   2. Allow privileged pods in the target namespace:
-#        kubectl label ns open-computer-use \
-#          pod-security.kubernetes.io/enforce=privileged --overwrite
-#   3. The cluster default StorageClass must provision Block volumes (the chart
-#      uses a Block-mode PVC for /var/lib/docker). Override
-#      persistence.varLibDocker.persistentVolume.storageClass if it does not.
-# Full runbook: docs/kata-runtime.md.
+# The chart runs the sandboxes under a rootless Podman sidecar, so it installs on a
+# stock node: no privileged pods, no RuntimeClass, no Block-mode storage.
+#
+# The only hard requirement is that you name a StorageClass for each of the four
+# volumes below — the chart refuses to render otherwise, rather than letting a PVC
+# silently take whichever class the cluster marks default.
+#
+#   kubectl get storageclass
+#
+# Optional but recommended: an AppArmor profile for the Podman sidecar, selected with
+# podAnnotations. Without one the sandboxes run under the cluster's default profile.
+# For a VM boundary instead, see docs/kata-runtime.md.
 #
 # Run:
 #   helm install ocu helm/computer-use-server \
@@ -20,6 +22,21 @@
 #     -f examples/helm/standalone/values.yaml
 #
 # Replace the placeholders (change-me-*, *.example.com) before applying.
+
+# REQUIRED. Node-local suits the caches and the image store; replicated storage is
+# only worth it for `data`. `standard` is a placeholder — name a class your cluster has.
+persistence:
+  userData:
+    storageClass: standard
+  data:
+    storageClass: standard
+  skillsCache:
+    storageClass: standard
+  # Podman's graph root. NOT a cache: it holds the pulled sandbox image and the named
+  # volume carrying each chat's working directory. Size it for the image (~9.5 GB
+  # unpacked) plus your workspaces.
+  podmanStorage:
+    storageClass: standard
 
 secrets:
   create: true

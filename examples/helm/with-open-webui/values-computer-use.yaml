@@ -4,6 +4,18 @@
 # Values for helm/computer-use-server when deployed alongside Open WebUI.
 # See examples/helm/with-open-webui/README.md for install order and Secret setup.
 
+# REQUIRED on all four volumes — the chart will not render without them.
+# `standard` is a placeholder; name a class your cluster has (kubectl get storageclass).
+persistence:
+  userData:
+    storageClass: standard
+  data:
+    storageClass: standard
+  skillsCache:
+    storageClass: standard
+  podmanStorage:
+    storageClass: standard
+
 secrets:
   # GitOps-friendly: chart reads MCP_API_KEY + tokens from the existing Secret.
   create: false

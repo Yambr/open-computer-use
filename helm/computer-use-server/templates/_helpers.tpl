@@ -79,37 +79,3 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- include "computer-use-server.fullname" . -}}
 {{- end -}}
 {{- end -}}
-
-{{/*
-Whether the inner dind container must run privileged.
-Resolution order:
-  1. dind.privileged explicitly set (true/false) => use it verbatim.
-     The Kata default is `true`: dockerd requires CAP_NET_ADMIN/RAW for
-     iptables NAT, and the caps stay confined to the microVM.
-  2. dind.privileged is null => auto-derive from runtimeClassName:
-       runtimeClassName empty => true  (runc fallback — dockerd needs it)
-       runtimeClassName set   => false
-*/}}
-{{- define "computer-use-server.dindPrivileged" -}}
-{{- if not (kindIs "invalid" .Values.dind.privileged) -}}
-{{- .Values.dind.privileged -}}
-{{- else if eq (default "" .Values.orchestrator.runtimeClassName) "" -}}
-true
-{{- else -}}
-false
-{{- end -}}
-{{- end -}}
-
-{{/*
-Whether /var/lib/docker is backed by a Block-mode PVC (the Kata default) rather
-than an emptyDir (the runc fallback). True when persistence.varLibDocker
-.persistentVolume is enabled or an existingClaim is supplied.
-*/}}
-{{- define "computer-use-server.varLibDockerIsPVC" -}}
-{{- $pv := .Values.persistence.varLibDocker.persistentVolume | default dict -}}
-{{- if or $pv.enabled $pv.existingClaim -}}
-true
-{{- else -}}
-false
-{{- end -}}
-{{- end -}}

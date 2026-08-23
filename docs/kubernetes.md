@@ -4,24 +4,35 @@ The Docker Compose stack in `docker-compose.yml` / `docker-compose.webui.yml` sh
 
 ## Runtime
 
-The orchestrator runs an inner Docker daemon, which needs a DinD-capable runtime
-on the node. The chart uses **[Kata Containers](https://katacontainers.io/)** —
-it works on modern containerd 2.x clusters (RKE2 / k3s / kubeadm ≥ 1.34) and
-isolates the pod in a microVM. Install `kata-deploy` and follow the
-[Kata runtime guide](kata-runtime.md) before installing the chart.
+The orchestrator runs an inner container engine to spawn the sandboxes. As of chart
+0.4.0 that engine is **rootless [Podman](https://podman.io/)**, and it installs on a
+stock Kubernetes node: no privileged container, no RuntimeClass, no Block-mode PVC.
+`podman system service` speaks the Docker API, so the orchestrator is unchanged.
+
+Isolation is user namespaces plus an AppArmor profile, which is weaker than the VM
+boundary the Kata-based chart gave you. Say so out loud when deciding: it is a
+reduction, not an equivalent. The profile must already exist on the node — a chart
+cannot install one — and is selected with:
+
+```yaml
+podAnnotations:
+  container.apparmor.security.beta.kubernetes.io/podman: localhost/podman-rootless
+```
+
+If your cluster has [Kata Containers](https://katacontainers.io/) and you want the VM
+boundary back, set `orchestrator.runtimeClassName: kata-qemu-heavy` — see the
+[Kata runtime guide](kata-runtime.md). Note that the Block-mode PVC has to come back
+with it: virtio-fs inside the guest drops the `security.capability` xattrs the sandbox
+image carries, which is why that volume existed in the first place.
 
 ## Quick start
 
 ```bash
-# 1. Install Kata Containers (kata-deploy) on the nodes once — see
-#    docs/kata-runtime.md. Confirm the RuntimeClass exists:
-kubectl get runtimeclass kata-qemu
-
-# 2. Add the chart repo (published from the gh-pages branch on every release tag):
+# 1. Add the chart repo (published from the gh-pages branch on every release tag):
 helm repo add open-computer-use https://wide-moat.github.io/open-computer-use
 helm repo update
 
-# 3. Install:
+# 2. Install:
 helm install ocu open-computer-use/computer-use-server \
   --namespace open-computer-use --create-namespace \
   --values examples/helm/standalone/values.yaml
@@ -47,10 +58,10 @@ The chart README at [`helm/computer-use-server/README.md`](../helm/computer-use-
 The orchestrator pod has three containers:
 
 ```text
-┌──────────────────────────── Pod (runtimeClassName: kata-qemu) ──────────────────┐
+┌──────────────────── Pod (no RuntimeClass, nothing privileged) ──────────────────┐
 │                                                                                 │
 │  ┌─────────────────┐   ┌─────────────────┐   ┌──────────────────────────────┐  │
-│  │  orchestrator   │──►│   inner dockerd │◄──│  cleanup sidecar (cron)      │  │
+│  │  orchestrator   │──►│ rootless podman │◄──│  cleanup sidecar (cron)      │  │
 │  │  FastAPI :8081  │   │  spawns chat-*  │   │  reaps stale chat-* + data   │  │
 │  └─────────────────┘   └─────────────────┘   └──────────────────────────────┘  │
 │        │ /var/run/docker.sock  ▲       ▲                  ▲                     │
@@ -58,24 +69,30 @@ The orchestrator pod has three containers:
 │                                                                                 │
 │  Volumes:                                                                       │
 │   - emptyDir  dind-socket    → /var/run on all three containers                │
-│   - Block PVC var-lib-docker → /var/lib/docker on dind ONLY (xattr-safe)       │
+│   - PVC       podman-storage → ~/.local/share/containers on podman ONLY        │
 │   - PVC       user-data      → /tmp/computer-use-data (RWO)                    │
 │   - PVC       data           → /data (RWO)                                     │
 │   - PVC       skills-cache   → /data/skills-cache (RWO)                        │
 └─────────────────────────────────────────────────────────────────────────────────┘
+
+The socket is still called `docker.sock`: Podman serves the Docker API on it, which is
+why the orchestrator needs no change. `podman-storage` is **not** a cache — it holds the
+pulled sandbox image *and* the named volume carrying each chat's working directory, so an
+emptyDir there discards user work on every pod restart.
 ```
 
-**Why DinD instead of native k8s Pods?**
-The existing orchestrator code talks to a Docker socket. Lifting it onto Kubernetes via Kata Containers keeps the app code unchanged. A future `K8sBackend` rewrite (drafted in [`docs/future-architecture/`](future-architecture/)) will spawn native Pods, at which point the inner dockerd disappears — but that's a separate workstream.
+**Why an inner engine instead of native k8s Pods?**
+The existing orchestrator code talks to a Docker socket. Running an engine beside it keeps the app code unchanged. A future `K8sBackend` rewrite (drafted in [`docs/future-architecture/`](future-architecture/)) will spawn native Pods, at which point the inner engine disappears — but that's a separate workstream.
 
 **Why is the orchestrator single-replica?**
-It owns the inner Docker daemon and three RWO PVCs. There is no shared state between replicas and no leader-election. The chart hard-pins `replicas: 1` in `values.schema.json`.
+It owns the inner container engine and its RWO PVCs. There is no shared state between replicas and no leader-election. The chart hard-pins `replicas: 1` in `values.schema.json`.
 
 ## Prerequisites checklist
 
 - Kubernetes ≥ 1.27
-- StorageClass that supports `ReadWriteOnce` and is the cluster default (or pass `persistence.*.storageClass` explicitly), plus one that provisions Block volumes for `/var/lib/docker`
-- Kata Containers installed on candidate nodes + the `kata-qemu` `RuntimeClass` — see [`kata-runtime.md`](kata-runtime.md)
+- A StorageClass that supports `ReadWriteOnce`. `persistence.*.storageClass` is **required** on all four volumes — the chart refuses to render without it, rather than letting a PVC silently take whichever class the cluster marks default. Node-local suits the caches and the image store; replicated is worth it only for `data`.
+- An AppArmor profile on the nodes for the Podman sidecar, referenced through `podAnnotations`. Without one the sandboxes still run, confined only by the cluster's default profile.
+- Kata Containers **only if** you opt back into `orchestrator.runtimeClassName` — see [`kata-runtime.md`](kata-runtime.md). Not required by default.
 - Ingress controller (nginx-ingress, Traefik, etc.) if you set `ingress.enabled=true`
 - DNS + TLS cert for the public hostname referenced by `PUBLIC_BASE_URL`
 

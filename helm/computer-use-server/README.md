@@ -1,6 +1,21 @@
 # computer-use-server Helm chart
 
-Deploys the [open-computer-use](https://github.com/Wide-Moat/open-computer-use) orchestrator on Kubernetes. The pod runs the FastAPI MCP server, an inner Docker daemon (DinD), and an optional cleanup sidecar. Disposable workspace containers are spawned by the inner daemon — the same architecture as the Docker Compose stack, lifted onto Kubernetes via **[Kata Containers](https://katacontainers.io/)** (microVM isolation, works on containerd 2.x — see [`docs/kata-runtime.md`](../../docs/kata-runtime.md)).
+Deploys the [open-computer-use](https://github.com/Wide-Moat/open-computer-use) orchestrator on Kubernetes. The pod runs the FastAPI MCP server, an inner container engine, and an optional cleanup sidecar. Disposable workspace containers are spawned by that engine — the same architecture as the Docker Compose stack, lifted onto Kubernetes.
+
+> **This copy is ahead of the published chart, and the two render different pods.**
+>
+> The installation instructions below describe the upstream chart at
+> `oci://ghcr.io/wide-moat/charts/computer-use-server`. That is a different artefact from the
+> one you are reading. Rendered against this platform's values, published 0.10.2 produces
+> `orchestrator, dind, cleanup` with a `var-lib-docker` volume; this copy — and the running
+> cluster — produce `orchestrator, podman, cleanup` with `podman-storage`.
+>
+> Installing from the published chart would therefore detach the Podman volume and put
+> Docker-in-Docker back, which is the emergency rollback procedure, not an upgrade. The
+> Podman work has not been merged upstream yet; until it is, this vendored copy is the only
+> place it exists.
+
+**The engine is rootless Podman**, which runs on a stock node: no privileged container, no `RuntimeClass`, no block storage. It is the only engine this chart renders — the Docker-in-Docker path was removed, not made optional.
 
 Open WebUI is **not** packaged here. It has its own [official chart](https://github.com/open-webui/helm-charts) and most users already run it. See [`examples/helm/with-open-webui/`](../../examples/helm/with-open-webui/README.md) for the integration walkthrough.
 
@@ -8,12 +23,14 @@ Open WebUI is **not** packaged here. It has its own [official chart](https://git
 
 ## Prerequisites
 
-1. **Kubernetes ≥ 1.27** with a working CNI and a default StorageClass that supports `ReadWriteOnce`, plus a StorageClass that provisions Block volumes (for `/var/lib/docker`).
-2. **[Kata Containers](https://katacontainers.io/)** installed on every node that may schedule the orchestrator pod, with the `kata-qemu` `RuntimeClass`. Install `kata-deploy` and follow [`docs/kata-runtime.md`](../../docs/kata-runtime.md). The target namespace must allow privileged pods (PSA `enforce: privileged`).
+1. **Kubernetes ≥ 1.27** with a working CNI and a default StorageClass that supports `ReadWriteOnce`.
+2. **An AppArmor profile permitting user namespaces**, installed on every node that may schedule the pod, and named in `podAnnotations` (`container.apparmor.security.beta.kubernetes.io/podman`). A chart cannot install one. Without it the pod still starts, but the sandboxes get only the cluster's default confinement.
 3. **`helm` ≥ 3.14** (Helm 4 also works).
 4. The orchestrator and workspace images published to a registry the cluster can pull from.
 
-> **Why Kata?** The orchestrator spawns Docker containers inside its own pod (matches the existing app code, no rewrite). Stock `runc` can only do that with `privileged: true`, which gives the inner daemon host-kernel access and trivially breaks isolation — never run that in production. Kata isolates the whole pod in a microVM, so the inner daemon's privileges cannot reach the host kernel, and it works on containerd 2.x (RKE2 / k3s / kubeadm ≥ 1.34). See the [runtime comparison](../../docs/kata-runtime.md#tradeoffs).
+> **Why Podman by default?** The orchestrator spawns containers inside its own pod, which historically meant `dockerd` in there — and `dockerd` needs either Sysbox or `privileged: true`, the latter giving the inner daemon host-kernel access and trivially breaking pod isolation.
+>
+> Rootless Podman serves the same Docker API on the same socket, so the application code is unchanged, but needs none of that: no privileged container, no special runtime, no block-mode PVC. It asks a cluster for nothing unusual, which is the difference between a chart you can install and one you have to negotiate for.
 
 ---
 
@@ -87,12 +104,9 @@ The full schema lives in [`values.yaml`](values.yaml). The knobs you most often 
 |---|---|---|
 | `image.repository` | `ghcr.io/wide-moat/open-computer-use-server` | orchestrator image |
 | `image.tag` | `.Chart.AppVersion` | override if pinning |
-| `workspaceImage.repository` | `ghcr.io/wide-moat/open-computer-use` | passed as `DOCKER_IMAGE` to the orchestrator; the inner dockerd pulls this on first chat |
-| `orchestrator.runtimeClassName` | `kata-qemu` | the Kata `RuntimeClass` (see [kata-runtime.md](../../docs/kata-runtime.md)); `""` drops to stock runc + privileged (functional but INSECURE — testing only) |
-| `dind.privileged` | `true` | whether the dind container runs privileged. `true` is required for Kata (caps confined to the microVM). `null` auto-derives from `runtimeClassName`. |
-| `dind.storageDriver` | `fuse-overlayfs` | dockerd storage driver. `fuse-overlayfs` is required under Kata (`overlay2` fails on the virtio-fs guest root). |
-| `dind.kataInit.enabled` | `true` | runs the chart-managed Kata-guest init wrapper. See [kata-runtime.md](../../docs/kata-runtime.md). Disable only for the runc fallback. |
-| `orchestrator.replicas` | `1` | **must stay 1** — single owner of inner dockerd and RWO PVCs |
+| `workspaceImage.repository` | `ghcr.io/wide-moat/open-computer-use` | passed as `DOCKER_IMAGE` to the orchestrator; Podman pulls this on first chat |
+| `orchestrator.runtimeClassName` | `""` | stock node. Set `kata-qemu-heavy` for a VM boundary — see the note below |
+| `orchestrator.replicas` | `1` | **must stay 1** — single owner of the engine and the RWO PVCs |
 | `orchestrator.env.PUBLIC_BASE_URL` | `""` | **REQUIRED** — browser-facing URL (no trailing slash). Without it, chat file previews 404. |
 | `orchestrator.extraEnv` / `envFrom` | `[]` | inject `ANTHROPIC_*`, `VISION_*`, etc. from existing Secrets / ConfigMaps |
 | `secrets.create` | `true` | renders a Secret from `secrets.mcpApiKey` etc. (handy, bad for GitOps) |
@@ -101,8 +115,7 @@ The full schema lives in [`values.yaml`](values.yaml). The knobs you most often 
 | `persistence.userData.size` | `20Gi` | `/tmp/computer-use-data` — uploads + outputs |
 | `persistence.data.size` | `5Gi` | `/data` — long-lived orchestrator state |
 | `persistence.skillsCache.size` | `2Gi` | `/data/skills-cache` |
-| `persistence.varLibDocker.sizeLimit` | `50Gi` | emptyDir size for the inner `/var/lib/docker`, used only under the runc fallback (when `persistentVolume.enabled=false`). |
-| `persistence.varLibDocker.persistentVolume.enabled` | `true` | back `/var/lib/docker` with a Block-mode PVC (required under Kata for xattr-dependent workloads). Disable only for the runc fallback. See [kata-runtime.md](../../docs/kata-runtime.md). |
+| `persistence.podmanStorage.size` | `40Gi` | Podman's graph root. **Not a cache** — it holds pulled images *and* the named volume for each chat's working directory, so an emptyDir here loses user work on every restart. |
 | `cleanup.enabled` | `true` | runs the same crons as `docker-compose.yml` (`cron/cleanup.sh` + `cron/cleanup-quick.sh`) |
 | `cleanup.containerMaxAgeHours` | `24` | stop workspace containers older than this |
 | `cleanup.dataMaxAgeDays` | `7` | remove stale data dirs older than this |
@@ -151,32 +164,31 @@ The Secret is mounted via `envFrom` — every key becomes an env var on the orch
 
 ---
 
-## Runtime
+## The engine
 
-The chart runs the inner Docker daemon under **Kata Containers**. The chart
-defaults (`runtimeClassName: kata-qemu`, `dind.privileged: true`,
-`dind.kataInit.enabled: true`, `dind.storageDriver: fuse-overlayfs`, Block-mode
-PVC for `/var/lib/docker`) are all set for Kata — install `kata-deploy` and the
-chart works out of the box. The full runbook — install, configure, verify,
-troubleshoot — is in [`docs/kata-runtime.md`](../../docs/kata-runtime.md).
+Rootless Podman, and only that. The pod runs one `podman system service` sidecar speaking the
+Docker API on `/var/run/docker.sock`, so the orchestrator's Docker client needs no change.
+Isolation is user namespaces plus the AppArmor profile named in `podAnnotations`.
 
-| `orchestrator.runtimeClassName` | `dind.privileged` | `dind` runs as | Use it? |
-|---|---|---|---|
-| `kata-qemu` (default) | `true` | `privileged: true` (caps confined to the microVM) | ✅ recommended |
-| `""` (empty) | `null` (auto) ⇒ `true` | `privileged: true` on stock runc | ⚠️ functional but insecure — testing only |
+There used to be a `sandboxRuntime` switch offering Docker-in-Docker under Sysbox, under
+`privileged: true`, or under Kata. All three are gone. The privileged variant gave the inner daemon
+host-kernel access and broke pod isolation outright; the other two demanded cluster features — a
+`RuntimeClass`, raw block storage — that a shared or managed cluster often will not provide, and
+that turned out not to be necessary. An option nobody runs is an option nobody tests, and this one
+could only fail in a privileged context.
 
-`dind.privileged: true` is required for Kata — the inner `dockerd` needs
-`CAP_NET_ADMIN`/`CAP_NET_RAW` for iptables NAT, and the capabilities stay
-confined to the microVM. Setting `runtimeClassName: ""` drops to stock runc with
-a privileged dind; this works, but the inner daemon shares the host kernel, so a
-container escape is trivial. The chart prints a loud warning in `NOTES.txt`. Use
-that path only for local testing — never ship a production cluster that way, and
-pair it with `dind.kataInit.enabled=false` and
-`persistence.varLibDocker.persistentVolume.enabled=false`.
+If you set `orchestrator.runtimeClassName: kata-qemu-heavy` to get a VM boundary back, note what
+comes with it: virtio-fs inside a Kata guest drops the `security.capability` xattrs the sandbox
+image carries, so the image will not unpack on ordinary storage and you need a Block-mode PVC for
+Podman's graph root. That is a property of the guest, not of the storage, which is why the stock
+Podman path needs no block device.
 
 ---
 
 ## Troubleshooting
+
+**`unlinkat /etc/ld.so.cache: operation not permitted` in the dind container.**
+Sysbox issue #406 — you're sharing `/var/lib/docker` somewhere you shouldn't. Confirm `var-lib-docker` is its own `emptyDir`, mounted **only** into the `dind` container. Don't replace it with a PVC and don't bind it into the orchestrator.
 
 **Chat file preview links 404 from the browser.**
 `PUBLIC_BASE_URL` is wrong. It must be the URL the user's browser sees (same host as the Ingress), not the in-cluster service DNS. Update `orchestrator.env.PUBLIC_BASE_URL` and `helm upgrade`.
@@ -189,9 +201,6 @@ The dind container hasn't finished starting yet, or the shared `dind-socket` vol
 
 **Workspace containers can't pull the workspace image.**
 The inner dockerd does the pull, not Kubernetes. The image must be reachable from inside the pod (public registry, or `imagePullSecrets` won't help — they apply only to outer kubelet pulls). For private registries, configure inner-dockerd auth via a custom dind image or `dockerd --insecure-registry` arg.
-
-**`dockerd: iptables: Could not fetch rule set generation id: Permission denied` (Kata).**
-The inner dockerd is not privileged. Under Kata, set `dind.privileged: true` — it is safe because the capabilities are confined to the microVM. See [`docs/kata-runtime.md`](../../docs/kata-runtime.md#troubleshooting) for the full Kata troubleshooting table (`overlay2` mount failures, cgroup-v2 errors, xattr loss).
 
 ---
 
@@ -208,4 +217,4 @@ PVCs are not deleted by `helm uninstall` — remove them explicitly to free the 
 
 ## License
 
-FSL-1.1-Apache-2.0, Copyright (c) 2025 Open Computer Use Contributors.
+BUSL-1.1, Copyright (c) 2025 Open Computer Use Contributors.
