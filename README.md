@@ -11,9 +11,17 @@
 
 MCP server that gives any LLM its own computer — managed Docker workspaces with live browser, terminal, code execution, document skills, and autonomous sub-agents. Self-hosted, open-source, pluggable into any model.
 
-> **Online demo:** **[chat.yambr.com](https://chat.yambr.com)** — Open WebUI with Computer Use already set up, sign in with GitHub or Google. ([More ways to try it](#ways-to-try-it) below.)
+> **Online demo:** **[lab.widemoat.ai](https://lab.widemoat.ai)** — Open WebUI with Computer Use already set up, sign in with GitHub or Google. ([More ways to try it](#ways-to-try-it) below.) The old `chat.yambr.com` address redirects here and will keep doing so.
 >
-> **Transformation in progress:** the project is being reorganised. The managed dashboard, the hosted MCP endpoint and the hosted docs site are offline and their links have been removed from this repository. `chat.yambr.com` stays up and may be interrupted while the move is in progress.
+> **Where this project is going.** Open Computer Use set out to answer one question — can an LLM be given a real computer safely enough to be useful? It answered it, and it is used in production. That result led us somewhere else: [Wide Moat](https://widemoat.ai), an enterprise AI platform that runs inside a company's own perimeter. It is a **different product**, not a rewrite of this one, and it is currently developed in private.
+>
+> Practically, for you:
+>
+> - **This repository keeps working.** It is maintained — fixes, dependency and security updates, and support for the Open WebUI versions it targets. It is not abandoned and not deprecated.
+> - **Its pace of new features slows down.** Our attention has moved to the platform, and that is honest to say up front rather than to leave you guessing from commit dates.
+> - **The licence promise stands.** FSL-1.1-Apache-2.0: use it, fork it, self-host it, redistribute it — and every release converts to Apache-2.0 two years after publication, whatever we do next. Nothing here can be taken back from you.
+>
+> Worth watching if you like this project: a sandbox integrated natively into Open WebUI, rather than bolted on through a filter and a tool, is one of the things being built on the platform. Try the hosted lab at [lab.widemoat.ai](https://lab.widemoat.ai) or read more at [widemoat.ai](https://widemoat.ai).
 >
 > If any of this looks useful, a ⭐ on the repo really helps — thanks!
 
@@ -93,10 +101,10 @@ See [docs/FEATURES.md](docs/FEATURES.md) for architecture details and [docs/SCRE
 
 | Path | URL | What you need | Best for |
 |------|-----|---------------|----------|
-| **Free online demo** — Open WebUI + Computer Use, models included | **[chat.yambr.com](https://chat.yambr.com)** | GitHub or Google sign-in | Trying it end-to-end in 30 seconds |
+| **Free online demo** — Open WebUI + Computer Use, models included | **[lab.widemoat.ai](https://lab.widemoat.ai)** | GitHub or Google sign-in | Trying it end-to-end in 30 seconds |
 | **Self-host** | [Quick Start](#quick-start) below | Docker, ~15 min first build | Full control, air-gapped, heavy use |
 
-OAuth only — no email/password, no SMS. On `chat.yambr.com` models are bundled as a free convenience. The hosted MCP endpoint is offline during the transformation; see [docs/CLOUD.md](docs/CLOUD.md).
+OAuth only — no email/password, no SMS. On `lab.widemoat.ai` models are bundled as a free convenience. The hosted MCP endpoint is offline during the transformation; see [docs/CLOUD.md](docs/CLOUD.md).
 
 ## Quick Start
 
@@ -497,7 +505,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome!
 
 ## Community
 
-- **Free online demo**: [chat.yambr.com](https://chat.yambr.com) — hosted by the maintainers
+- **Free online demo**: [lab.widemoat.ai](https://lab.widemoat.ai) — hosted by the maintainers
 - **Issues & Ideas**: [GitHub Issues](https://github.com/Wide-Moat/open-computer-use/issues)
 - **Contact**: developer@widemoat.ai
 

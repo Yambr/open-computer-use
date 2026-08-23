@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide is for **self-hosting**. For the managed version (GitHub/Google sign-in, no Docker), see [CLOUD.md](CLOUD.md) or try [chat.yambr.com](https://chat.yambr.com) directly.
+This guide is for **self-hosting**. For the managed version (GitHub/Google sign-in, no Docker), see [CLOUD.md](CLOUD.md) or try [lab.widemoat.ai](https://lab.widemoat.ai) directly.
 
 ## Prerequisites
 

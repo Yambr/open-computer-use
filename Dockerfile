@@ -478,7 +478,7 @@ if [ ! -f /tmp/.cli-runtime-initialised ]; then\n\
         opencode)\n\
             mkdir -p /tmp\n\
             if [ -n "${OPENCODE_CONFIG_EXTRA:-}" ]; then\n\
-                printf "%s" "$OPENCODE_CONFIG_EXTRA" > /tmp/opencode.json\n\
+                printf "%%s" "$OPENCODE_CONFIG_EXTRA" > /tmp/opencode.json\n\
                 echo "OpenCode config sourced from OPENCODE_CONFIG_EXTRA (operator override; canonical file skipped)"\n\
             elif [ -f /opt/cli-defaults/opencode.json ]; then\n\
                 # D-09/D-10: strip _spdx/_copyright underscore-prefixed keys before passing to opencode CLI.\n\
@@ -539,7 +539,7 @@ print('"'"'\\n'"'"'.join(lines))\n\
                 echo "Codex config empty — public OpenAI defaults (no canonical file found)"\n\
             fi\n\
             if [ -n "${CODEX_CONFIG_EXTRA:-}" ]; then\n\
-                printf "\\n# === CODEX_CONFIG_EXTRA (operator-supplied) ===\\n%s\\n" "$CODEX_CONFIG_EXTRA" >> /home/assistant/.codex/config.toml\n\
+                printf "\\n# === CODEX_CONFIG_EXTRA (operator-supplied) ===\\n%%s\\n" "$CODEX_CONFIG_EXTRA" >> /home/assistant/.codex/config.toml\n\
                 echo "Codex config extended via CODEX_CONFIG_EXTRA"\n\
             fi\n\
             chown -R assistant:assistant /home/assistant/.codex\n\
