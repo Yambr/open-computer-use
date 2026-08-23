@@ -22,10 +22,15 @@ services:
     ports:
       - "18081:8081"  # non-default to avoid clashing with a running prod stack
     volumes:
-      # Production parity: bind the host Docker socket so the orchestrator
-      # spawns sibling containers on the host daemon. This is exactly the
-      # configuration the chart targets via Sysbox DinD in k8s and what the
-      # default Compose layout uses on a developer workstation.
+      # Bind the host Docker socket so the orchestrator spawns sibling
+      # containers on the host daemon — the same shape the default Compose
+      # layout uses on a developer workstation.
+      #
+      # The socket path is the contract, not the engine behind it: the
+      # orchestrator talks to whatever serves /var/run/docker.sock, and a
+      # rootless `podman system service` serves the same API. Deployments
+      # differ on which one that is; this file pins Docker because that is
+      # what a GitHub runner has.
       - /var/run/docker.sock:/var/run/docker.sock
       - ./tests/integration/_tmp/user-data:/tmp/computer-use-data:rw
     environment:
