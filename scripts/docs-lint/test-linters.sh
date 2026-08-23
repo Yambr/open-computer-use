@@ -338,10 +338,10 @@ fi
 
 # Replace the tracked content with the canonical address and a product URL;
 # neither must trip the detector.
-printf 'contact %s — see https://chat.yambr.com\n' "$canonical" > "$fixture/notes.md"
+printf 'contact %s — see https://lab.widemoat.ai\n' "$canonical" > "$fixture/notes.md"
 git -C "$fixture" commit -q -am clean
 if ( cd "$fixture" && bash "$detector" ) >/dev/null 2>&1; then
-  ok "identity-email-detector accepts the canonical address and yambr.com URLs"
+  ok "identity-email-detector accepts the canonical address and product URLs"
 else
   err "identity-email-detector false-positives on the canonical address or a product URL"
 fi

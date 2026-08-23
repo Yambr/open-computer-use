@@ -11,7 +11,7 @@ Claude.ai and OpenAI Operator are cloud-only, not self-hosted — we drew inspir
 | Feature | Open Computer Use | [open-terminal](https://github.com/open-webui/open-terminal) | Claude.ai | OpenAI Operator |
 |---------|-------------------|---------------|-----------|-----------------|
 | **Self-hosted** | Yes | Yes | No | No |
-| **Managed SaaS option** | Yes — free demo at [chat.yambr.com](https://chat.yambr.com) | No | Yes (claude.ai) | Yes (operator) |
+| **Managed SaaS option** | Yes — free demo at [lab.widemoat.ai](https://lab.widemoat.ai) | No | Yes (claude.ai) | Yes (operator) |
 | **Any LLM** | Yes (OpenAI-compatible) | Any (via Open WebUI) | Claude only | GPT only |
 | **Code execution** | Full Linux sandbox | Sandbox / bare metal | Sandbox | No |
 | **Live browser** | CDP streaming (shared, interactive) | No | Screenshot-based | Screenshot-based |
