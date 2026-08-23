@@ -352,8 +352,20 @@ jobs:
     name: Integration — real MCP + Docker
     runs-on: ubuntu-latest
     # Catches what unit tests don't: auth wiring, tools/call dispatch, real
-    # container spawn, and label/mount plumbing. Production parity: we use
-    # the runner's host /var/run/docker.sock — identical to compose & helm.
+    # container spawn, and label/mount plumbing, against the runner's host
+    # /var/run/docker.sock.
+    #
+    # What this is parity WITH: the Docker API contract the orchestrator speaks,
+    # and the Compose layout a developer runs. Not with every deployment — an
+    # engine other than Docker can serve that same socket, and at least one
+    # deployment of this chart runs rootless Podman there instead
+    # (`podman system service` speaks the Docker API, which is why the
+    # orchestrator needs no code change either way).
+    #
+    # That difference is not academic: #435 and #436 were both defects that
+    # appeared only under an engine running without root, and neither was
+    # visible from the code or from this job. A green run here says the API
+    # contract holds, not that a rootless engine is exercised.
     needs: [build-sandbox, build-server]
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     # The job depends on locally-tagged workspace + server images (the

@@ -161,34 +161,28 @@ def _truncate_tool_messages_in_history(messages: list) -> None:
 # === END PATCH: _truncate_large_results_in_output ===
 '''
 
-# Search pattern: targets code AFTER fix_tool_loop_errors.py (TOOL_LOOP_ERRORS_UNIFIED marker).
-# v0.9.2: Patch 3's REPLACE now emits `'metadata': metadata,` inside new_form_data — include it
-# in the SEARCH so the cascade region is fully covered and any upstream drift of the metadata
-# key fails loud here rather than silently producing a broken middleware.
+# Search pattern: upstream's own "append a new empty message item" line, which sits directly
+# after the tool results are appended to `output` and BEFORE the `chat:completion` emit that
+# sends them to the frontend and persists them.
+#
+# This anchor used to be `_saved_output`/`new_form_data`, i.e. code inserted by
+# fix_tool_loop_errors. That put truncation one turn too late: against
+# tests/patches/fixtures/middleware_v0.11.0.py the emit is at line 5217 and `new_form_data` at
+# 5223, so full results reached the UI and the DB regardless. Worse, being attached to the
+# `new_form_data` block, it did not run AT ALL when the model answered immediately after a
+# tool call and the loop exited -- the common case for a single large `fetch_url`.
+#
+# Anchoring on upstream code also drops the ordering dependency on fix_tool_loop_errors.
 SEARCH_TOOL_LOOP = (
-    "                    _saved_output = json.loads(json.dumps(output))"
-    "  # TOOL_LOOP_ERRORS_UNIFIED: save for restore on error\n"
-    "                    try:\n"
-    "                        new_form_data = {\n"
-    "                            **form_data,\n"
-    "                            'model': model_id,\n"
-    "                            'stream': True,\n"
-    "                            'metadata': metadata,\n"
-    "                        }\n"
+    "                    # Append a new empty message item for the next response\n"
+    "                    output.append(\n"
 )
 
 REPLACE_TOOL_LOOP = (
     "                    await _truncate_large_results_in_output("
-    "output, metadata.get('chat_id', ''))  # LARGE_TOOL_RESULTS\n"
-    "                    _saved_output = json.loads(json.dumps(output))"
-    "  # TOOL_LOOP_ERRORS_UNIFIED: save for restore on error\n"
-    "                    try:\n"
-    "                        new_form_data = {\n"
-    "                            **form_data,\n"
-    "                            'model': model_id,\n"
-    "                            'stream': True,\n"
-    "                            'metadata': metadata,\n"
-    "                        }\n"
+    "output, metadata.get('chat_id', ''))  # LARGE_TOOL_RESULTS: MARKER_MOD2_BEFORE_EMIT\n"
+    "                    # Append a new empty message item for the next response\n"
+    "                    output.append(\n"
 )
 
 
@@ -251,17 +245,17 @@ def apply_patch():
     content = content[:eol_idx] + FUNCTION_CODE + content[eol_idx:]
     print("  [1/3] Injected functions: _truncate_large_results_in_output, _truncate_tool_messages_in_history, _upload_result_to_docker_ai")
 
-    # Mod 2: Add truncation call before _saved_output in tool loop
+    # Mod 2: truncate current tool results before they are emitted to the frontend
     if SEARCH_TOOL_LOOP not in content:
         print(
-            "ERROR: fix_large_tool_results Mod 2 anchor (TOOL_LOOP_ERRORS_UNIFIED marker) "
-            "not found. Run fix_tool_loop_errors.py first, or upstream tool-loop structure "
-            "changed. Refusing to produce a silently-broken image.",
+            "ERROR: fix_large_tool_results Mod 2 anchor (upstream 'Append a new empty "
+            "message item' line) not found. Upstream tool-loop structure changed. "
+            "Refusing to produce a silently-broken image.",
             file=sys.stderr,
         )
         sys.exit(1)
     content = content.replace(SEARCH_TOOL_LOOP, REPLACE_TOOL_LOOP, 1)
-    print("  [2/3] Tool loop: truncate current results before _saved_output")
+    print("  [2/3] Tool loop: truncate current results before frontend emit")
 
     # Mod 3: Truncate historical tool messages from DB
     if SEARCH_HISTORY not in content:

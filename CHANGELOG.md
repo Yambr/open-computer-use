@@ -24,13 +24,47 @@ Pre-release. Contents are the `v0.11.0.0` entry below, cut so the 0.11.0 base ca
 
 Images carry the `0.11.0.0-rc.1` tag: `ghcr.io/wide-moat/open-computer-use`, `-server`, `-cleanup`, `-webui`. `main` stays on `v0.10.2.0`; nothing about this pre-release changes the stable line.
 
-## v0.11.0.0 — bump Open WebUI base to 0.11.0 (unreleased)
+## v0.11.0.0 — rootless Podman sandboxes, Open WebUI base 0.11.0 (2026-08-23)
 
-Minor release: Open WebUI base bumped from `0.10.2` → `0.11.0`, 616 upstream commits. `middleware.py` changed by 1074 lines, but the output-based tool loop survived intact — `convert_output_to_messages` only moved its definition out of the module and is still imported there. Four of the five `fix_tool_loop_errors` anchors needed rebasing; the other four patches applied without anchor changes.
+Minor release, and the first to carry the sandbox runtime change: the inner container
+engine is now **rootless Podman** instead of Docker-in-Docker. Open WebUI base is bumped
+from `0.10.2` → `0.11.0`, 616 upstream commits. `middleware.py` changed by 1074 lines, but the output-based tool loop survived intact — `convert_output_to_messages` only moved its definition out of the module and is still imported there. Four of the five `fix_tool_loop_errors` anchors needed rebasing. The other four patches
+applied without anchor changes — which turned out to say less than it sounds: three of them
+carried defects that applying cleanly does not reveal, and those are fixed here too.
 
-The headline change is that upstream now handles tool-loop and code-interpreter errors itself.
+On the Open WebUI side the headline change is that upstream now handles tool-loop and
+code-interpreter errors itself.
 
 ### Changed
+
+- **Sandboxes run on rootless Podman instead of Docker-in-Docker.** The chart renders one
+  engine — a `quay.io/podman/stable:v5.3` sidecar (Podman Engine 5.3.2) serving the
+  Docker-compatible API — and there is nothing to select between: the `dind` container, the
+  `sandboxRuntime` switch and the `varLibDocker` PVC are gone. An older values file setting
+  `sandboxRuntime: docker` names a key no template reads.
+
+  What this removes from the cluster's side of the bargain:
+
+  - **No privileged container.** Docker-in-Docker required one; rootless Podman does not.
+  - **No RuntimeClass.** The default was `kata-qemu-heavy`, which most clusters do not have.
+    The chart now installs on a stock Kubernetes node.
+  - **No Block-mode PVC.** This one was not obvious and is the reason the other two could go:
+    the Block volume existed only because virtio-fs inside the Kata guest drops the
+    `security.capability` xattrs the sandbox image carries, so the image would not unpack on
+    ordinary storage. No guest, no virtio-fs, no requirement — verified, not assumed: the
+    9.47 GB image unpacks on plain filesystem storage with file capabilities intact.
+
+  **Isolation changes shape, and it is a reduction rather than a wash.** The Kata VM boundary
+  is replaced by user namespaces plus an AppArmor profile, set through
+  `podAnnotations` (`container.apparmor.security.beta.kubernetes.io/podman`). The profile has
+  to already exist on the node; a chart cannot install one, and without it the sandboxes are
+  confined only by the cluster's default profile. Clusters that have Kata and want the VM
+  boundary back can set `orchestrator.runtimeClassName` — but the Block-mode PVC has to come
+  back with it, because virtio-fs returns with the guest.
+
+  The orchestrator itself is unchanged. `podman system service` speaks the Docker API on the
+  same socket path, so `DOCKER_SOCKET` still reads `unix:///var/run/docker.sock` and the
+  Python Docker SDK talks to Podman without a code change.
 
 - **`openwebui/Dockerfile`** — `ARG OPENWEBUI_VERSION=0.10.2` → `0.11.0`.
 - **`fix_tool_loop_errors` no longer emits its own error banner.** 0.11.0 added `get_message_error_content()` and `emit_message_error()`, and calls both from the tool-loop and code-interpreter `except` blocks — the exact problem this patch was written for ("errors silently swallowed via `log.debug` + `break`"). Emitting our own `chat:message:error` on top would show the user two banners for one failure, so both modifications now call upstream's helper instead. That also gains something the patch never did: `emit_message_error()` persists the error to the chat, not just to the event stream. What stays ours is what upstream still does not do — restoring the text the user already saw before the failure, classifying transport faults into a "resend your message" hint, and rewriting the opaque "Model not found" into a budget-exhaustion message.
@@ -38,11 +72,42 @@ The headline change is that upstream now handles tool-loop and code-interpreter 
 - **`fix_tool_loop_errors` Mod 2 (code_interp)** — same `except` rework, and the chat-title lookup collapsed from a multi-line ternary guarded by a `channel:`-prefix check to a one-liner guarded by the new `save_to_chat` flag.
 - **`fix_tool_loop_errors` Mod 4 (done_bg)** — `ctx['assistant_message']` carries a `'content'` key again. It was dropped in 0.10.0 with `serialize_output()`; 0.11.0 rebuilds it from the streamed text (`''.join(content_parts) or get_output_text(output)`). Upstream also emits `publish_chat_finished_event` just above this block, so the wrap starts at the done-emit to avoid swallowing it.
 - **`fix_tool_loop_errors` Mod 5 (iter)** — the loop bound moved off the module constant onto a local `max_tool_call_iterations`, resolved per request as `getattr(request.state, 'max_tool_call_iterations', CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS)`.
-- **Mod 3 (SSE) unchanged**, and `fix_large_tool_results`, `fix_attached_files_position`, `fix_skip_embedding_chat_files`, `fix_skip_rag_files_native_fc` needed no anchor edits.
+- **Mod 3 (SSE) unchanged**, and `fix_attached_files_position` needed no anchor edits. `fix_large_tool_results`, `fix_skip_embedding_chat_files` and `fix_skip_rag_files_native_fc` applied cleanly against 0.11.0 but were each wrong in a way applying cleanly does not reveal — see **Fixed** below.
 - **Test fixtures** replaced with byte-identical `v0.11.0` extracts (`middleware_v0.11.0.py`, `retrieval_v0.11.0.py`); `conftest.py`, `fixtures/__init__.py` and the `V0102` identifiers across the five suites renamed to match.
 - **Version pins refreshed**: `docker-compose.webui.yml`, `.env.example`, `README.md`, `openwebui/README.md`, `openwebui/patches/README.md`, `docs/openwebui-filter.md`, `helm/computer-use-server/Chart.yaml` `appVersion`, `examples/helm/with-open-webui/values-open-webui.yaml` `tag`, and the `Target:` line in every patch docstring.
 
 ### Fixed
+
+- **`fix_large_tool_results` truncated tool results after the frontend had already been sent
+  them.** Mod 2 anchored on `_saved_output`/`new_form_data`, code inserted by
+  `fix_tool_loop_errors`. In `middleware_v0.11.0.py` the `chat:completion` emit that sends the
+  results to the UI and persists them is at line 5217; that anchor is at 5223. Worse, being
+  attached to the `new_form_data` block, the truncation did not run **at all** when the model
+  answered immediately after a tool call and the loop exited — the common case for a single
+  large `fetch_url`. The anchor now sits on upstream's own "Append a new empty message item"
+  line, ahead of the emit.
+
+  Two things follow. The patch no longer depends on `fix_tool_loop_errors` running first,
+  because it anchors on upstream code rather than another patch's marker; the Dockerfile
+  comment saying otherwise is gone. And a regression test asserts the injection point precedes
+  the emit — the failure was silent in both directions (the patch reported success either way),
+  so the position is asserted rather than the exit code.
+
+- **`fix_skip_embedding_chat_files` injected code that cannot run on 0.10.x or later.** The
+  knowledge-base fallback built its extractor as `Loader(engine=request.app.state.config…)`
+  across some thirty keyword arguments. `app.state.config` was removed upstream — the 0.11.0
+  retrieval source contains zero occurrences — so the fallback would raise on first use.
+  `compile()` cannot see this, which is why it survived a base bump that re-audited every
+  anchor. It now uses upstream's own `get_loader_config()` + `build_loader_from_config()`, both
+  already imported in the target module.
+
+- **`fix_skip_rag_files_native_fc` hid attached notes, chats and URLs from the model.** When
+  the Computer Use tool is enabled the patch skips the RAG pipeline for ordinary files, keeping
+  only items with `context == 'full'`. But upstream's `get_sources_from_items()` dispatches on
+  six types — `text`, `note`, `chat`, `url`, `file`, `collection` — and only `file` has a
+  sandbox equivalent the model can read off disk. Everything else the user attached was dropped
+  silently, with no error and nothing in the log. The filter now keeps any item whose type is
+  not `file`.
 
 - **`server.json` was three base bumps stale** — the MCP registry manifest still declared `0.8.12.6`. Nothing in the repo reads it, which is how it drifted unnoticed since the 0.9.2 bump.
 - **`CLAUDE.md` still described the version scheme as `v0.9.X.Y`** and used `v0.9.5.0` as its worked example, two bases after that stopped being true.
@@ -50,7 +115,7 @@ The headline change is that upstream now handles tool-loop and code-interpreter 
 ### Verified
 
 - Cumulative dry-run in `openwebui/Dockerfile` order against a fresh `v0.11.0` source tree: all five backend patches apply, re-run clean (`ALREADY PATCHED`), both resulting files pass `ast.parse`, and the patched middleware carries exactly one error-banner emit in the tool-loop `except` — the duplicate-banner regression the `emit_message_error` rework exists to avoid.
-- `pytest tests/patches/` — 30 passed against the new fixtures.
+- `pytest tests/patches/` — 31 passed against the new fixtures, including the new anchor-position regression test. That test was itself checked by restoring the old anchor and confirming it fails.
 - Image build of `open-webui-ocu:0.11.0.0-rc.1` succeeds with all seven hard-fail guards green; every marker present in the built layers and both patched Python files parse inside the image.
 - Runtime: container boots, `/api/version` returns `0.11.0`, `/health` returns `{"status":true}`, `init.sh` completes its whole sequence with zero tracebacks. Every endpoint it calls is still present in the 0.11.0 routers, so it needs no change.
 - Browser end-to-end for both frontend chunk patches, with the chat seeded through the REST API rather than generated by a model — no LLM, so the check is reproducible without a provider key. Opening a chat whose assistant message contains an `html` code block opens the Artifacts panel unprompted and the iframe renders the page (`<h1>` reads `PATCH OK`); a chat containing a bare `/files/` URL produces the preview iframe. Zero console errors originate from the patched chunks. This matters more than usual here: `Chat.svelte` changed by 1106 lines and both patches rewrite minified bundles by regex, so "the patch applied" and "the behaviour survived" were genuinely separate questions.
