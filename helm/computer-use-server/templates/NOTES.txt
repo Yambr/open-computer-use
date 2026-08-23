@@ -23,12 +23,10 @@ Ingress:
 ###############################################################################
 # WARNING: orchestrator.runtimeClassName is empty.                            #
 # The inner Docker daemon is running with privileged=true on stock runc.      #
-# It works, but the daemon shares the host kernel — a container escape is     #
-# trivial. INSECURE: local testing only, never production.                   #
+# This is UNSUPPORTED and a container-escape risk.                            #
 #                                                                             #
-# For a secure deployment, install Kata Containers and set:                   #
-#   --set orchestrator.runtimeClassName=kata-qemu                             #
-# Full guide: docs/kata-runtime.md                                            #
+# Install Sysbox: https://github.com/nestybox/sysbox                          #
+# Then set: --set orchestrator.runtimeClassName=sysbox-runc                   #
 ###############################################################################
 {{- end }}
 
@@ -37,30 +35,6 @@ Ingress:
 NOTE: orchestrator.env.PUBLIC_BASE_URL is unset. File-preview links in chat
 will fall back to the in-cluster URL and won't work from a browser. Set it to
 the public URL the user's browser will see, e.g. https://orchestrator.example.com.
-{{- end }}
-
-{{- if hasPrefix "kata" (default "" .Values.orchestrator.runtimeClassName) }}
-
-Kata Containers runtime — checklist:
-  - Confirm the RuntimeClass exists:  kubectl get runtimeclass {{ .Values.orchestrator.runtimeClassName }}
-  - The orchestrator namespace must allow privileged pods. Label it:
-      kubectl label ns {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
-  - The dind container runs privileged — expected and SAFE under Kata
-    (capabilities are confined to the microVM, not the host).
-  - Setup guide: docs/kata-runtime.md
-{{- if not .Values.dind.kataInit.enabled }}
-
-WARNING: a Kata runtimeClassName is set but dind.kataInit.enabled is false.
-dockerd will likely fail (overlay2 cannot mount on the virtio-fs guest root).
-Set dind.kataInit.enabled=true — see docs/kata-runtime.md.
-{{- end }}
-{{- end }}
-
-{{- if and (eq (default "" .Values.orchestrator.runtimeClassName) "") .Values.dind.kataInit.enabled }}
-
-WARNING: dind.kataInit.enabled=true but runtimeClassName is empty (runc fallback).
-The Kata init wrapper is meaningless without Kata. For the runc fallback also set
-dind.kataInit.enabled=false and persistence.varLibDocker.persistentVolume.enabled=false.
 {{- end }}
 
 Run `helm test {{ .Release.Name }} -n {{ .Release.Namespace }}` to verify /health.

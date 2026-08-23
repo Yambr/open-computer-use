@@ -1,64 +1,77 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "SPDX-License-Identifier: FSL-1.1-Apache-2.0 — Copyright (c) 2025 Open Computer Use Contributors",
+  "$comment": "SPDX-License-Identifier: FSL-1.1-Apache-2.0 \u2014 Copyright (c) 2025 Open Computer Use Contributors",
   "title": "computer-use-server Helm values",
   "type": "object",
   "additionalProperties": true,
-  "required": ["image", "orchestrator", "dind", "secrets", "persistence", "service"],
+  "required": [
+    "image",
+    "orchestrator",
+    "secrets",
+    "persistence",
+    "service"
+  ],
   "properties": {
     "image": {
       "type": "object",
-      "required": ["repository"],
+      "required": [
+        "repository"
+      ],
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string" },
-        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
       }
     },
     "workspaceImage": {
       "type": "object",
       "properties": {
-        "repository": { "type": "string" },
-        "tag": { "type": "string" }
+        "repository": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        }
       }
     },
     "orchestrator": {
       "type": "object",
-      "required": ["replicas", "env"],
+      "required": [
+        "replicas",
+        "env"
+      ],
       "properties": {
-        "runtimeClassName": { "type": "string" },
-        "replicas": { "type": "integer", "const": 1, "$comment": "Multi-replica is unsupported — orchestrator owns the inner dockerd and RWO PVCs." },
+        "runtimeClassName": {
+          "type": "string"
+        },
+        "replicas": {
+          "type": "integer",
+          "const": 1,
+          "$comment": "Multi-replica is unsupported \u2014 orchestrator owns the inner dockerd and RWO PVCs."
+        },
         "env": {
           "type": "object",
-          "required": ["PUBLIC_BASE_URL"],
+          "required": [
+            "PUBLIC_BASE_URL"
+          ],
           "properties": {
-            "PUBLIC_BASE_URL": { "type": "string", "minLength": 1, "$comment": "Browser-reachable URL of the orchestrator. Empty value breaks file preview links." }
-          }
-        }
-      }
-    },
-    "dind": {
-      "type": "object",
-      "required": ["image"],
-      "properties": {
-        "image": {
-          "type": "object",
-          "required": ["repository", "tag"],
-          "properties": {
-            "repository": { "type": "string" },
-            "tag": { "type": "string" }
-          }
-        },
-        "storageDriver": { "type": "string" },
-        "privileged": {
-          "type": ["boolean", "null"],
-          "$comment": "null => privileged auto-derived from runtimeClassName (legacy). Set true for Kata, false to force unprivileged."
-        },
-        "kataInit": {
-          "type": "object",
-          "properties": {
-            "enabled": { "type": "boolean", "$comment": "Enables the chart-managed Kata-guest entrypoint wrapper. Pair with a Kata runtimeClassName and dind.privileged=true." },
-            "extraPackages": { "type": "array", "items": { "type": "string" } }
+            "PUBLIC_BASE_URL": {
+              "type": "string",
+              "minLength": 1,
+              "$comment": "Browser-reachable URL of the orchestrator. Empty value breaks file preview links."
+            }
           }
         }
       }
@@ -66,9 +79,17 @@
     "cleanup": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "containerMaxAgeHours": { "type": "integer", "minimum": 1 },
-        "dataMaxAgeDays": { "type": "integer", "minimum": 1 }
+        "enabled": {
+          "type": "boolean"
+        },
+        "containerMaxAgeHours": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "dataMaxAgeDays": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "secrets": {
@@ -77,106 +98,107 @@
       "oneOf": [
         {
           "properties": {
-            "create": { "const": true },
-            "mcpApiKey": { "type": "string", "minLength": 1 }
+            "create": {
+              "const": true
+            },
+            "mcpApiKey": {
+              "type": "string",
+              "minLength": 1
+            }
           },
-          "required": ["create", "mcpApiKey"]
+          "required": [
+            "create",
+            "mcpApiKey"
+          ]
         },
         {
           "properties": {
-            "existingSecret": { "type": "string", "minLength": 1 }
+            "existingSecret": {
+              "type": "string",
+              "minLength": 1
+            }
           },
-          "required": ["existingSecret"]
+          "required": [
+            "existingSecret"
+          ]
         }
       ]
     },
     "persistence": {
       "type": "object",
-      "required": ["userData", "data", "skillsCache", "varLibDocker"],
+      "required": [
+        "userData",
+        "data",
+        "skillsCache"
+      ],
       "properties": {
-        "userData": { "$ref": "#/$defs/pvcSpec" },
-        "data": { "$ref": "#/$defs/pvcSpec" },
-        "skillsCache": { "$ref": "#/$defs/pvcSpec" },
-        "varLibDocker": {
-          "type": "object",
-          "required": ["sizeLimit"],
-          "properties": {
-            "sizeLimit": { "type": "string" },
-            "persistentVolume": {
-              "type": "object",
-              "$comment": "Block-mode PVC for /var/lib/docker (the Kata default). Disable only for the runc fallback.",
-              "properties": {
-                "enabled": { "type": "boolean" },
-                "size": { "type": "string" },
-                "storageClass": { "type": "string" },
-                "existingClaim": { "type": "string" }
-              }
-            }
-          }
+        "userData": {
+          "$ref": "#/$defs/pvcSpec"
+        },
+        "data": {
+          "$ref": "#/$defs/pvcSpec"
+        },
+        "skillsCache": {
+          "$ref": "#/$defs/pvcSpec"
         }
       }
     },
     "service": {
       "type": "object",
-      "required": ["type", "port"],
+      "required": [
+        "type",
+        "port"
+      ],
       "properties": {
-        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        "type": {
+          "type": "string",
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
       }
     },
     "ingress": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" }
+        "enabled": {
+          "type": "boolean"
+        }
       }
     },
     "postgresql": false
   },
-  "allOf": [
-    {
-      "$comment": "When a Kata RuntimeClass is used, the dind container must run privileged and the kata init wrapper must stay enabled.",
-      "if": {
-        "properties": {
-          "orchestrator": {
-            "properties": {
-              "runtimeClassName": { "type": "string", "pattern": "^kata" }
-            },
-            "required": ["runtimeClassName"]
-          }
-        },
-        "required": ["orchestrator"]
-      },
-      "then": {
-        "properties": {
-          "dind": {
-            "properties": {
-              "privileged": {
-                "not": { "const": false },
-                "$comment": "Kata needs a privileged dind container (caps confined to the microVM)."
-              },
-              "kataInit": {
-                "properties": {
-                  "enabled": {
-                    "not": { "const": false },
-                    "$comment": "The Kata guest init wrapper is required under a Kata runtime."
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  ],
   "$defs": {
     "pvcSpec": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "size": { "type": "string" },
-        "storageClass": { "type": "string" },
-        "accessMode": { "type": "string", "enum": ["ReadWriteOnce", "ReadWriteOncePod"], "$comment": "Chart is single-replica by design (replicas: 1, owns inner dockerd). RWX/ROX would imply multi-replica which is unsupported." },
-        "existingClaim": { "type": "string" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "size": {
+          "type": "string"
+        },
+        "storageClass": {
+          "type": "string"
+        },
+        "accessMode": {
+          "type": "string",
+          "enum": [
+            "ReadWriteOnce",
+            "ReadWriteOncePod"
+          ],
+          "$comment": "Chart is single-replica by design (replicas: 1, owns inner dockerd). RWX/ROX would imply multi-replica which is unsupported."
+        },
+        "existingClaim": {
+          "type": "string"
+        }
       }
     }
   }

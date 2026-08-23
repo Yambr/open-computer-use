@@ -2,63 +2,80 @@
 # Copyright (c) 2025 Open Computer Use Contributors
 #
 # Default values for computer-use-server.
-# See README.md for prerequisites and the full knob reference.
-# The inner Docker daemon runs under Kata Containers (microVM isolation) — the
-# supported DinD runtime. Setup guide: docs/kata-runtime.md.
+#
+# The defaults describe a stock Kubernetes node: rootless Podman for the sandboxes, no
+# RuntimeClass, no privileged container, no Block-mode PVC. Everything the old Kata-era
+# defaults demanded of a cluster is now opt-in.
+#
+# Those settings still work; they are simply no longer assumed:
+#   - orchestrator.runtimeClassName — set to kata-qemu-heavy for a VM boundary (and restore
+#                                     the hypervisor podAnnotations alongside it)
+#
+# Docker-in-Docker is NOT among them. The dind container, the `sandboxRuntime` switch and the
+# varLibDocker PVC were removed with the Podman migration: the chart renders one engine and
+# there is nothing to select between. An older values file setting `sandboxRuntime: docker`
+# is ignored — it names a key no template reads.
+#
+# Upgrading from a 0.3.x release replaces the engine. The `var-lib-docker` volume is not read
+# by this chart any more and a fresh `podman-storage` volume is created in its place, so the
+# sandbox image is pulled again on first use and any per-chat working directories still held
+# only on the old volume are not carried across. Copy anything you need off it first; the old
+# PVC is left in place rather than deleted.
 
 # -- Override the chart name. Useful when running multiple releases in one namespace.
 nameOverride: ""
-# -- Override the fully-qualified app name (release-name + chart name by default).
+# -- Fully-qualified app name. Set this when running more than one release per namespace.
 fullnameOverride: ""
 
 image:
   # -- Orchestrator image (the FastAPI server in computer-use-server/).
   repository: ghcr.io/wide-moat/open-computer-use-server
-  # -- Defaults to .Chart.AppVersion when empty.
-  tag: ""
+  # AppVersion 0.9.5.0-rc.2 — image-tag bump, chart unchanged (2 local patches still apply).
+  tag: "0.9.5.0-rc.2"
   pullPolicy: IfNotPresent
 
-# Workspace image — the AI sandbox that the orchestrator spawns via the inner Docker.
-# This image is not pulled by Kubernetes directly; it is pulled by the inner dockerd
-# at first chat creation. The repo:tag is passed to the orchestrator as DOCKER_IMAGE.
+# Workspace image — the AI sandbox the orchestrator spawns via the Podman sidecar. Pulled by
+# Podman at first chat creation, not by Kubernetes — so it does not appear in `kubectl get pod`
+# and is not covered by imagePullSecrets.
 workspaceImage:
   repository: ghcr.io/wide-moat/open-computer-use
-  tag: ""
+  tag: "0.9.5.0-rc.2"
 
-# -- imagePullSecrets are applied to the Pod for both orchestrator and dind images.
+# -- imagePullSecrets are applied to the Pod for the orchestrator and engine images.
 imagePullSecrets: []
 
 orchestrator:
-  # runtimeClassName MUST match a RuntimeClass that already exists in the cluster.
-  # Values:
-  #   kata-qemu    Default, and the recommended runtime. Kata Containers —
-  #                install kata-deploy first (docs/kata-runtime.md). Works on
-  #                containerd 2.x and gives hypervisor (microVM) isolation. The
-  #                other dind.* / persistence defaults below assume this runtime.
-  #   "" (empty)   Stock runc + privileged dind. Functional, but INSECURE — the
-  #                inner daemon shares the host kernel and a container escape is
-  #                trivial. Local-testing escape hatch only; do not run it in
-  #                production. Also set dind.kataInit.enabled=false and
-  #                persistence.varLibDocker.persistentVolume.enabled=false.
-  runtimeClassName: kata-qemu
+  # No RuntimeClass by default: the chart installs on a stock Kubernetes node.
+  #
+  # This was `kata-qemu-heavy`, which gave the pod a VM boundary but demanded a RuntimeClass most
+  # clusters do not have — and, less obviously, forced the Block-mode PVC: virtio-fs inside a Kata
+  # guest drops the security.capability xattrs the sandbox image carries, so the image would not
+  # unpack on ordinary storage. Dropping Kata removes that requirement rather than working around
+  # it (verified: the 9.47 GB image unpacks on plain filesystem storage with file capabilities
+  # intact).
+  #
+  # Set this if your cluster has Kata and you want the VM boundary back. Note that the Block-mode
+  # PVC would have to come back with it: virtio-fs returns with the guest, and it is virtio-fs
+  # that drops the xattrs.
+  runtimeClassName: ""
 
-  # Single replica is the only supported topology — the pod owns the inner dockerd
-  # and three RWO PVCs. Scaling out requires the K8sBackend rework (out of scope).
+  # Single replica is the only supported topology — the pod owns the container engine and its RWO
+  # PVCs, so two replicas would mean two engines, each with its own sandboxes and its own copy of
+  # the storage.
+  # Scaling out requires the K8sBackend rework (out of scope).
   replicas: 1
 
   resources:
     requests:
-      cpu: 500m
-      memory: 1Gi
+      cpu: "1"
+      memory: 2Gi
     limits:
-      cpu: "4"
-      memory: 8Gi
+      cpu: "2"       # LimitRange defaults cap at 2cpu/container (Plan 05-04)
+      memory: 4Gi    # Kata guest VM RAM is set via podAnnotations (8192Mi), not cgroup
 
   # Non-secret env vars passed to the orchestrator. Secret vars live under .secrets.
+  # PUBLIC_BASE_URL is environment-specific → set it per environment.
   env:
-    # REQUIRED. Browser-reachable URL of this service (no trailing slash).
-    # Baked into the system prompt so the model writes correct preview links and
-    # returned in the X-Public-Base-URL header so the Open WebUI filter agrees.
     PUBLIC_BASE_URL: ""
 
     COMMAND_TIMEOUT: "120"
@@ -68,42 +85,43 @@ orchestrator:
     CONTAINER_IDLE_TIMEOUT: "600"
     SINGLE_USER_MODE: "false"
 
-    # Path the inner dockerd creates owui-chat-* workspaces from. Must match the
-    # USER_DATA_BASE_PATH and BASE_DATA_DIR values from docker-compose.yml.
+    # Path the inner engine creates owui-chat-* workspaces from. Must be mounted at the same
+    # path in the orchestrator AND the engine container, or the bind mounts resolve to nothing.
     USER_DATA_BASE_PATH: /tmp/computer-use-data
     BASE_DATA_DIR: /tmp/computer-use-data
 
-    # Talks to the inner dockerd over a unix socket shared via emptyDir.
+    # Talks to the inner engine over a unix socket shared via emptyDir. Unchanged between runtimes
+    # on purpose: `podman system service` speaks the Docker API on this same path, which is what
+    # lets the orchestrator's client work against either engine without a code change.
     DOCKER_SOCKET: unix:///var/run/docker.sock
 
-    # Workspace image is set automatically from .workspaceImage. Override here if needed.
-    # DOCKER_IMAGE: ""
+    # Phase 06-09 Fix #2 (2026-05-20): opencode (not Claude Code CLI) for the
+    # sub_agent runtime — Claude Code needs an interactive `claude /login` inside
+    # the sandbox which can't happen. opencode reads OPENCODE_CONFIG_EXTRA from
+    # the env Secret to route through LiteLLM as an OpenAI-compatible upstream.
+    SUBAGENT_CLI: "opencode"
+    # Phase 06-09 Fix #3 (2026-05-20): alias map for opencode. cli_runtime
+    # ._resolve_opencode() raises when a bare alias is passed and the map is
+    # empty. Every alias must resolve to a model id present in LiteLLM /v1/models
+    # — opencode passes the id straight to LiteLLM. As of 2026-05-20 LiteLLM has
+    # 9 OpenRouter models, zero Anthropic; all three Claude aliases point to
+    # qwen3.6-plus until TD-6-09-ANTHROPIC adds claude models to the model_list.
+    OPENCODE_MODEL_ALIASES: '{"sonnet":"litellm/openrouter/qwen/qwen3.6-plus","opus":"litellm/openrouter/qwen/qwen3.6-plus","haiku":"litellm/openrouter/qwen/qwen3.6-plus"}'
 
-  # Operator escape hatch — appended to the container as-is.
-  # Example:
-  #   extraEnv:
-  #     - name: ANTHROPIC_BASE_URL
-  #       value: https://api.anthropic.com
   extraEnv: []
-
-  # Add envFrom entries (existing ConfigMaps / Secrets) to the orchestrator container.
-  # Example:
-  #   envFrom:
-  #     - secretRef:
-  #         name: my-llm-creds
   envFrom: []
 
   # Liveness/readiness — orchestrator exposes /health on 8081.
   probes:
     liveness:
       enabled: true
-      initialDelaySeconds: 30
+      initialDelaySeconds: 120        # Kata VM boot + dockerd startup ~60-90s
       periodSeconds: 30
       timeoutSeconds: 10
-      failureThreshold: 3
+      failureThreshold: 5
     readiness:
       enabled: true
-      initialDelaySeconds: 10
+      initialDelaySeconds: 30
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 3
@@ -111,62 +129,51 @@ orchestrator:
   securityContext:
     runAsNonRoot: false  # the orchestrator image runs as root inside the pod
     allowPrivilegeEscalation: true
-    # The orchestrator does NOT need privileged. Only the dind container does.
 
   nodeSelector: {}
   tolerations: []
   affinity: {}
 
-dind:
-  # Image for the inner Docker daemon. Must accept the standard dockerd flags.
+# Which container engine runs the sandboxes: "podman" or "docker".
+#
+# podman (default) — rootless Podman serving the Docker-compatible API on the same socket, so the
+#   orchestrator's client is identical either way. No privileged container, no Block-mode PVC, and
+#   nothing that needs a RuntimeClass: it runs on a stock Kubernetes node. Isolation is user
+#   namespaces plus an AppArmor profile — set podAnnotations
+#   (container.apparmor.security.beta.kubernetes.io/podman) to the profile installed on your nodes.
+#
+# docker — Docker-in-Docker. Needs a **privileged** container, and under Kata additionally a
+#   Block-mode PVC, because virtio-fs drops the security.capability xattrs the sandbox image
+#   carries. Kept for clusters that already run it; not the path this chart is tested on first.
+#
+# Docker-in-Docker asked a cluster for a privileged container and a storage class that can serve
+# raw block devices — two things a shared or managed cluster often will not give you, and neither
+# turned out to be required to run sandboxes. It was removed rather than left as an option: an
+# alternative nobody runs is an alternative nobody tests, and this one needed cluster privileges to
+# fail in.
+
+# Rootless Podman sidecar. Always rendered; it is the only container engine this chart has.
+podman:
   image:
-    repository: docker
-    tag: "27-dind"
+    repository: quay.io/podman/stable
+    tag: "v5.3"
     pullPolicy: IfNotPresent
+  # UID the daemon runs as. Must match a user with a subuid/subgid range in the image —
+  # quay.io/podman/stable ships `podman` as uid 1000 already configured for rootless.
+  runAsUser: 1000
   resources:
     requests:
       cpu: 500m
       memory: 1Gi
     limits:
-      cpu: "4"
-      memory: 8Gi
-  # storage driver passed to dockerd. The Kata default is fuse-overlayfs —
-  # overlay2 FAILS on the Kata virtio-fs guest root
-  # (kata-containers/kata-containers#1888); dind.kataInit installs fuse-overlayfs.
-  # If you run the insecure runc fallback, set this to overlay2.
-  storageDriver: fuse-overlayfs
-
-  # -- Explicit override of whether the dind container runs privileged.
-  # true (default) => REQUIRED for Kata: dockerd needs CAP_NET_ADMIN/CAP_NET_RAW
-  #   to build the iptables NAT chain, otherwise it fails with
-  #   "iptables: Could not fetch rule set generation id: Permission denied".
-  #   privileged=true is SAFE under Kata — the caps are confined to the microVM.
-  # false => force the dind container unprivileged.
-  # null  => auto-derive from orchestrator.runtimeClassName (empty => true,
-  #   set => false). Only useful for the runc fallback.
-  privileged: true
-
-  # -- Kata-guest init wrapper. Runs a chart-managed entrypoint that, before
-  # exec'ing dockerd:
-  #   (1) installs fuse-overlayfs (overlay2 fails on the Kata virtio-fs root)
-  #   (2) mknod /dev/fuse  (the Kata guest kernel has fuse but no device node)
-  #   (3) if persistence.varLibDocker.persistentVolume is enabled — mkfs.ext4 +
-  #       mounts the Block-mode PVC at /var/lib/docker
-  #   (4) runs the cgroup-v2 PID-1 evacuation shim (docker-library/docker#308) so
-  #       nested runc can enter cgroups inside the Kata guest
-  # Every step is idempotent and self-detecting. Set enabled=false only for the
-  # runc fallback. See docs/kata-runtime.md.
-  kataInit:
-    enabled: true
-    # extra apk packages installed at container start (idempotent, needs egress)
-    extraPackages: []
+      cpu: "2"
+      memory: 4Gi
 
 cleanup:
   enabled: true
   image:
-    # Built from ./cron in the repo. Publish to your registry and point here.
     repository: ghcr.io/wide-moat/open-computer-use-cleanup
-    tag: ""
+    tag: "0.9.5.0-rc.2"
     pullPolicy: IfNotPresent
   containerMaxAgeHours: 24
   dataMaxAgeDays: 7
@@ -179,35 +186,45 @@ cleanup:
       memory: 256Mi
 
 secrets:
-  # When true, the chart renders a Secret from the values below. Convenient but
-  # bad for GitOps (values get committed). Prefer existingSecret in production.
-  create: true
-
-  # When set, ignored if .create is true. The chart adds this secret to envFrom on
-  # the orchestrator container. The secret must contain at least MCP_API_KEY.
+  # GitOps: the env Secret is sealed and applied outside the chart. existingSecret
+  # is env-specific (ocu-stage-env / ocu-prod-env) → set per env.
+  create: false
   existingSecret: ""
 
-  # REQUIRED unless using existingSecret. Bearer token for /mcp endpoint.
   mcpApiKey: ""
-
   visionApiKey: ""
   anthropicAuthToken: ""
   openaiApiKey: ""
 
 persistence:
+  # Every storageClass below is REQUIRED and deliberately empty. The chart refuses to render
+  # without them, and the message says which classes the cluster has.
+  #
+  # They used to default to `longhorn`, which is a storage system a customer may simply not have
+  # — the PVC would be created, bind to nothing, and the pod would sit Pending with no indication
+  # that the chart had named someone else's cluster. An empty default is no better: a PVC with no
+  # class silently takes whichever the cluster marks default, and that is a different system on
+  # every cluster. Neither failure is visible at install time, which is why this one is.
+  #
+  # sizes for userData / data / skillsCache are environment-specific (prod = 2x stage) → set per
+  # environment.
+  #
   # /tmp/computer-use-data — per-chat workspace data (uploads, outputs).
   userData:
     enabled: true
     size: 20Gi
+    ## REQUIRED. Node-local is usually right here; this is per-chat working data, not state that
+    ## has to survive losing the node.
     storageClass: ""
-    # Only ReadWriteOnce / ReadWriteOncePod are supported — chart is single-replica.
     accessMode: ReadWriteOnce
     existingClaim: ""
 
-  # /data — orchestrator long-lived state (mounted from compose volume `computer-use-data`).
+  # /data — orchestrator long-lived state.
   data:
     enabled: true
     size: 5Gi
+    ## REQUIRED. The orchestrator's long-lived state — the one volume here with a real case for
+    ## replicated storage if the cluster offers it.
     storageClass: ""
     accessMode: ReadWriteOnce
     existingClaim: ""
@@ -216,35 +233,41 @@ persistence:
   skillsCache:
     enabled: true
     size: 2Gi
+    ## REQUIRED. A cache; node-local is right.
     storageClass: ""
     accessMode: ReadWriteOnce
     existingClaim: ""
 
-  # /var/lib/docker inside the dind container.
-  varLibDocker:
-    # sizeLimit applies to the emptyDir fallback (used when
-    # persistentVolume.enabled=false — i.e. only under the runc fallback).
-    sizeLimit: 50Gi
-    # -- Back /var/lib/docker with a Block-mode PVC (the Kata default).
-    # REQUIRED under Kata: the workspace image relies on security.capability
-    # xattrs, and the Kata virtio-fs root drops them (CVE-2021-20263), which
-    # breaks e.g. GStreamer binaries. A Block PVC arrives in the guest as a
-    # virtio-blk device; dind.kataInit formats it ext4, so xattrs are preserved.
-    # Set enabled=false only for the runc fallback. See docs/kata-runtime.md.
-    persistentVolume:
-      enabled: true
-      size: 50Gi
-      # Must reference a StorageClass that provisions Block volumes. Empty =>
-      # the cluster default StorageClass (which must be Block-capable).
-      storageClass: ""
-      # When set, the chart uses this claim instead of creating one.
-      existingClaim: ""
+  # Podman's graph root (~/.local/share/containers).
+  #
+  # NOT a cache: it holds the pulled images AND the named volume carrying each chat's working
+  # directory, so an emptyDir here discards user work on every pod restart.
+  #
+  # Plain Filesystem mode. A Block-mode volume was required only while the engine ran inside a
+  # Kata guest, where virtio-fs drops the security.capability xattrs the sandbox image carries and
+  # the image then fails to unpack. Rootless Podman runs on the node kernel, so the requirement
+  # left with the guest.
+  podmanStorage:
+    enabled: true
+    size: 40Gi
+    ## REQUIRED, and the one where getting it wrong is most expensive: this holds the 9.5 GB
+    ## sandbox image AND the named volume for every chat's working directory. Node-local storage
+    ## is what it wants — replicated storage would copy an image cache across the network.
+    ##
+    ## It carried an explicit `local-path` until the others became required, which was right for
+    ## the cluster this was written on and still named someone else's StorageClass.
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    existingClaim: ""
+    sizeLimit: 50Gi          # emptyDir fallback only; unused when enabled=true
 
 service:
   type: ClusterIP
   port: 8081
   annotations: {}
 
+# Ingress. Disabled by default: many deployments route to the Service with a Gateway-API
+# HTTPRoute or an ingress object managed outside the chart.
 ingress:
   enabled: false
   className: ""
@@ -255,35 +278,15 @@ ingress:
         - path: /
           pathType: Prefix
   tls: []
-  # Example:
-  #   tls:
-  #     - hosts:
-  #         - orchestrator.example.com
-  #       secretName: orchestrator-tls
 
+# NetworkPolicy. Disabled by default: the useful policy is usually cluster-wide and owned
+# outside the chart.
 networkPolicy:
   enabled: false
-  # Allow incoming traffic from these pod selectors (in addition to same-namespace).
   ingressFrom: []
-  # Example:
-  #   ingressFrom:
-  #     - namespaceSelector:
-  #         matchLabels:
-  #           name: open-webui
-
-  # Extra egress rules appended to the chart's defaults (DNS + in-cluster + 0.0.0.0/0).
-  # Use this to add explicit allow rules — e.g. limit egress to a specific
-  # external host, or whitelist your cloud metadata service.
   extraEgress: []
-  # Example:
-  #   extraEgress:
-  #     - to:
-  #         - ipBlock:
-  #             cidr: 169.254.169.254/32  # cloud metadata
-  #       ports:
-  #         - protocol: TCP
-  #           port: 80
 
+# PodDisruptionBudget. Off by default; the chart runs a single replica.
 podDisruptionBudget:
   enabled: false
   minAvailable: 1
@@ -293,5 +296,27 @@ serviceAccount:
   name: ""
   annotations: {}
 
+# Pod annotations.
+#
+# The Kata hypervisor annotations that used to live here are gone with the default RuntimeClass —
+# they are read by kata-shim and mean nothing without it, so leaving them would have been noise
+# that looks like configuration.
+#
+# With sandboxRuntime: podman, set the AppArmor profile here. The profile has to already exist on
+# the node; there is no way for a chart to install one. Without it the pod still starts, but the
+# sandboxes are confined only by the cluster's default profile:
+#
+#   podAnnotations:
+#     container.apparmor.security.beta.kubernetes.io/podman: localhost/podman-rootless
+#
+# If you restore runtimeClassName: kata-qemu-heavy, restore the hypervisor annotations too:
+#
+#   io.katacontainers.config.hypervisor.default_memory: "8192"
+#   io.katacontainers.config.hypervisor.default_maxmemory: "16384"
+#   io.katacontainers.config.hypervisor.memory_slots: "10"
+#   io.katacontainers.config.hypervisor.default_vcpus: "4"
 podAnnotations: {}
-podLabels: {}
+
+# Label so the allow-egress-sandbox CNP selects this pod.
+podLabels:
+  egress.widemoat.ai/sandbox-allowed: "true"

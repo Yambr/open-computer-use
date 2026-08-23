@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+# Copyright (c) 2025 Open Computer Use Contributors
+#
+# Podman's graph root (~/.local/share/containers). Holds pulled images AND the named volumes that
+# carry each chat's working directory, so it is not a cache: losing it loses user work.
+#
+# Deliberately an ordinary Filesystem PVC, and worth saying why since the predecessor was not:
+# a Block-mode volume was required when the engine ran inside a Kata guest, because virtio-fs
+# there drops the security.capability xattrs the sandbox image carries (kata#1888,
+# CVE-2021-20263) and the image then fails to unpack. Rootless Podman runs on the node kernel
+# with no virtio-fs in the path, so ordinary filesystem storage keeps the xattrs and the block
+# requirement goes away with the guest rather than being worked around.
+{{- if and .Values.persistence.podmanStorage.enabled (not .Values.persistence.podmanStorage.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "computer-use-server.fullname" . }}-podman-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "computer-use-server.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.podmanStorage.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.podmanStorage.size }}
+  {{/*
+  Required, with no default. A PVC that omits storageClassName silently takes whichever class
+  the cluster marks default — which is a different storage system on every cluster, and on the
+  one this chart was written against it was replicated storage that these volumes specifically
+  do not want. Failing the render is the only way a customer finds out at install time rather
+  than after the data is on the wrong disk; the message names the two classes rather than
+  leaving them to guess.
+  */}}
+  storageClassName: {{ required "persistence.podmanStorage.storageClass must be set — a PVC with no class takes the cluster default, which differs per cluster. Name one of your StorageClasses (kubectl get storageclass); node-local is right for caches and large image stores, replicated for state that must survive the node." .Values.persistence.podmanStorage.storageClass | quote }}
+{{- end }}

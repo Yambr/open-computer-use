@@ -4,11 +4,12 @@ apiVersion: v2
 name: computer-use-server
 description: |
   Orchestrator for open-computer-use. Spawns disposable workspace
-  containers via an inner Docker daemon (DinD on Kata Containers).
+  containers via a rootless Podman sidecar — no privileged container,
+  no RuntimeClass, no block storage.
   Includes an optional cleanup sidecar. Postgres is installed as a separate
   release when needed; see examples/helm/with-open-webui/.
 type: application
-version: 0.3.0
+version: 0.4.0
 appVersion: "0.11.0.0"
 kubeVersion: ">=1.27.0-0"
 home: https://github.com/Wide-Moat/open-computer-use
@@ -19,8 +20,8 @@ keywords:
   - mcp
   - open-webui
   - sandbox
-  - dind
-  - kata-containers
+  - podman
+  - rootless
 maintainers:
   - name: Open Computer Use Contributors
     url: https://github.com/Wide-Moat/open-computer-use

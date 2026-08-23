@@ -9,8 +9,8 @@ metadata:
     {{- include "computer-use-server.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.orchestrator.replicas }}
-  # Recreate — the orchestrator owns RWO PVCs and an inner dockerd that cannot
-  # safely overlap with itself during rollout.
+  # Recreate — the orchestrator owns RWO PVCs and a container engine, neither of which can
+  # safely overlap with a second copy of itself during a rollout.
   strategy:
     type: Recreate
   selector:
@@ -28,9 +28,6 @@ spec:
         {{- if and .Values.secrets.create (not .Values.secrets.existingSecret) }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- end }}
-        {{- if .Values.dind.kataInit.enabled }}
-        checksum/dind-init: {{ include (print $.Template.BasePath "/configmap-dind-init.yaml") . | sha256sum }}
-        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -43,6 +40,17 @@ spec:
       {{- with .Values.orchestrator.runtimeClassName }}
       runtimeClassName: {{ . }}
       {{- end }}
+      # The orchestrator runs as root and the podman daemon as an unprivileged uid, but they share
+      # /tmp/computer-use-data: the orchestrator creates each chat's upload/output directories and
+      # podman bind-mounts them into the sandbox. Without a shared group the daemon cannot write
+      # there, and container creation fails with "permission denied" on the mount point — a failure
+      # that reads like a Podman bug rather than a filesystem-ownership one.
+      #
+      # fsGroup makes the kubelet chgrp the volume to this GID and set setgid on it, so both
+      # containers can write regardless of which uid each runs as.
+      securityContext:
+        fsGroup: {{ .Values.podman.runAsUser }}
+        fsGroupChangePolicy: OnRootMismatch
       {{- with .Values.orchestrator.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -56,32 +64,32 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       volumes:
-        # Socket the orchestrator and cleanup sidecar use to talk to inner dockerd,
-        # shared via an emptyDir.
+        # The Docker-API socket, which `podman system service` serves and which BOTH the
+        # orchestrator and the cleanup sidecar dial. Shared through an emptyDir.
+        #
+        # The name predates Podman and stays: renaming it moves the mount path all three
+        # containers agree on, to relabel a socket directory that was never a dind artefact.
         - name: dind-socket
           emptyDir: {}
-        # /var/lib/docker for the inner dockerd, mounted only into the dind
-        # container. Under Kata it is a Block-mode PVC (virtio-blk + ext4
-        # preserves xattrs); under the runc fallback it is an emptyDir.
-        - name: var-lib-docker
-          {{- if eq (include "computer-use-server.varLibDockerIsPVC" .) "true" }}
+        # Podman's graph root: images AND the named volumes that hold each chat's working
+        # directory. An emptyDir here would re-pull every image and discard every workspace on
+        # each pod restart, so this is a real PVC by default.
+        #
+        # No Block mode and no Longhorn: the Block PVC existed because virtio-fs inside a Kata
+        # guest drops security.capability xattrs (kata#1888, CVE-2021-20263) and the sandbox image
+        # carries file capabilities. Rootless Podman runs on the node kernel with no virtio-fs in
+        # the path, so ordinary filesystem storage keeps xattrs.
+        - name: podman-storage
+          {{- if .Values.persistence.podmanStorage.existingClaim }}
           persistentVolumeClaim:
-            {{- if .Values.persistence.varLibDocker.persistentVolume.existingClaim }}
-            claimName: {{ .Values.persistence.varLibDocker.persistentVolume.existingClaim }}
-            {{- else }}
-            claimName: {{ include "computer-use-server.fullname" . }}-var-lib-docker
-            {{- end }}
+            claimName: {{ .Values.persistence.podmanStorage.existingClaim }}
+          {{- else if .Values.persistence.podmanStorage.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "computer-use-server.fullname" . }}-podman-storage
           {{- else }}
           emptyDir:
-            sizeLimit: {{ .Values.persistence.varLibDocker.sizeLimit }}
+            sizeLimit: {{ .Values.persistence.podmanStorage.sizeLimit }}
           {{- end }}
-        {{- if .Values.dind.kataInit.enabled }}
-        # Kata-guest init wrapper script — see configmap-dind-init.yaml.
-        - name: dind-init
-          configMap:
-            name: {{ include "computer-use-server.fullname" . }}-dind-init
-            defaultMode: 0755
-        {{- end }}
         # PVCs follow the same enabled / existingClaim / emptyDir-fallback pattern
         # so disabling any volume in values.yaml does not produce an unschedulable Pod.
         - name: user-data
@@ -173,56 +181,57 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         # ---------------------------------------------------------------------
-        # 2) Inner Docker daemon (DinD)
+        # 2) Container engine for the sandboxes: rootless Podman, and only that.
+        #
+        # There was a .Values.sandboxRuntime switch selecting Docker-in-Docker instead. The dind
+        # container is gone and the key is read by nothing, so setting it has no effect — which is
+        # why the comment saying otherwise had to go with it.
+        #
+        # The contract is load-bearing: a Docker-API socket at /var/run/docker.sock inside the
+        # shared `dind-socket` emptyDir, read by TWO consumers — the orchestrator and the cleanup
+        # sidecar. The volume keeps its name because renaming it would move the mount path that
+        # both of them and the running pods depend on; it is a socket directory, not a dind
+        # artefact.
         # ---------------------------------------------------------------------
-        - name: dind
-          image: "{{ .Values.dind.image.repository }}:{{ .Values.dind.image.tag }}"
-          imagePullPolicy: {{ .Values.dind.image.pullPolicy }}
-          {{- if .Values.dind.kataInit.enabled }}
-          # Kata path: run the chart-managed init wrapper, which prepares the
-          # guest (fuse-overlayfs, /dev/fuse, Block PVC, cgroup shim) then
-          # exec's dockerd with the args below. See configmap-dind-init.yaml.
+        - name: podman
+          image: "{{ .Values.podman.image.repository }}:{{ .Values.podman.image.tag }}"
+          imagePullPolicy: {{ .Values.podman.image.pullPolicy }}
+          # `podman system service` speaks the Docker API, so DOCKER_SOCKET is unchanged and the
+          # Python docker SDK talks to it as-is. --time=0 disables the idle exit: this is a
+          # long-lived sidecar, and a daemon that exits when idle would take the sandboxes with it.
           command:
-            - /usr/local/bin/dind-entrypoint.sh
-          {{- else }}
-          # Default path: the docker:dind entrypoint runs dockerd directly.
-          command:
-            - dockerd
-          {{- end }}
-          # Pin the socket location so the orchestrator (and the cleanup
-          # sidecar) can talk to it over the shared emptyDir at
-          # /var/run/docker.sock.
+            - /bin/sh
+            - -c
           args:
-            - --host=unix:///var/run/docker.sock
-            - --storage-driver={{ .Values.dind.storageDriver }}
+            - |
+              set -e
+              # Rootless Podman needs a writable HOME and a runtime dir; both live in the
+              # container's own filesystem, not on the shared socket volume.
+              export HOME=/home/podman
+              export XDG_RUNTIME_DIR=/run/user/$(id -u)
+              mkdir -p "$XDG_RUNTIME_DIR"
+              exec podman system service --time=0 unix:///var/run/docker.sock
           securityContext:
-            privileged: {{ eq (include "computer-use-server.dindPrivileged" .) "true" }}
+            # No `privileged`. That is the point of the rootless mode: the kernel boundary is
+            # user namespaces plus the AppArmor profile applied via podAnnotations, not a
+            # blanket capability grant.
+            runAsUser: {{ .Values.podman.runAsUser }}
+            runAsGroup: {{ .Values.podman.runAsUser }}
+            allowPrivilegeEscalation: true  # newuidmap is setuid; rootless setup needs it
+            capabilities:
+              add: ["SETUID", "SETGID", "SYS_ADMIN", "MKNOD"]
           volumeMounts:
             - name: dind-socket
               mountPath: /var/run
-            {{- if .Values.dind.kataInit.enabled }}
-            - name: dind-init
-              mountPath: /usr/local/bin/dind-entrypoint.sh
-              subPath: dind-entrypoint.sh
-            {{- end }}
-            {{- if ne (include "computer-use-server.varLibDockerIsPVC" .) "true" }}
-            - name: var-lib-docker
-              mountPath: /var/lib/docker
-            {{- end }}
-            # The inner dockerd needs access to /tmp/computer-use-data so the
-            # bind mounts it creates for workspace containers resolve to real
-            # files (same path inside the pod and inside spawned containers).
+            - name: podman-storage
+              mountPath: /home/podman/.local/share/containers
+            # Mounted here as well as in the orchestrator: bind mounts the engine creates for
+            # sandboxes must resolve to the same path inside this container as inside the
+            # spawned one, or the sandbox sees an empty directory where the chat's files are.
             - name: user-data
               mountPath: /tmp/computer-use-data
-          {{- if eq (include "computer-use-server.varLibDockerIsPVC" .) "true" }}
-          # Block-mode PVC — exposed as a raw device; the init wrapper formats
-          # it ext4 and mounts it at /var/lib/docker inside the guest.
-          volumeDevices:
-            - name: var-lib-docker
-              devicePath: /dev/var-lib-docker
-          {{- end }}
           resources:
-            {{- toYaml .Values.dind.resources | nindent 12 }}
+            {{- toYaml .Values.podman.resources | nindent 12 }}
         {{- if .Values.cleanup.enabled }}
         # ---------------------------------------------------------------------
         # 3) Cleanup sidecar — runs the same cron schedules as docker-compose.
@@ -238,7 +247,7 @@ spec:
             - name: DATA_DIR
               value: /tmp/computer-use-data
           volumeMounts:
-            # Share the dockerd socket via the same emptyDir.
+            # Share the socket via the same emptyDir — see Sysbox sidecar pattern.
             - name: dind-socket
               mountPath: /var/run
             - name: user-data

@@ -14,7 +14,13 @@ spec:
   resources:
     requests:
       storage: {{ .Values.persistence.skillsCache.size }}
-  {{- if .Values.persistence.skillsCache.storageClass }}
-  storageClassName: {{ .Values.persistence.skillsCache.storageClass | quote }}
-  {{- end }}
+  {{/*
+  Required, with no default. A PVC that omits storageClassName silently takes whichever class
+  the cluster marks default — which is a different storage system on every cluster, and on the
+  one this chart was written against it was replicated storage that these volumes specifically
+  do not want. Failing the render is the only way a customer finds out at install time rather
+  than after the data is on the wrong disk; the message names the two classes rather than
+  leaving them to guess.
+  */}}
+  storageClassName: {{ required "persistence.skillsCache.storageClass must be set — a PVC with no class takes the cluster default, which differs per cluster. Name one of your StorageClasses (kubectl get storageclass); node-local is right for caches and large image stores, replicated for state that must survive the node." .Values.persistence.skillsCache.storageClass | quote }}
 {{- end }}

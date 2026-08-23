@@ -175,7 +175,7 @@ dns:
 2. **Read-only mounts**: Skills and uploads are read-only
 3. **Network isolation**: Bridge network mode
 4. **Resource limits**: CPU and memory constraints (configurable, see examples above)
-5. **Standard Docker runtime (runc)**: Containers share the host kernel. For stronger isolation, consider [gVisor (runsc)](https://gvisor.dev/) which intercepts syscalls in userspace — this is what Claude.ai uses. gVisor support is on the roadmap. On Kubernetes, the [Helm chart](kubernetes.md) already supports hypervisor-grade isolation today via [Kata Containers](kata-runtime.md).
+5. **Standard Docker runtime (runc)**: Containers share the host kernel. For stronger isolation, consider [gVisor (runsc)](https://gvisor.dev/) which intercepts syscalls in userspace — this is what Claude.ai uses. gVisor support is on the roadmap. On Kubernetes, the [Helm chart](kubernetes.md) runs the sandboxes under rootless Podman by default, and can opt into hypervisor-grade isolation via [Kata Containers](kata-runtime.md).
 
 ### Optional Hardening
 
