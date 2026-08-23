@@ -174,11 +174,14 @@ echo "$RESULT" | grep -q "OK" && pass "list-subagent-models opencode returns val
 # So this asserts the byte count, not the exit code. Reading the Dockerfile
 # source would not catch it — the source is correct, and the bug is introduced
 # between source and image.
+#
+# The branch also echoes a status banner on success, so its output is discarded;
+# only the file is measured.
 CFG='{"model":"litellm/probe","provider":{"litellm":{}}}'
 RESULT=$(docker run --rm --platform linux/amd64 --user=assistant \
     -e SUBAGENT_CLI=opencode -e OPENCODE_CONFIG_EXTRA="$CFG" \
     --entrypoint=bash "$IMAGE" -c '
-        eval "$(sed -n "/^ *case .\${SUBAGENT_CLI/,/^ *esac/p" /home/assistant/.entrypoint.sh)"
+        eval "$(sed -n "/^ *case .\${SUBAGENT_CLI/,/^ *esac/p" /home/assistant/.entrypoint.sh)" >/dev/null 2>&1
         printf "%s|%s" "$(wc -c < /tmp/opencode.json)" "$(cat /tmp/opencode.json)"
     ' 2>/dev/null) || RESULT=""
 EXPECTED_LEN=${#CFG}
