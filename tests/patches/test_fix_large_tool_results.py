@@ -36,8 +36,8 @@ class TestPatchApplication(unittest.TestCase):
 
         Must include:
         - `from open_webui.models.chats import Chats` (Mod 1 import marker)
-        - SEARCH_TOOL_LOOP literal (TOOL_LOOP_ERRORS_UNIFIED save-for-restore marker
-          + `\n                    try:\n                        new_form_data = {\n`)
+        - SEARCH_TOOL_LOOP literal (upstream's "Append a new empty message item"
+          comment + `output.append(`)
         - SEARCH_HISTORY literal (process_messages_with_output + sanitize_tool_pairs
           + blank + get_system_message)
         """
@@ -72,14 +72,10 @@ class TestPatchApplication(unittest.TestCase):
             "    tool_call_retries = 0\n"
             "    while tool_call_retries < 5:\n"
             "        tool_call_retries += 1\n"
-            "                    _saved_output = json.loads(json.dumps(output))  # TOOL_LOOP_ERRORS_UNIFIED: save for restore on error\n"
-            "                    try:\n"
-            "                        new_form_data = {\n"
-            "                            **form_data,\n"
-            "                            'model': model_id,\n"
-            "                            'stream': True,\n"
-            "                            'metadata': metadata,\n"
-            "                        }\n"
+            "                    # Append a new empty message item for the next response\n"
+            "                    output.append(\n"
+            "                        {'type': 'message'}\n"
+            "                    )\n"
         )
 
     def test_patch_applies_successfully(self):
@@ -452,12 +448,35 @@ class TestFixLargeToolResultsV0110(unittest.TestCase):
         self.assertIn("ERROR:", r.stderr)
         self.assertIn(self.PATCH_NAME, r.stderr)
 
-    def test_patch_fails_loud_without_fix_tool_loop_errors(self):
-        # Mod 2 anchors on the TOOL_LOOP_ERRORS_UNIFIED marker, which only
-        # exists once fix_tool_loop_errors has run.
+    def test_applies_without_fix_tool_loop_errors(self):
+        # Mod 2 anchors on upstream code, not on another patch's marker, so it
+        # no longer depends on fix_tool_loop_errors having run first.
         r = _run_patch("fix_large_tool_results", self.target)
-        self.assertEqual(r.returncode, 1, f"stdout={r.stdout} stderr={r.stderr}")
-        self.assertIn("fix_tool_loop_errors", r.stderr.lower())
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout} stderr={r.stderr}")
+        self.assertIn("_truncate_large_results_in_output", self.target.read_text())
+
+    def test_truncates_before_model_sees_result(self):
+        """Mod 2 must run BEFORE the results are emitted to the frontend.
+
+        Regression test for the anchor this patch used to carry. Anchored on
+        `new_form_data`, truncation ran after the `chat:completion` emit had
+        already sent the full result to the UI and persisted it -- and did not
+        run at all when the model answered immediately after a tool call and
+        the loop exited. Both are silent: the patch reports success either way,
+        which is why the position is asserted rather than the exit code.
+        """
+        _run_patch("fix_tool_loop_errors", self.target)
+        r = _run_patch(self.PATCH_NAME, self.target)
+        self.assertEqual(r.returncode, 0, f"stdout={r.stdout} stderr={r.stderr}")
+        content = self.target.read_text()
+
+        call = content.index("await _truncate_large_results_in_output(output")
+        emit = content.index("'output': frontend_output")
+        self.assertLess(
+            call, emit,
+            "truncation must be injected before the frontend emit, otherwise the "
+            "full result reaches the UI and the DB regardless",
+        )
 
 
 if __name__ == "__main__":

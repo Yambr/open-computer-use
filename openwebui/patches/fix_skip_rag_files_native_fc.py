@@ -9,7 +9,8 @@ Problem: Chat files always trigger the RAG pipeline
 (chat_completion_files_handler) on every message, even when unnecessary.
 
 Solution: When ai_computer_use is enabled, skip RAG for regular files.
-Full-context files (context == "full") are processed normally.
+Full-context files (context == "full") and non-file items (notes, chats,
+URLs, text, collections) are processed normally.
 Knowledge bases are not affected.
 """
 
@@ -34,13 +35,24 @@ SEARCH_PATTERN = """    if file_context_enabled:
 REPLACE_PATTERN = """    if file_context_enabled:
         # PATCH: skip_rag_files_ai_computer_use; FIX_SKIP_RAG_FILES_NATIVE_FC
         # When ai_computer_use is enabled, skip RAG for regular files.
-        # Full-context files (context == "full") are processed normally.
+        # Full-context files and non-file items (notes, chats, URLs, text,
+        # collections) are processed normally.
         # NB: tools_dict keys are function names from tool specs,
         # not tool IDs. bash_tool is a function from ai_computer_use tool.
         if 'bash_tool' in tools_dict:
             _all_files = form_data.get('metadata', {}).get('files', None)
             if _all_files:
-                _full_ctx = [f for f in _all_files if f.get('context') == 'full']
+                # Keep everything that is not a plain uploaded file — notes, chats, URLs,
+                # text and collections are context the user attached deliberately, and
+                # the sandbox cannot read them off disk the way it reads a file. Only
+                # type == 'file' is skipped, and then only when it is not full-context.
+                # Filtering on context alone dropped them silently: upstream
+                # get_sources_from_items() dispatches on six types (text, note, chat,
+                # url, file, collection) and only 'file' has a sandbox equivalent.
+                _full_ctx = [
+                    f for f in _all_files
+                    if f.get('type') != 'file' or f.get('context') == 'full'
+                ]
                 if _full_ctx:
                     _orig = form_data['metadata']['files']
                     form_data['metadata']['files'] = _full_ctx
