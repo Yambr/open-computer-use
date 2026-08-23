@@ -18,6 +18,49 @@
 
 - **License migration: BUSL-1.1 → FSL-1.1-Apache-2.0.** All future releases ship under the Functional Source License, Version 1.1, Apache 2.0 Future License. Use, modification, forking, internal self-hosting, and redistribution remain permitted; offering a hosted or embedded service that competes with our paid version(s) requires a separate commercial agreement. Each release automatically converts to Apache-2.0 two years after publication under the Grant of Future License clause. Past releases retain their original BUSL-1.1 terms per the LICENSE file published at that tag. Affected: `LICENSE`, `NOTICE`, `README.md` badge + License section, `CLAUDE.md` License Headers section, `CONTRIBUTING.md`, `package.json`, SPDX headers across 176 source files, `helm/computer-use-server/`, `THIRD-PARTY-LICENSES.md`, `computer-use-server/cli-defaults/*.json`.
 
+## v0.11.0.1 — the opencode config override is actually written (2026-08-24)
+
+Patch release. One defect, and it had been silently discarding an operator setting since the
+override was introduced.
+
+### Fixed
+
+- **`OPENCODE_CONFIG_EXTRA` never reached the sandbox's opencode config.** The variable routes
+  the sub-agent through an operator's own gateway instead of opencode's defaults.
+  `/tmp/opencode.json` was created at **0 bytes**, and opencode loaded its own configuration.
+
+  The Dockerfile line was correct, and always had been:
+
+  ```sh
+  printf "%s" "$OPENCODE_CONFIG_EXTRA" > /tmp/opencode.json
+  ```
+
+  But the whole entrypoint is emitted by a single ~300-line `RUN printf '...'`, and a bare `%s`
+  inside that format string is consumed by the build's own printf, which has no arguments to
+  substitute. What shipped in the image was `printf ""` — an empty format, with the config
+  passed as an argument printf discards.
+
+  Nothing failed. The file existed, the exit code was 0, and the variable was intact inside the
+  container: measured in a running sandbox, 465 bytes in the environment against 0 bytes in the
+  file it should have produced. Escaped as `%%s` in both affected writers, opencode and codex. A
+  third specifier in the same string (`%%Y`, in a date call) was already escaped, which is what
+  made the two unescaped ones read as deliberate.
+
+- **The image test suite could not have caught it.** Every check runs with `--entrypoint=bash`,
+  deliberately, to keep the entrypoint's status banners out of captured stdout — so the one file
+  the entrypoint writes was never exercised. Reading the Dockerfile would not have helped either:
+  the source is correct, and the defect is introduced between source and image. Added a check
+  that runs the writer for real and asserts the byte count rather than the exit code, and
+  confirmed it fails against the previous image (`0|`) before trusting it.
+
+### Changed
+
+- Docs point the hosted demo at `lab.widemoat.ai`; `chat.yambr.com` redirects there and
+  continues to. The README states where the project is going: this repository stays maintained,
+  its feature pace slows, and FSL-1.1-Apache-2.0 holds either way — every release converts to
+  Apache-2.0 two years after publication.
+
+
 ## v0.11.0.0-rc.1 — release candidate for the 0.11.0 base bump (2026-08-02)
 
 Pre-release. Contents are the `v0.11.0.0` entry below, cut so the 0.11.0 base can be exercised on real deployments while upstream settles. The final release waits for Open WebUI `0.11.1`/`0.11.2`, at which point the patch dry-run is re-run against that tag and the anchors adjusted if they moved.
