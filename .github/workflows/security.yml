@@ -244,7 +244,7 @@ jobs:
           limit-severities-for-sarif: true
       - name: Upload SARIF (CRITICAL)
         if: always()
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e  # v4.36.2
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd  # v4.37.7
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
@@ -269,7 +269,7 @@ jobs:
           limit-severities-for-sarif: true
       - name: Upload SARIF (HIGH)
         if: always()
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e  # v4.36.2
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd  # v4.37.7
         with:
           sarif_file: trivy-fs-high.sarif
           category: trivy-fs-high
