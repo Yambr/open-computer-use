@@ -124,10 +124,17 @@ jobs:
 
       - name: helm lint (sanity)
         run: |
-          # Lint with a placeholder API key — schema requires either mcpApiKey
-          # or existingSecret to be non-empty; we're not publishing values.yaml
-          # so this is purely a schema-level check.
+          # Lint with placeholder values — the schema requires either
+          # (secrets.create=true AND mcpApiKey) or existingSecret, and rejects a
+          # half-filled first branch. Passing mcpApiKey alone fails the oneOf,
+          # which is the schema doing its job rather than a chart problem.
+          #
+          # storageClass is required too, but by `required` in the PVC templates
+          # rather than by the schema, so `helm lint` never reaches it — it
+          # validates values without rendering. `helm template` in helm.yml is
+          # where that one is checked.
           helm lint "${{ env.CHART_PATH }}" \
+            --set secrets.create=true \
             --set secrets.mcpApiKey=lint-only \
             --set orchestrator.env.PUBLIC_BASE_URL=https://lint.example.com
 
