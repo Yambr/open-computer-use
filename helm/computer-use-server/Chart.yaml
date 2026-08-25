@@ -10,7 +10,7 @@ description: |
   release when needed; see examples/helm/with-open-webui/.
 type: application
 version: 0.4.0
-appVersion: "0.11.0.0"
+appVersion: "0.11.0.1"
 kubeVersion: ">=1.27.0-0"
 home: https://github.com/Wide-Moat/open-computer-use
 sources:
