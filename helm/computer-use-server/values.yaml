@@ -31,7 +31,7 @@ image:
   # -- Orchestrator image (the FastAPI server in computer-use-server/).
   repository: ghcr.io/wide-moat/open-computer-use-server
   # AppVersion 0.9.5.0-rc.2 — image-tag bump, chart unchanged (2 local patches still apply).
-  tag: "0.9.5.0-rc.2"
+  tag: "0.11.0.1"
   pullPolicy: IfNotPresent
 
 # Workspace image — the AI sandbox the orchestrator spawns via the Podman sidecar. Pulled by
@@ -39,7 +39,7 @@ image:
 # and is not covered by imagePullSecrets.
 workspaceImage:
   repository: ghcr.io/wide-moat/open-computer-use
-  tag: "0.9.5.0-rc.2"
+  tag: "0.11.0.1"
 
 # -- imagePullSecrets are applied to the Pod for the orchestrator and engine images.
 imagePullSecrets: []
@@ -173,7 +173,7 @@ cleanup:
   enabled: true
   image:
     repository: ghcr.io/wide-moat/open-computer-use-cleanup
-    tag: "0.9.5.0-rc.2"
+    tag: "0.11.0.1"
     pullPolicy: IfNotPresent
   containerMaxAgeHours: 24
   dataMaxAgeDays: 7
