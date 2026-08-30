@@ -299,14 +299,15 @@ jobs:
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
-      # Second pass — HIGH severity, NON-blocking (exit-code 0). Without
-      # this the security-exceptions.yml schema and the CLAUDE.md
-      # "HIGH allowed for 14 days with a tracked exception file" rule
-      # both refer to a stream of findings that nothing in this workflow
-      # produces. Uploading HIGH as informational SARIF makes the
-      # exception ledger meaningful and gives a regulator something to
-      # audit against.
-      - name: Trivy filesystem scan (HIGH, informational)
+      # Second pass - HIGH severity, BLOCKING on FIXABLE findings only
+      # (ignore-unfixed: true). A fixable HIGH has a bump answer, so this
+      # enforces bump-not-ignore: the gate reds until the dependency is
+      # raised to its patched version. Unfixed HIGHs (no upstream fix) do
+      # not block here; the nightly scan keeps them visible and the
+      # security-exceptions ledger tracks any accepted waiver. This is the
+      # fleet-uniform Trivy normal form (CRITICAL blocks incl. unfixed;
+      # HIGH blocks fixable-only).
+      - name: Trivy filesystem scan (HIGH, blocking on fixable)
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8  # v0.36.0
         with:
           # Same scanner build as the CRITICAL pass above. If the two passes
@@ -316,7 +317,7 @@ jobs:
           scan-type: fs
           scan-ref: .
           severity: HIGH
-          exit-code: "0"
+          exit-code: "1"
           ignore-unfixed: true
           skip-dirs: "node_modules,.venv,.planning,docs/future-architecture"
           format: sarif

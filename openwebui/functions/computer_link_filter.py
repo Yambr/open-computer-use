@@ -107,6 +107,7 @@ CHANGELOG (v3.0.2):
             than from anything the model wrote. Empty degrades like the base.
 """
 
+import json
 import re
 import time
 import urllib.error
@@ -143,6 +144,10 @@ _DOWNLOAD_MARKER_RE = re.compile(r"\[\[ocu-download:([^\]\n]{0,255})\]\]")
 # Cache TTL and size (module-level so tests can patch them)
 _PROMPT_TTL_SECONDS = 300
 _PROMPT_CACHE_MAX_SIZE = 100
+# A chat's storage scope is fixed for the life of its session, so this TTL only
+# bounds how long a reaped-and-recreated session keeps serving the old handle.
+_SCOPE_TTL_SECONDS = 300
+_SCOPE_CACHE_MAX_SIZE = 100
 
 
 def _find_block_start(content: str, pos: int) -> int:
@@ -252,7 +257,36 @@ class Filter:
                 "derive. init.sh seeds it from OCU_FILESYSTEM_ID, the same base "
                 "the tool sends on X-OCU-Filesystem-Id. Empty -> markers degrade "
                 "to the bare filename, because a one-segment path is not a route "
-                "the pane serves."
+                "the pane serves. Under per-chat storage isolation this is the "
+                "FALLBACK only: one static value cannot equal the filesystem_id "
+                "of more than one chat's session, so RESOLVE_SCOPE_URL below "
+                "supplies the per-chat value and this is used when the "
+                "deployment derives no per-chat scope."
+            ),
+        )
+        RESOLVE_SCOPE_URL: str = Field(
+            default="",
+            description=(
+                "MCP gateway ingress used to learn which storage scope a chat is "
+                "bound to, via its resolve_scope tool. Needed whenever the "
+                "deployment derives a per-chat scope: the pane's session then "
+                "carries filesystem_id <base>-<hex> per chat, so a link built "
+                "from the static DOWNLOAD_SCOPE points at the base tree -- it "
+                "renders a download page and returns no bytes. Empty -> no "
+                "resolution is attempted and DOWNLOAD_SCOPE is used as before."
+            ),
+        )
+        RESOLVE_SCOPE_BEARER: str = Field(
+            default="",
+            description=(
+                "Credential for RESOLVE_SCOPE_URL. Give this filter a key of its "
+                "own, confined gateway-side to resolve_scope: learning a scope is "
+                "all it needs, and an unconfined key would let a chat-rendering "
+                "filter execute tools. It must sit in the same tenant as the "
+                "caller key the tool uses -- the gateway derives its session hint "
+                "from the resolved principal's tenant, so a foreign-tenant key "
+                "resolves a different session and returns a scope matching no "
+                "guest."
             ),
         )
 
@@ -266,6 +300,12 @@ class Filter:
         self._prompt_cache: OrderedDict[
             tuple[str, str], tuple[float, tuple[str, str]]
         ] = OrderedDict()
+        # Per-chat scope cache: chat_id -> (fetched_at, scope). A chat's scope is
+        # fixed for the life of its session, so this is a hot-path saver, not a
+        # correctness device. Only SUCCESSFUL resolutions are stored: caching a
+        # failure would freeze a chat's links into the degraded state for the
+        # whole TTL after one transient gateway blip.
+        self._scope_cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
 
     def _fetch_system_prompt(
         self, chat_id: str, user_email: str = ""
@@ -351,6 +391,110 @@ class Filter:
                 return cached[1]
             # Cold cache + server down -> caller skips injection
             return None
+
+    def _resolve_chat_scope(self, chat_id: str) -> tuple[Optional[str], bool]:
+        """
+        Learn the storage scope bound to chat_id from the session's owner.
+
+        Returns (scope, ok). `ok` is False ONLY when resolution was attempted and
+        failed; the caller degrades the marker to plain text in that case, because
+        a link built from a scope we could not confirm is a link that renders a
+        download page and returns no bytes -- the worst of the three outcomes,
+        since it looks like it worked.
+
+        (None, True) means "no per-chat scope in this deployment": the gateway
+        answers with an empty effective_scope when the deployment derives none, and
+        then the static DOWNLOAD_SCOPE valve is the correct answer. Distinguishing
+        that from a failure is the whole point of the second return value.
+
+        The scope is never derived locally. A filter-local derivation would use a
+        different pre-image than the one the guest's session was minted with and
+        bind a third value matching neither the pane nor the guest.
+        """
+        endpoint = self.valves.RESOLVE_SCOPE_URL.strip()
+        if not endpoint or not chat_id:
+            return None, True  # not configured / nothing to resolve -> use the valve
+
+        now = time.time()
+        cached = self._scope_cache.get(chat_id)
+        if cached and now - cached[0] < _SCOPE_TTL_SECONDS:
+            self._scope_cache.move_to_end(chat_id)
+            return cached[1], True
+
+        parsed = urllib.parse.urlparse(endpoint)
+        if parsed.scheme not in ("http", "https"):
+            print(
+                f"[ComputerUseFilter] Unsupported resolve-scope URL scheme: "
+                f"{parsed.scheme!r} (expected http/https)"
+            )
+            return None, False
+
+        bearer = self.valves.RESOLVE_SCOPE_BEARER.strip()
+        if not bearer:
+            print(
+                "[ComputerUseFilter] RESOLVE_SCOPE_URL is set but "
+                "RESOLVE_SCOPE_BEARER is empty; cannot resolve a chat's scope"
+            )
+            return None, False
+
+        payload = (
+            b'{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+            b'"params":{"name":"resolve_scope","arguments":{}}}'
+        )
+        try:
+            req = urllib.request.Request(endpoint, data=payload, method="POST")
+            req.add_header("Authorization", f"Bearer {bearer}")
+            req.add_header("Content-Type", "application/json")
+            req.add_header("MCP-Protocol-Version", "2025-06-18")
+            # The chat travels on the header the gateway reads as a session HINT,
+            # never as identity: it is mixed with the resolved principal's tenant.
+            req.add_header("X-Chat-Id", chat_id)
+            with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 — scheme validated above
+                envelope = json.loads(resp.read().decode("utf-8"))
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as e:
+            # Narrow, like _fetch_system_prompt: a broader Exception would hide
+            # configuration bugs behind the degraded path.
+            print(f"[ComputerUseFilter] Failed to resolve scope for chat: {e}")
+            return None, False
+
+        if envelope.get("error"):
+            print(
+                f"[ComputerUseFilter] Gateway refused resolve_scope: "
+                f"{envelope['error'].get('message')!r}"
+            )
+            return None, False
+
+        result = envelope.get("result") or {}
+        if result.get("isError"):
+            print("[ComputerUseFilter] resolve_scope returned an error result")
+            return None, False
+        blocks = result.get("content") or []
+        if not blocks:
+            print("[ComputerUseFilter] resolve_scope result carried no content")
+            return None, False
+        try:
+            scope = (json.loads(blocks[0].get("text") or "{}") or {}).get(
+                "effective_scope"
+            )
+        except json.JSONDecodeError as e:
+            print(f"[ComputerUseFilter] resolve_scope content did not parse: {e}")
+            return None, False
+
+        scope = (scope or "").strip().strip("/")
+        if not scope:
+            # The deployment derives no per-chat scope. The base valve is correct.
+            return None, True
+
+        self._scope_cache[chat_id] = (now, scope)
+        self._scope_cache.move_to_end(chat_id)
+        while len(self._scope_cache) > _SCOPE_CACHE_MAX_SIZE:
+            self._scope_cache.popitem(last=False)
+        return scope, True
 
     def inlet(
         self,
@@ -473,7 +617,18 @@ class Filter:
            link is worse than no link.
         """
         base = self.valves.DOWNLOAD_BASE_URL.rstrip("/")
-        scope = self.valves.DOWNLOAD_SCOPE.strip().strip("/")
+        # The scope must equal the filesystem_id of THIS chat's pane session.
+        # Under per-chat isolation that value differs per chat, so ask the
+        # session's owner; the static valve is the answer only where the
+        # deployment derives no per-chat scope. A resolution that was attempted
+        # and FAILED yields no link at all: a link carrying an unconfirmed scope
+        # renders a download page and returns no bytes, which reads as success.
+        chat_id = __metadata__.get("chat_id") if __metadata__ else None
+        resolved, resolve_ok = self._resolve_chat_scope(chat_id or "")
+        if not resolve_ok:
+            scope = ""
+        else:
+            scope = resolved or self.valves.DOWNLOAD_SCOPE.strip().strip("/")
 
         def _replace_marker(match: "re.Match[str]") -> str:
             name = match.group(1).strip()

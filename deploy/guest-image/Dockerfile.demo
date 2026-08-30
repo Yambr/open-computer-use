@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+# Copyright (c) 2025 Open Computer Use Contributors
+
+# DEMO-ONLY guest image. NOT a release artifact, NOT part of the canonical
+# assembly (deploy/guest-image/Dockerfile). It layers a single static busybox
+# over the assembled substrate so a live end-to-end demo can WRITE a file into
+# the FUSE mount (/mnt/user-data/outputs) with open(2)/write(2) from inside the
+# guest — exactly what a real min-tier task rootfs does per the [ADR-0020]
+# provisioning ladder. The canonical assembled substrate is deliberately
+# distroless and carries NO coreutils; production images carry their own
+# tooling as a task rootfs on top of the substrate, so this demo layer
+# APPROXIMATES that deployment rather than misrepresenting the substrate.
+#
+# Do NOT wire this into any registry-push CI job. It exists to prove the
+# guest-side FUSE write leg of the storage chain firsthand.
+#
+# Build:
+#   docker build \
+#     --build-arg ASSEMBLED_IMAGE=ocu-guest:assembled-p2scrub \
+#     --build-arg BUSYBOX_IMAGE=busybox:1.36-musl \
+#     -f deploy/guest-image/Dockerfile.demo -t ocu-guest:assembled-demo \
+#     deploy/guest-image
+
+ARG ASSEMBLED_IMAGE
+ARG BUSYBOX_IMAGE=busybox:1.36-musl
+
+FROM ${BUSYBOX_IMAGE} AS busybox
+
+FROM ${ASSEMBLED_IMAGE} AS demo
+
+# A single static busybox at a fixed path, plus a /bin/sh symlink onto it.
+# Static (musl) so it needs no libc the distroless substrate lacks. The exec
+# argv runs the tool command via /bin/sh -c: an image that supports bash_tool
+# guarantees a POSIX /bin/sh, so the gateway does not need to know the image's
+# internals (busybox here, a real shell in a heavier rung). The FUSE mount is
+# already up by the time the boot-child readies, so a shell write lands on it.
+COPY --from=busybox /bin/busybox /bin/busybox
+RUN ["/bin/busybox", "ln", "-s", "/bin/busybox", "/bin/sh"]
+
+# ENTRYPOINT is inherited from the assembled image (the agent entrypoint the
+# canonical Dockerfile sets); the control plane supplies the full create-time
+# command unchanged.

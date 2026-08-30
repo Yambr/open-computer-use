@@ -61,6 +61,60 @@ fi
 if [ -f "$MARKER_FILE" ]; then
     echo "[init] Already initialized, skipping."
     echo "[init] To re-seed Valves from env, delete $MARKER_FILE and restart the container."
+
+    # One exception, and it is narrow on purpose. The marker exists so a restart
+    # cannot overwrite valves an operator edited in the admin UI, and that stays
+    # true: this only FILLS a valve that is absent or empty, and only the two the
+    # per-chat download link needs. It never overwrites a value that is set.
+    #
+    # Without it, upgrading an existing deployment leaves RESOLVE_SCOPE_URL unset,
+    # the filter falls back to the base scope, and every chat download link
+    # renders its page and returns no bytes — a failure that reads as success.
+    # A version of this guard that required deleting the marker would leave that
+    # state one forgotten step away.
+    if [ -n "${OCU_RESOLVE_SCOPE_URL:-}" ]; then
+        for i in $(seq 1 30); do
+            curl -sf "$WEBUI_URL/health" >/dev/null 2>&1 && break
+            sleep 2
+        done
+        RTOKEN=$(curl -sf "$WEBUI_URL/api/v1/auths/signin" -H "Content-Type: application/json" \
+            -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])" 2>/dev/null || echo "")
+        if [ -z "$RTOKEN" ]; then
+            echo "[init] Could not sign in to reconcile the resolve-scope valves; leaving them as they are."
+            exit 0
+        fi
+        RBEARER="${OCU_RESOLVE_SCOPE_BEARER:-}"
+        if [ -n "${OCU_RESOLVE_SCOPE_BEARER_FILE:-}" ] && [ -r "${OCU_RESOLVE_SCOPE_BEARER_FILE}" ]; then
+            RBEARER="$(tr -d '\r\n' < "$OCU_RESOLVE_SCOPE_BEARER_FILE")"
+        fi
+        CURRENT=$(curl -sf "$WEBUI_URL/api/v1/functions/id/computer_use_filter/valves" \
+            -H "Authorization: Bearer $RTOKEN" 2>/dev/null || echo "")
+        MERGED=$(printf '%s' "$CURRENT" | OCU_R_URL="${OCU_RESOLVE_SCOPE_URL:-}" OCU_R_BEARER="$RBEARER" python3 -c '
+import json, os, sys
+try:
+    v = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+changed = False
+for key, val in (("RESOLVE_SCOPE_URL", os.environ["OCU_R_URL"]),
+                 ("RESOLVE_SCOPE_BEARER", os.environ["OCU_R_BEARER"])):
+    if not v.get(key) and val:
+        v[key] = val
+        changed = True
+if not changed:
+    sys.exit(2)  # already set — leave the operator every value they chose
+json.dump(v, sys.stdout)
+' 2>/dev/null) && {
+            if curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/valves/update" \
+                -H "Authorization: Bearer $RTOKEN" -H "Content-Type: application/json" \
+                -d "$MERGED" >/dev/null 2>&1; then
+                echo "[init] Filled the absent resolve-scope valves (RESOLVE_SCOPE_URL=${OCU_RESOLVE_SCOPE_URL:-}); per-chat download links stay correct across this upgrade."
+            else
+                echo "[init] WARNING: could not write the resolve-scope valves; chat download links will use the base scope."
+            fi
+        }
+    fi
     exit 0
 fi
 
@@ -134,8 +188,8 @@ fi
 echo "[init] Configuring tool valves..."
 curl -sf -X POST "$WEBUI_URL/api/v1/tools/id/ai_computer_use/valves/update" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d "{\"ORCHESTRATOR_URL\": \"$ORCHESTRATOR_URL\", \"MCP_API_KEY\": \"$MCP_API_KEY\", \"DEBUG_LOGGING\": false}" >/dev/null
-echo "[init] Tool valves set: ORCHESTRATOR_URL=$ORCHESTRATOR_URL"
+    -d "{\"ORCHESTRATOR_URL\": \"$ORCHESTRATOR_URL\", \"MCP_API_KEY\": \"$MCP_API_KEY\", \"OCU_FILESYSTEM_ID\": \"$OCU_FILESYSTEM_ID\", \"DEBUG_LOGGING\": false}" >/dev/null
+echo "[init] Tool valves set: ORCHESTRATOR_URL=$ORCHESTRATOR_URL OCU_FILESYSTEM_ID=$OCU_FILESYSTEM_ID"
 
 # Make tool public-read so non-admin users can see & call it.
 # Open WebUI's UI "Public" toggle writes BOTH group:* and user:* wildcards — we mirror
@@ -192,11 +246,38 @@ fi
 # here is the SAME OCU_FILESYSTEM_ID the portal mints into the embed token.
 # ARCHIVE_BUTTON is off (the legacy archive link used the retired capability-URL
 # cache).
+#
+# DOWNLOAD_SCOPE is the FALLBACK only. Where the deployment derives a per-chat
+# scope, the pane session's filesystem_id is <base>-<hex> and differs per chat,
+# so no single value here can be right for more than one of them: a link built
+# from the base renders its download page and returns no bytes. The filter asks
+# the session's owner instead, through the gateway's resolve_scope, and falls
+# back to this value only when the answer is empty (no derivation configured).
+# Seeding both valves here is what stops a later init run from dropping them and
+# silently restoring the base-scope link.
+OCU_RESOLVE_SCOPE_URL="${OCU_RESOLVE_SCOPE_URL:-}"
+OCU_RESOLVE_SCOPE_BEARER="${OCU_RESOLVE_SCOPE_BEARER:-}"
+if [ -n "${OCU_RESOLVE_SCOPE_BEARER_FILE:-}" ] && [ -r "${OCU_RESOLVE_SCOPE_BEARER_FILE}" ]; then
+    # Prefer a path over an environment value: a container's environment is
+    # readable by anything that can inspect it.
+    OCU_RESOLVE_SCOPE_BEARER="$(tr -d '\r\n' < "$OCU_RESOLVE_SCOPE_BEARER_FILE")"
+fi
+if [ -n "$OCU_RESOLVE_SCOPE_URL" ] && [ -z "$OCU_RESOLVE_SCOPE_BEARER" ]; then
+    echo "[init] WARNING: OCU_RESOLVE_SCOPE_URL is set but no bearer was supplied;" \
+         "per-chat download links will degrade to plain filenames"
+fi
+# The valve write REPLACES the stored object, so every key the filter owns has to
+# appear here. Listing only the ones this change cares about silently dropped
+# PREVIEW_MODE and both label valves, and with no PREVIEW_MODE the outlet appends
+# no preview link at all — the panel stops offering it and nothing says why.
+OCU_PREVIEW_MODE="${OCU_PREVIEW_MODE:-button}"
+OCU_PREVIEW_BUTTON_TEXT="${OCU_PREVIEW_BUTTON_TEXT:-🖥️ Open preview}"
+OCU_ARCHIVE_BUTTON_TEXT="${OCU_ARCHIVE_BUTTON_TEXT:-📦 Download all files as archive}"
 echo "[init] Configuring filter valves..."
 if curl -sf -X POST "$WEBUI_URL/api/v1/functions/id/computer_use_filter/valves/update" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d "{\"ORCHESTRATOR_URL\": \"$ORCHESTRATOR_URL\", \"ARCHIVE_BUTTON\": \"off\", \"INJECT_SYSTEM_PROMPT\": false, \"DOWNLOAD_BASE_URL\": \"$OCU_DOWNLOAD_BASE_URL\", \"DOWNLOAD_SCOPE\": \"$OCU_FILESYSTEM_ID\"}" >/dev/null 2>&1; then
-    echo "[init] Filter valves set: ORCHESTRATOR_URL=$ORCHESTRATOR_URL DOWNLOAD_BASE_URL=$OCU_DOWNLOAD_BASE_URL DOWNLOAD_SCOPE=$OCU_FILESYSTEM_ID"
+    -d "{\"ORCHESTRATOR_URL\": \"$ORCHESTRATOR_URL\", \"ARCHIVE_BUTTON\": \"off\", \"INJECT_SYSTEM_PROMPT\": false, \"DOWNLOAD_BASE_URL\": \"$OCU_DOWNLOAD_BASE_URL\", \"DOWNLOAD_SCOPE\": \"$OCU_FILESYSTEM_ID\", \"RESOLVE_SCOPE_URL\": \"$OCU_RESOLVE_SCOPE_URL\", \"RESOLVE_SCOPE_BEARER\": \"$OCU_RESOLVE_SCOPE_BEARER\", \"PREVIEW_MODE\": \"$OCU_PREVIEW_MODE\", \"PREVIEW_BUTTON_TEXT\": \"$OCU_PREVIEW_BUTTON_TEXT\", \"ARCHIVE_BUTTON_TEXT\": \"$OCU_ARCHIVE_BUTTON_TEXT\"}" >/dev/null 2>&1; then
+    echo "[init] Filter valves set: ORCHESTRATOR_URL=$ORCHESTRATOR_URL DOWNLOAD_BASE_URL=$OCU_DOWNLOAD_BASE_URL DOWNLOAD_SCOPE=$OCU_FILESYSTEM_ID RESOLVE_SCOPE_URL=${OCU_RESOLVE_SCOPE_URL:-<unset>}"
 else
     echo "[init] ERROR: Could not seed filter valves — ORCHESTRATOR_URL will fall back to the code default until the next successful init. Init will retry on next restart."
     INIT_FAILED=1
@@ -274,43 +355,202 @@ else
     echo "[init] WARNING: Could not POST DEFAULT_MODEL_PARAMS (endpoint may differ on this Open WebUI version)."
 fi
 
-# Also try setting via workspace model (fallback for v0.8.11–0.8.12)
-# Get first available model and create a workspace model with native FC
-FIRST_MODEL=$(curl -sf "$WEBUI_URL/api/models" -H "$AUTH" 2>/dev/null | python3 -c "
-import sys,json
-data = json.load(sys.stdin).get('data',[])
-for m in data:
-    if m.get('id','') != 'arena-model':
-        print(m['id'])
-        break
-" 2>/dev/null || echo "")
+# Model surface for the demo: keep ONLY the Qwen family + DeepSeek "flash"
+# (owner directive) out of the ~350-model OpenRouter catalog, bind the Computer
+# Use tool + native function-calling onto EVERY surviving model so any chat a
+# user opens has the tool live (all Qwen/DeepSeek-flash models advertise
+# function-calling), and default a fresh chat to DeepSeek flash.
+#
+# OCU_DEMO_ALLOW_REGEX selects the base models to keep (default: qwen* or a
+# deepseek *flash*). OCU_DEMO_DEFAULT_MODEL is the fresh-chat default.
+OCU_DEMO_ALLOW_REGEX="${OCU_DEMO_ALLOW_REGEX:-^qwen/|^deepseek/.*flash}"
+OCU_DEMO_DEFAULT_MODEL="${OCU_DEMO_DEFAULT_MODEL:-deepseek/deepseek-v4-flash}"
 
-if [ -n "$FIRST_MODEL" ]; then
-    echo "[init] Creating workspace model for $FIRST_MODEL with native FC..."
-    MODEL_PAYLOAD=$(python3 -c "
-import json
-model_id = '$FIRST_MODEL'
-safe_id = model_id.replace('/', '-')
+echo "[init] Filtering model catalog to /$OCU_DEMO_ALLOW_REGEX/ and binding Computer Use + native FC to each..."
+CATALOG=$(curl -sf "$WEBUI_URL/api/models" -H "$AUTH" 2>/dev/null || echo '{"data":[]}')
+
+# 1) Restrict the OpenRouter connection's visible catalog to the allow-set via
+#    OPENAI_API_CONFIGS[<idx>].model_ids (OpenWebUI hides everything else).
+OAI_CFG=$(curl -sf "$WEBUI_URL/openai/config" -H "$AUTH" 2>/dev/null || echo "{}")
+FILTER_PAYLOAD=$(printf '%s\n---SPLIT---\n%s' "$CATALOG" "$OAI_CFG" | python3 -c "
+import sys, json, re
+cat_raw, oai_raw = sys.stdin.read().split('---SPLIT---')
+allow = re.compile('$OCU_DEMO_ALLOW_REGEX')
+ids = [m['id'] for m in json.loads(cat_raw).get('data', []) if allow.search(m.get('id',''))]
+oai = json.loads(oai_raw)
+cfgs = oai.get('OPENAI_API_CONFIGS') or {}
+# one OpenRouter connection at idx '0'; pin its visible model_ids to the allow-set
+cfgs.setdefault('0', {})
+cfgs['0']['model_ids'] = ids
+oai['OPENAI_API_CONFIGS'] = cfgs
+print(json.dumps({'kept': ids, 'oai': oai}))
+" 2>/dev/null)
+KEPT_IDS=$(printf '%s' "$FILTER_PAYLOAD" | python3 -c "import sys,json;print('\n'.join(json.load(sys.stdin)['kept']))" 2>/dev/null)
+OAI_NEW=$(printf '%s' "$FILTER_PAYLOAD" | python3 -c "import sys,json;print(json.dumps(json.load(sys.stdin)['oai']))" 2>/dev/null)
+if [ -n "$OAI_NEW" ]; then
+    curl -sf -X POST "$WEBUI_URL/openai/config/update" \
+        -H "$AUTH" -H "Content-Type: application/json" -d "$OAI_NEW" >/dev/null 2>&1 \
+        && echo "[init] Catalog filtered to $(printf '%s' "$KEPT_IDS" | grep -c . ) models (Qwen + DeepSeek flash)." \
+        || echo "[init] WARNING: catalog filter POST failed (endpoint may differ)."
+fi
+
+# 2) Bind Computer Use tool + native FC + the sandbox system prompt onto EVERY
+#    surviving base model, so the tool is live and the model knows the filesystem
+#    map in every chat regardless of which model the user picks.
+#
+#    The system prompt rides params.system on the model record. The
+#    computer_use_filter's /system-prompt fetch degrades silently here: its
+#    ORCHESTRATOR_URL points at the MCP gateway, which (correctly) serves no
+#    such route - the gateway fronts tools/call only. Without params.system the
+#    model gets ZERO path guidance and writes to read-only paths blind.
+#
+#    CRITICAL: base_model_id MUST be null (not the model's own id). Open WebUI's
+#    get_all_models merge has two paths (utils/models.py): a workspace record
+#    with base_model_id=None is applied as a DIRECT OVERRIDE onto the base model
+#    that shares its id (so meta.toolIds surfaces into the resolved catalog the
+#    chat reads); a record whose base_model_id is set is treated as a DERIVED
+#    model, and if its id already exists as a base model the merge hits
+#    `continue` and SKIPS it entirely — meta.toolIds never attaches and the tool
+#    never reaches the model in chat. A self-referential base_model_id==id lands
+#    on that skip path, which is why the tool was absent in a fresh default chat.
+# The sandbox system prompt every bound model gets (params.system). It is a data
+# artifact shipped next to this script (COPY system_prompt.txt in the Dockerfile)
+# and read verbatim - it carries the skills-first protocol, the <available_skills>
+# block, the filesystem map (uploads RO + outputs RW), the self-verify and
+# file-sharing instructions. Kept out-of-line so its content never has to survive
+# heredoc/JSON quoting and so the contract test can load the exact same bytes.
+#
+# Fail loud: if the file is missing, seeding a blank system prompt would leave
+# every model with ZERO path guidance (the failure mode this whole step exists to
+# prevent). Abort the run instead of shipping an empty prompt.
+PROMPT_FILE="$(dirname "$0")/system_prompt.txt"
+if [ ! -s "$PROMPT_FILE" ]; then
+    echo "[init] FATAL: system prompt file missing or empty: $PROMPT_FILE" >&2
+    echo "[init]        refusing to seed models with an empty params.system." >&2
+    exit 1
+fi
+OCU_SYSTEM_PROMPT="$(cat "$PROMPT_FILE")"
+export OCU_SYSTEM_PROMPT
+
+if [ -n "$KEPT_IDS" ]; then
+    printf '%s\n' "$KEPT_IDS" | while IFS= read -r model_id; do
+        [ -z "$model_id" ] && continue
+        MODEL_PAYLOAD=$(model_id="$model_id" python3 -c "
+import json, os
+mid = os.environ['model_id']
 print(json.dumps({
-    'id': safe_id,
-    'name': model_id.split('/')[-1] + ' (Computer Use)',
-    'base_model_id': model_id,
+    'id': mid,
+    'name': mid,
+    'base_model_id': None,
     'meta': {
-        'description': 'Model with Computer Use tools enabled and Native Function Calling',
+        'description': 'Computer Use tools enabled (native function calling).',
         'toolIds': ['ai_computer_use'],
         'filterIds': ['computer_use_filter']
     },
     'params': {
         'function_calling': 'native',
-        'stream_response': True
-    }
+        'stream_response': True,
+        'system': os.environ.get('OCU_SYSTEM_PROMPT', '')
+    },
+    # Public read grants, mirroring the tool's own grants above. A seeded model
+    # record with empty access_grants is dropped by get_filtered_models for any
+    # non-admin user (they would see zero models), so grant read to all users
+    # and groups — the model catalog is meant to be visible to everyone here.
+    'access_grants': [
+        {'principal_type': 'group', 'principal_id': '*', 'permission': 'read'},
+        {'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}
+    ]
 }))
 ")
-    curl -sf -X POST "$WEBUI_URL/api/v1/models/create" \
-        -H "$AUTH" -H "Content-Type: application/json" \
-        -d "$MODEL_PAYLOAD" >/dev/null 2>&1 && \
-        echo "[init] Workspace model created: $FIRST_MODEL (Computer Use)" || \
-        echo "[init] Workspace model creation skipped (may already exist)"
+        # create, or update if it already exists (idempotent re-seed). The create
+        # endpoint rejects an already-registered id, so fall through to update.
+        curl -sf -X POST "$WEBUI_URL/api/v1/models/create" \
+            -H "$AUTH" -H "Content-Type: application/json" -d "$MODEL_PAYLOAD" >/dev/null 2>&1 \
+        || curl -sf -X POST "$WEBUI_URL/api/v1/models/model/update?id=$model_id" \
+            -H "$AUTH" -H "Content-Type: application/json" -d "$MODEL_PAYLOAD" >/dev/null 2>&1
+    done
+    echo "[init] Computer Use tool + native FC bound to every kept model."
+
+    # 2b) Repair LEGACY workspace records. Earlier seeder generations left
+    #     derived records (unique id, base_model_id set — e.g. an "ocu-*" alias
+    #     of a kept base). The loop above never touches them because it walks
+    #     base-catalog ids only, so such a record keeps stale params forever —
+    #     and if it is the fresh-chat default, every new chat runs with NO
+    #     system prompt while all directly-seeded models carry one.
+    #
+    #     The list endpoint returns the RESOLVED catalog, which reports
+    #     base_model_id as null even for derived records — only the raw
+    #     single-record GET (/api/v1/models/model?id=) exposes the stored
+    #     base_model_id. So: take list ids outside the kept set, fetch each
+    #     raw record, and re-bind tool + FC + prompt onto every record whose
+    #     base points into the kept set, preserving its id/base pair.
+    WORKSPACE=$(curl -sf "$WEBUI_URL/api/v1/models" -H "$AUTH" 2>/dev/null || echo '[]')
+    CANDIDATE_IDS=$(printf '%s\n---SPLIT---\n%s' "$WORKSPACE" "$KEPT_IDS" | python3 -c "
+import sys, json
+raw, kept_raw = sys.stdin.read().split('---SPLIT---')
+kept = set(l.strip() for l in kept_raw.splitlines() if l.strip())
+recs = json.loads(raw)
+if isinstance(recs, dict): recs = recs.get('data', [])
+for r in recs:
+    if r.get('id') and r['id'] not in kept:
+        print(r['id'])
+" 2>/dev/null)
+    if [ -n "$CANDIDATE_IDS" ]; then
+        printf '%s\n' "$CANDIDATE_IDS" | while IFS= read -r legacy_id; do
+            [ -z "$legacy_id" ] && continue
+            ENC_ID=$(legacy_id="$legacy_id" python3 -c "import os,urllib.parse;print(urllib.parse.quote(os.environ['legacy_id'], safe=''))")
+            RAW_RECORD=$(curl -sf "$WEBUI_URL/api/v1/models/model?id=$ENC_ID" -H "$AUTH" 2>/dev/null || echo '{}')
+            legacy_base=$(printf '%s\n---SPLIT---\n%s' "$RAW_RECORD" "$KEPT_IDS" | python3 -c "
+import sys, json
+raw, kept_raw = sys.stdin.read().split('---SPLIT---')
+kept = set(l.strip() for l in kept_raw.splitlines() if l.strip())
+base = (json.loads(raw) or {}).get('base_model_id')
+print(base if base in kept else '')
+" 2>/dev/null)
+            [ -z "$legacy_base" ] && continue
+            LEGACY_PAYLOAD=$(model_id="$legacy_id" base_id="$legacy_base" python3 -c "
+import json, os
+print(json.dumps({
+    'id': os.environ['model_id'],
+    'name': os.environ['model_id'],
+    'base_model_id': os.environ['base_id'],
+    'meta': {
+        'description': 'Computer Use tools enabled (native function calling).',
+        'toolIds': ['ai_computer_use'],
+        'filterIds': ['computer_use_filter']
+    },
+    'params': {
+        'function_calling': 'native',
+        'stream_response': True,
+        'system': os.environ.get('OCU_SYSTEM_PROMPT', '')
+    },
+    'access_grants': [
+        {'principal_type': 'group', 'principal_id': '*', 'permission': 'read'},
+        {'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}
+    ]
+}))
+")
+            curl -sf -X POST "$WEBUI_URL/api/v1/models/model/update?id=$ENC_ID" \
+                -H "$AUTH" -H "Content-Type: application/json" -d "$LEGACY_PAYLOAD" >/dev/null 2>&1 \
+                && echo "[init] Repaired legacy model record: $legacy_id (base $legacy_base)." \
+                || echo "[init] WARNING: could not repair legacy record $legacy_id."
+        done
+    fi
+fi
+
+# 3) Default a fresh chat to DeepSeek flash (with the tool already bound).
+DEFAULT_CFG=$(curl -sf "$WEBUI_URL/api/v1/configs/models" -H "$AUTH" 2>/dev/null || echo "{}")
+DEFAULT_NEW=$(DM="$OCU_DEMO_DEFAULT_MODEL" printf '%s' "$DEFAULT_CFG" | DM="$OCU_DEMO_DEFAULT_MODEL" python3 -c "
+import sys, json, os
+cfg = json.loads(sys.stdin.read() or '{}')
+cfg['DEFAULT_MODELS'] = os.environ['DM']
+print(json.dumps(cfg))
+" 2>/dev/null)
+if [ -n "$DEFAULT_NEW" ]; then
+    curl -sf -X POST "$WEBUI_URL/api/v1/configs/models" \
+        -H "$AUTH" -H "Content-Type: application/json" -d "$DEFAULT_NEW" >/dev/null 2>&1 \
+        && echo "[init] Default model set to $OCU_DEMO_DEFAULT_MODEL." \
+        || echo "[init] WARNING: could not set DEFAULT_MODELS."
 fi
 
 # Mark as initialized — only if every required step succeeded. If INIT_FAILED=1,

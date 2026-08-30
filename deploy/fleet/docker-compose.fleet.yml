@@ -1,0 +1,1385 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+# Copyright (c) 2025 Open Computer Use Contributors
+#
+# Fleet assembly for the next/v1 architecture. Wires the web UI, object-store
+# service (north + south), real S3 (MinIO), control plane, and the south mount
+# edge into one deployment. See README.md for fleet-vs-PoC, the network map, and
+# the Phase-E/Phase-F split on the south leg.
+#
+# Bring-up:
+#   docker compose -f deploy/fleet/docker-compose.fleet.yml up -d --build --wait
+#
+# The sandbox guest is not a service here — control creates it per session
+# through the Docker socket. The standalone sandbox smoke runs through octl.
+#
+# Component images are built from sibling repos checked out beside this one:
+#   ../ocu-webui, ../ocu-filestore, ../ocu-control, ../ocu-rclone-filestore.
+# Adjust the build contexts if your checkout layout differs.
+
+name: ocu-fleet
+
+# ---------------------------------------------------------------------------
+# Networks. The guest sits on ocu-mount-facing ONLY; it has no route to the
+# object-store south face, control, the exchange peer, or MinIO. Single hop.
+# ---------------------------------------------------------------------------
+
+  # =========================================================================
+
+networks:
+  ocu-frontend:
+    driver: bridge
+  # g7-visualizer serves an UNAUTHENTICATED /api/* that drives real
+  # create/exec/destroy through its gateway mTLS cert. It must not share
+  # a bridge with the web tier, which processes untrusted input: a
+  # loopback `ports:` publish does not restrict in-network callers.
+  ocu-g7:
+    driver: bridge
+  ocu-north:
+    driver: bridge
+  ocu-mount-facing:
+    # The guest<->edge segment. A storage-scoped session guest joins THIS network
+    # (control's -egress-network) so its co-located mount can reach the edge — the
+    # only component on it the guest may talk to. The subnet is pinned so the edge
+    # takes a fixed IP (172.20.0.2 below): a gVisor guest cannot use docker's
+    # embedded DNS, so control injects a static `edge:172.20.0.2` ExtraHosts entry
+    # (-edge-host) and a stable IP keeps that mapping valid across restarts.
+    #
+    # internal: true is the L3 single-hop invariant. Without it the guest reaches
+    # arbitrary external hosts (nc 1.1.1.1:443 → rc 0), collapsing the egress
+    # policy to a DNS-scoping convention. With no NAT bridge on this segment the
+    # guest can reach only the edge and no external route exists. The guest<->edge
+    # traffic is in-segment and needs no default route out. Ties the
+    # shared-mount-facing network-model convergence issue.
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  ocu-edge-backend:
+    # Subnet pinned to a /24 disjoint from ocu-mount-facing's 172.20.0.0/24. Without
+    # a pin Docker auto-allocates a /16 that can overlap the pinned /24, and a cold
+    # up races to "Pool overlaps with other one on this address space" depending on
+    # network creation order. A pinned disjoint /24 removes the race.
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+  ocu-storage-backend:
+    # The object-store engine's own backend (north F9 + MinIO). Kept distinct
+    # from ocu-edge-backend: F9 is the no-credential read plane and has no place
+    # on the credential-bearing south mount network. The north object-store
+    # reaches MinIO here without taking the `filestore` alias that the south
+    # upstream owns on ocu-edge-backend.
+    driver: bridge
+  ocu-state:
+    driver: bridge
+
+volumes:
+  minio-data:
+  filestore-handles:
+  filestore-audit:
+  webui-audit:
+  control-audit:
+  control-runtime:
+  control-signing-key:
+  control-jwks:
+  tls-certs:
+  south-shared:
+  south-filestore-workspace:
+  control-db-data:
+  # The gateway's durable OCSF audit journal (G7 FileSink) and the OpenWebUI
+  # client's own state + its private Postgres — the UI DB is NEVER control-db.
+  mcp-gateway-audit:
+  open-webui-data:
+  openwebui-db-data:
+
+services:
+  # -------------------------------------------------------------------------
+  # cert-init — mints one leaf whose SAN covers `filestore`, `ocu-filestore`
+  # (the north names the object-store service is reachable as) and
+  # `objectstore-south` (the name the edge dials its :8444 south face on),
+  # shared by its north (:7080) and south (:8444) listeners, plus the CA the
+  # web UI trusts via NODE_EXTRA_CA_CERTS. A SAN extension re-issues the LEAF
+  # only, reusing the existing CA, so CA-anchored trust survives across `up`.
+  # One-shot; the stack waits on it.
+  # -------------------------------------------------------------------------
+  cert-init:
+    image: alpine/openssl:latest@sha256:3da6a24cdaa2f2ac8ef4defb322249fae6159983104653a9e5312f5b75dac7af
+    volumes:
+      - tls-certs:/certs
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        cd /certs
+        if [ -f tls-cert.pem ] && [ -f ca.pem ] \
+          && openssl x509 -in tls-cert.pem -noout -text | grep -q objectstore-south \
+          && openssl x509 -in tls-cert.pem -noout -text | grep -q "DNS:jwks"; then
+          echo "certs present (leaf SAN covers objectstore-south + jwks)"; exit 0
+        fi
+        # CA — minted once; never rotated by a leaf re-issue.
+        if [ ! -f ca.pem ]; then
+          openssl genpkey -algorithm ED25519 -out ca-key.pem
+          openssl req -x509 -new -key ca-key.pem -days 3650 -out ca.pem \
+            -subj "/CN=ocu-fleet-ca"
+          echo "minted CA"
+        fi
+        # leaf with SANs covering the north names + the south dial name
+        openssl genpkey -algorithm ED25519 -out tls-key.pem
+        openssl req -new -key tls-key.pem -out leaf.csr -subj "/CN=filestore"
+        printf 'subjectAltName=DNS:filestore,DNS:ocu-filestore,DNS:objectstore-south,DNS:jwks,DNS:localhost\n' > san.ext
+        openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca-key.pem \
+          -CAcreateserial -days 825 -out tls-cert.pem -extfile san.ext
+        # The object-store service reads the leaf key as uid 65532 under a
+        # read-only rootfs, so the dev leaf key is world-readable. These are
+        # throwaway self-signed certs for the local fleet only; production
+        # supplies real certs through proper key-management with tight modes.
+        chmod 0644 tls-cert.pem ca.pem tls-key.pem
+        chown 65532:65532 tls-key.pem tls-cert.pem 2>/dev/null || true
+        echo "minted leaf (SAN filestore,ocu-filestore,objectstore-south,jwks,localhost)"
+
+  # -------------------------------------------------------------------------
+  # jwks — the static-file server that publishes control's rendered JWKS
+  # artifact (ADR-0019 §35: control writes the file, the deploy layer serves it;
+  # control adds NO listener). The edge + exchange fetch their Storage-JWT verify
+  # key from https://jwks:8443/.well-known/jwks.json. TLS uses the cert-init leaf
+  # (SAN covers DNS:jwks) so the edge/exchange south-CA client trusts it.
+  # -------------------------------------------------------------------------
+  jwks:
+    image: nginx:alpine@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+      control:
+        condition: service_started
+    volumes:
+      - control-jwks:/usr/share/nginx/jwks:ro
+      - tls-certs:/certs:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        cat > /etc/nginx/conf.d/default.conf <<'CONF'
+        server {
+          listen 8443 ssl;
+          server_name jwks;
+          ssl_certificate     /certs/tls-cert.pem;
+          ssl_certificate_key /certs/tls-key.pem;
+          # The rendered JWKS is a single static file; control writes it at
+          # /run/jwks/jwks.json, mounted here read-only. 404 until control has
+          # rendered it (fetchers retry).
+          location = /.well-known/jwks.json {
+            alias /usr/share/nginx/jwks/jwks.json;
+            default_type application/json;
+          }
+          location / { return 404; }
+        }
+        CONF
+        exec nginx -g 'daemon off;'
+    networks:
+      - ocu-edge-backend
+    read_only: false
+
+  # -------------------------------------------------------------------------
+  # jwks-gate - one-shot boot barrier for the filestore Storage-JWT verifier.
+  # Control renders /run/jwks/jwks.json ASYNCHRONOUSLY after its own boot; the
+  # filestore verifier (-verify-storage-jwt) reads that file ONCE at boot and
+  # fail-closes on an absent/empty/key-less artifact. This gate blocks the
+  # filestore start until the artifact is rendered, so the boot race cannot
+  # leave the enforcement flag dark. It gates ONLY the race: a genuinely-missing
+  # JWKS still hard-fails filestore's own boot validation, and this gate itself
+  # hard-fails at 60s so a control boot failure surfaces as a red service, not a
+  # hung stack. Mirrors the read-once-at-boot latch pattern harness-init uses for
+  # control's -ca-cert. One-shot; filestore waits on it.
+  # -------------------------------------------------------------------------
+  jwks-gate:
+    image: alpine/openssl:latest@sha256:3da6a24cdaa2f2ac8ef4defb322249fae6159983104653a9e5312f5b75dac7af
+    depends_on:
+      control:
+        condition: service_started
+    volumes:
+      - control-jwks:/run/jwks:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        i=0
+        # The doubled dollar escapes compose interpolation so the shell sees a
+        # literal variable (an un-escaped one renders empty, unbounding the loop).
+        while [ $$i -lt 60 ]; do
+          # -s (non-empty) plus a structural "kty" check: guard a torn read if
+          # the render is not temp+rename atomic, and a rendered-but-key-less
+          # artifact - matching the verifier's own empty/key-less fail-close one
+          # poll-tick earlier.
+          if [ -s /run/jwks/jwks.json ] && grep -q '"kty"' /run/jwks/jwks.json; then
+            echo "jwks.json rendered ($$(wc -c < /run/jwks/jwks.json) bytes)"
+            exit 0
+          fi
+          i=$$((i+1)); sleep 1
+        done
+        echo "jwks.json not rendered within 60s" >&2
+        exit 1
+    networks:
+      - ocu-edge-backend
+
+  # -------------------------------------------------------------------------
+  # signing-key-init — mints the control plane's Storage/Exec-JWT signing key
+  # (Ed25519, PKCS8 PEM) into a shared volume when the operator did not supply
+  # one. Control fail-closes at boot without a real key at -jwt-signing-key
+  # (there is no daemon-default key), so a documented `up` must provision one
+  # the same way cert-init provisions the TLS leaf. The operator overrides with
+  # a managed key by setting OCU_JWT_SIGNING_KEY to a host path (bind mount);
+  # left unset, this one-shot mints a throwaway local-fleet key. One-shot; the
+  # stack waits on it.
+  # -------------------------------------------------------------------------
+  signing-key-init:
+    image: alpine/openssl:latest@sha256:3da6a24cdaa2f2ac8ef4defb322249fae6159983104653a9e5312f5b75dac7af
+    volumes:
+      - control-signing-key:/keys
+      # The JWKS artifact dir control renders into (-jwks-path) must be writable by
+      # control (uid 65532) under its read-only rootfs. This one-shot chowns it, the
+      # same way it provisions the signing key; the `jwks` nginx serves it read-only.
+      - control-jwks:/jwks
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        cd /keys
+        # The STORAGE-JWT signing key is EC P-256 (ES256): the egress edge and the
+        # RFC-8693 exchange in this fleet verify Storage-JWTs with an ES256-only
+        # verifier, so control mints ES256 (control's -jwt-alg es256) and this key
+        # MUST be an EC P-256 PKCS8 key. The guard is TYPE-AWARE: an existing key
+        # that is NOT EC (e.g. an Ed25519 key from an older checkout) is re-minted,
+        # so a stale volume self-heals instead of failing control's boot.
+        if [ -f storage-jwt-signing.key ] && openssl pkey -in storage-jwt-signing.key -noout -text 2>/dev/null | grep -qi "id-ecPublicKey\|ASN1 OID: prime256v1\|NIST CURVE: P-256"; then
+          echo "EC P-256 storage signing key present"
+        else
+          openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out storage-jwt-signing.key
+          chmod 0640 storage-jwt-signing.key
+          chown 65532:65532 storage-jwt-signing.key 2>/dev/null || true
+          echo "minted EC P-256 PKCS8 storage-JWT signing key"
+        fi
+        # The EXEC-channel signing key stays Ed25519 — a SEPARATE keyset (ADR-0013
+        # key separation), unrelated to the Storage-JWT verifier's ES256 requirement.
+        if [ ! -f exec-signing.key ]; then
+          openssl genpkey -algorithm ED25519 -out exec-signing.key
+          chmod 0640 exec-signing.key
+          chown 65532:65532 exec-signing.key 2>/dev/null || true
+          echo "minted Ed25519 exec-signing key"
+        fi
+        # Control reads the keys as uid 65532 under a read-only rootfs. These are
+        # throwaway self-signed keys for the local fleet only; production supplies a
+        # managed key with tight modes and proper custody.
+        # The JWKS render dir must be owned by control (uid 65532) so it can write
+        # the artifact under its read-only rootfs.
+        chown 65532:65532 /jwks 2>/dev/null || true
+        chmod 0755 /jwks 2>/dev/null || true
+        echo "prepared /jwks render dir (control-owned)"
+
+  # -------------------------------------------------------------------------
+  # MinIO — the real S3 backend the object-store service writes customer bytes
+  # to. No mock. Lives on the credential-bearing backend plane only.
+  # -------------------------------------------------------------------------
+  minio:
+    image: quay.io/minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${OCU_S3_ACCESS_KEY_ID:-ocu-fleet-root}
+      MINIO_ROOT_PASSWORD: ${OCU_S3_SECRET_ACCESS_KEY:-ocu-fleet-secret-key}
+    volumes:
+      - minio-data:/data
+    networks:
+      - ocu-edge-backend
+      - ocu-storage-backend
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  minio-init:
+    image: quay.io/minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - ocu-edge-backend
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mc alias set fleet http://minio:9000 \
+          "${OCU_S3_ACCESS_KEY_ID:-ocu-fleet-root}" \
+          "${OCU_S3_SECRET_ACCESS_KEY:-ocu-fleet-secret-key}"
+        mc mb -p fleet/${OCU_S3_BUCKET:-ocu-fleet} || true
+        echo "bucket ${OCU_S3_BUCKET:-ocu-fleet} ready"
+    # minio-init only needs to reach MinIO on whichever net; the bucket it seeds
+    # is what the north F9 plane reads through ocu-storage-backend.
+
+  # -------------------------------------------------------------------------
+  # webui-audit-init — chowns the audit-journal volume to the BFF's uid (node,
+  # 1000) before the web UI boots. The named volume is root-owned by default;
+  # the web UI runs non-root under a read-only rootfs, so without this its
+  # durable audit sink can't append and every file-op fail-closes. A production
+  # image would pre-own the dir at build; this one-shot keeps the fleet's webui
+  # image unmodified. One-shot; the web UI waits on it.
+  # -------------------------------------------------------------------------
+  webui-audit-init:
+    image: alpine:latest@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+    volumes:
+      - webui-audit:/var/audit
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - chown 1000:1000 /var/audit
+
+  # mcp-gateway-audit-init — same pattern for the gateway's G7 FileSink journal.
+  # The gateway runs non-root (65532) under a read-only rootfs; its one writable
+  # mount (the OCSF audit journal) must be owned by that uid or the FileSink open
+  # fails closed at boot ("open audit file sink: permission denied"). One-shot;
+  # the gateway waits on it.
+  mcp-gateway-audit-init:
+    image: alpine:latest@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+    volumes:
+      - mcp-gateway-audit:/var/log/ocu-mcp-gateway
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - chown 65532:65532 /var/log/ocu-mcp-gateway
+
+  # -------------------------------------------------------------------------
+  # object-store service — two faces, two planes, one identity (ADR-0025,
+  # invariant #10). North (:7080) serves the no-credential F9 Files-API the web
+  # UI reaches directly; south (:8444) serves the edge-dialed mount RPC. They
+  # never share a listener, router, or resolver.
+  # -------------------------------------------------------------------------
+  filestore:
+    build:
+      # The F9 north Files-API (-north-bind, the durable handle-store) lives on
+      # the feat/f9-storage-seam line, not the default checkout. Until that line
+      # merges to next/v1 (the #305 cascade), the build sources the F9 worktree.
+      # Production sources the merged F9 line from origin.
+      context: ../../../ocu-filestore
+      dockerfile: Dockerfile
+    image: ocu-filestore:fleet
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      # The Storage-JWT verifier reads control's rendered JWKS once at boot and
+      # fail-closes on an empty/absent artifact; the gate sequences this start
+      # after control has rendered it (transitively also after control:started).
+      jwks-gate:
+        condition: service_completed_successfully
+    command:
+      - -engine
+      - s3
+      - -s3-endpoint
+      - http://minio:9000
+      - -s3-bucket
+      - ${OCU_S3_BUCKET:-ocu-fleet}
+      - -s3-region
+      - us-east-1
+      - -s3-path-style
+      - -north-bind
+      - 0.0.0.0:7080
+      - -south-bind
+      - 0.0.0.0:8444
+      - -handle-store
+      # The image pre-owns /var/lib/ocu-filestore/engine-root for uid 65532 (its
+      # one staged writable dir under /var/lib); the durable handle-store lives
+      # under it so the daemon can create + flock it under read-only rootfs. A
+      # dedicated /var/lib/ocu-filestore/handles dir is a filestore-image change
+      # (skel + chown) tracked for the merged F9 line.
+      - /var/lib/ocu-filestore/engine-root/handles.db
+      - -tls-cert
+      - /etc/ocu-filestore/tls/tls-cert.pem
+      - -tls-key
+      - /etc/ocu-filestore/tls/tls-key.pem
+      - -audit-sink
+      - /var/log/ocu-filestore/audit.ocsf.jsonl
+      - -filesystem-id
+      - ${OCU_FILESYSTEM_ID:-fs-fleet}
+      - -broker-max-file-size
+      - "1073741824"
+      - -granted-intents
+      - read,write
+      # Bind each request's scope from the edge-validated credential CLAIMS
+      # (filesystem_id + intent), not the static single-tenant default. With the
+      # intent-carrying exchange this gives every mount a single-intent grant:
+      # the uploads mount (read) joins uploads/, the outputs mount (write) joins
+      # outputs/ for ALL its ops - the two-mount guest layout (ADR-0029).
+      - -claims-bind
+      # JWKS-verify the weak Storage-JWT before any filesystem_id/intent claim is
+      # trusted: signature, kid-pinned alg (control mints ES256), iss/aud, exp
+      # (ADR-0013/0019 custody, the enforceable engine-side half of ADR-0029
+      # path-b). The JWKS is control's rendered artifact, pinned as a read-only
+      # file (the same control-jwks volume the `jwks` nginx serves); a rotation
+      # is a redeploy. issuer/audience are byte-identical to control's
+      # -storage-issuer/-storage-audience. Without this flag the daemon trusts an
+      # unverified bearer's claims (the pre-verification interim seam) - the flag
+      # closes that hole. FAIL-CLOSED: an empty jwks-path/issuer/audience, or an
+      # empty/key-less JWKS, aborts boot.
+      - -verify-storage-jwt
+      - -storage-jwks-path
+      - /run/jwks/jwks.json
+      - -storage-jwt-issuer
+      - https://control-plane.test
+      - -storage-jwt-audience
+      - filestore-edge
+      # Guest-convention path prefixes whose objects resolve downloadable=true
+      # at read (NFR-SEC-73: resolved-at-read via prefix match, never stamped at
+      # write). The mount sends the guest-convention req.path (leading slash) and
+      # the policy matches path==prefix or path under prefix+"/". /outputs is the
+      # agent's writable download surface; /pub is the shared public prefix. An
+      # object outside every prefix is refused read-back with not_downloadable.
+      # Default /outputs (NOT bare / — a matches-nothing sentinel, NOT * — that
+      # would make an uploaded object downloadable and reopen the exfil round-trip
+      # NFR-SEC-73 blocks; fs-fleet carries both uploads and outputs so the
+      # single-tenant whole-scope blessing does not apply). NOTE: today F9 objects
+      # land at the fs-fleet ROOT (the mount destination is stripped; the pane
+      # writes /<filename>), so a deliverable must carry the /outputs/ object
+      # prefix explicitly to match — the demo writes under outputs/. A mount
+      # root_path (guest /mnt/user-data/outputs/ -> object /outputs/) was rejected;
+      # the scope is resolved at the storage engine from the token intent claim +
+      # deploy map instead (ocu-filestore north-subtree join, shipped).
+      - -downloadable-prefixes
+      - ${OCU_DOWNLOADABLE_PREFIXES:-/outputs}
+      - -profile
+      - trusted_operator
+      - -tenancy
+      - single-tenant
+      - -ops-listen
+      - 127.0.0.1:9464
+    environment:
+      OCU_S3_ACCESS_KEY_ID: ${OCU_S3_ACCESS_KEY_ID:-ocu-fleet-root}
+      OCU_S3_SECRET_ACCESS_KEY: ${OCU_S3_SECRET_ACCESS_KEY:-ocu-fleet-secret-key}
+    volumes:
+      - tls-certs:/etc/ocu-filestore/tls:ro
+      # Control's rendered Storage-JWT JWKS, read-only. The -verify-storage-jwt
+      # verifier reads this once at boot; the jwks-gate one-shot ensures it is
+      # rendered first. Same control-jwks volume control renders into and the
+      # `jwks` nginx serves - single writer (control), multiple read-only readers.
+      - control-jwks:/run/jwks:ro
+      # Mounted on engine-root (pre-owned 65532 in the image) so the named
+      # volume inherits that ownership; the handle-store lives under it.
+      - filestore-handles:/var/lib/ocu-filestore/engine-root
+      - filestore-audit:/var/log/ocu-filestore
+    networks:
+      # North (read plane): the F9 no-credential Files-API the web UI reaches.
+      ocu-north:
+        aliases: [filestore, ocu-filestore]
+      # South (mount plane): the edge dials this service's :8444 south face as
+      # `objectstore-south`. Deliberately NOT the `filestore` alias — the
+      # harness stand-in still owns that name on ocu-edge-backend (its fixtures
+      # dial it), and reusing it would silently shadow the stand-in instead of
+      # repointing the edge.
+      ocu-edge-backend:
+        aliases: [objectstore-south]
+      # The engine's own S3 backend. Distinct from the south credential plane;
+      # no alias here, so nothing the south leg resolves is shadowed. Without
+      # this the daemon's S3 versioning probe cannot dial `minio` and the
+      # process fail-closes at boot (the F9 north plane is S3-backed).
+      ocu-storage-backend: {}
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ocu-filestored", "-health-check"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # -------------------------------------------------------------------------
+  # web UI (BFF + SPA) — verifies the peer-minted embed token, holds the
+  # first-party session, reaches the object-store north face over F9. Trusts
+  # the object-store leaf via NODE_EXTRA_CA_CERTS (mounted CA, never disabled).
+  # -------------------------------------------------------------------------
+  webui:
+    build:
+      context: ../../../ocu-webui
+      dockerfile: web/Dockerfile
+      # NEXT_PUBLIC_* is inlined by Next.js at BUILD time, so these cannot be
+      # passed as runtime environment: absent here, the pane ships with the
+      # feature compiled out. Measured — a rebuild through this file without
+      # them dropped the Preview control from every row while Info and Download
+      # stayed, which reads as a code regression and is not one. The previous
+      # image had them only because it was built by hand outside compose.
+      args:
+        NEXT_PUBLIC_PREVIEW_RENDER_ENABLED: ${OCU_PREVIEW_RENDER_ENABLED:-true}
+        NEXT_PUBLIC_DELETE_ENABLED: ${OCU_DELETE_ENABLED:-false}
+    image: ocu-webui:fleet
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+      webui-audit-init:
+        condition: service_completed_successfully
+      filestore:
+        condition: service_healthy
+    environment:
+      OCU_FILESTORE_URL: https://filestore:7080
+      NODE_EXTRA_CA_CERTS: /etc/ocu/ca.pem
+      # Required secrets — replace for any real deployment. The embed-token
+      # verify secret must match the peer/IdP minter; the session secret is
+      # this deployment's own. Both must be >= 32 bytes.
+      OCU_EMBED_VERIFY_SECRET: ${OCU_EMBED_VERIFY_SECRET:?set a >=32-byte embed verify secret}
+      OCU_EMBED_AUDIENCE: ${OCU_EMBED_AUDIENCE:-ocu-webui}
+      OCU_SESSION_SECRET: ${OCU_SESSION_SECRET:?set a >=32-byte session secret}
+      # The per-deployment portal-origin allowlist (ADR-0031): ONE runtime env
+      # feeds both the CSP frame-ancestors header and the pane's postMessage
+      # parent-origin trust set. Absent = 'none' + empty trust set = the pane
+      # neither frames nor bootstraps. The demo portal's origin is the default.
+      # COMMA-separated: parseAllowedOrigins splits on "," and drops any entry that
+      # does not URL-parse, so a space-separated list collapses to one unparseable
+      # entry, the allowlist comes back empty, and the pane fails closed to
+      # frame-ancestors 'none' -- correct of it, and measured here the hard way.
+      # frame-ancestors is checked against the WHOLE ancestor chain, not just the
+      # immediate parent. The chat embeds the portal and the portal embeds the
+      # pane, so the chat's origin has to be named here too or the pane refuses to
+      # render inside it -- measured: "Framing 'http://localhost:3000/' violates
+      # frame-ancestors http://localhost:3003". Space-separated CSP source list.
+      OCU_FRAME_ANCESTORS: ${OCU_FRAME_ANCESTORS:-http://localhost:3003,http://localhost:3001}
+      # The append-only OCSF audit journal. Deny-by-default: the BFF hard-fails
+      # a file-op at request time if this path is unset (NFR-SEC-79 — no file-op
+      # serves 2xx without a committed local durable record). The local commit
+      # is fail-closed; SIEM fan-out (when wired) is fail-open.
+      OCU_AUDIT_LOG_PATH: /var/audit/ocu-webui.jsonl
+    volumes:
+      - tls-certs:/etc/ocu:ro
+      # Writable journal dir under the read-only rootfs — the durable audit sink
+      # appends + fsyncs here before each file-op.
+      - webui-audit:/var/audit
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - ocu-frontend
+      - ocu-north
+    user: "node"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  # -------------------------------------------------------------------------
+  # embed-portal — the demo embedding portal for the File Pane. Stands in for
+  # the customer portal/IdP: production replaces this service with the
+  # customer's own portal minting the same embed token over the same wire.
+  # It iframes the pane, mints a short-lived HS256 embed token server-side
+  # (holding OCU_EMBED_VERIFY_SECRET the pane's BFF verifies against), and
+  # postMessages the token into the iframe at the pane's literal origin — the
+  # real cross-origin bootstrap the pane requires. The owner opens THIS origin
+  # (http://localhost:3003), not the pane directly.
+  # -------------------------------------------------------------------------
+  embed-portal:
+    build:
+      context: ./embed-portal
+      dockerfile: Dockerfile
+    image: ocu-embed-portal:fleet
+    environment:
+      LISTEN: ":3003"
+      # The pane's own origin (what the iframe loads and what postMessage targets).
+      PANE_ORIGIN: ${OCU_PANE_ORIGIN:-http://localhost:3000}
+      # The HMAC key the pane's BFF verifies the embed token against — same secret.
+      OCU_EMBED_VERIFY_SECRET: ${OCU_EMBED_VERIFY_SECRET:?set a >=32-byte embed verify secret}
+      OCU_EMBED_AUDIENCE: ${OCU_EMBED_AUDIENCE:-ocu-webui}
+      # The BASE provisioned filesystem the F9 leg accepts (filestore logs fs-fleet).
+      # With control's -derive-chat-scope on, the portal mints a per-chat scope
+      # "<base>-<hex>" resolved for the embedded chat (?chat=<id> on the embed page,
+      # else DEMO_CHAT_ID) so the pane's view lines up with the guest's subtree (D5).
+      DEMO_FILESYSTEM_ID: ${OCU_DEMO_FILESYSTEM_ID:-fs-fleet}
+      DEMO_SUBJECT: ${OCU_DEMO_SUBJECT:-demo-user}
+      DEMO_INTENT: ${OCU_DEMO_INTENT:-write}
+      # Chat context the portal embeds when the embed page carries no ?chat=<id>.
+      # Distinct values across two portal instances demonstrate per-chat isolation.
+      DEMO_CHAT_ID: ${OCU_DEMO_CHAT_ID:-}
+      # OPTIONAL live status-verb resolution (the production path). When set, the
+      # portal POSTs {session_hint:<chat>} to control's caller-scoped status verb
+      # over mTLS and mints the returned effective_scope - the SAME attested owner
+      # form the guest is minted with. Unset -> the portal derives a deterministic
+      # per-chat scope locally (the north face is client-cooperative in v1). The
+      # portal is on the frontend network only in this compose; wiring the live call
+      # also needs the portal on control's gateway network with an mTLS client cert.
+      OCU_CONTROL_STATUS_URL: ${OCU_CONTROL_STATUS_URL:-https://control:9466/v1alpha/sessions/status}
+      OCU_CONTROL_CLIENT_CERT: ${OCU_CONTROL_CLIENT_CERT:-/run/portal-pki/portal.pem}
+      OCU_CONTROL_CLIENT_KEY: ${OCU_CONTROL_CLIENT_KEY:-/run/portal-pki/portal.key}
+      OCU_CONTROL_CA_CERT: ${OCU_CONTROL_CA_CERT:-/run/portal-pki/ca.pem}
+      # The SECOND scope source, consulted only where the status verb misses.
+      # Control's status verb is caller-scoped: it answers 404 for a session the
+      # caller does not own, which is what stops a caller enumerating sessions
+      # that are not its own (NFR-SEC-43). The portal owns no session, so on this
+      # deployment every chat misses and the portal would bind the BASE scope --
+      # every chat's objects at once, under a panel titled for one chat.
+      #
+      # The gateway owns the session and answers the same question through its
+      # resolve_scope tool, so asking the owner keeps control's audience-scoping
+      # intact instead of widening it to fix a display problem.
+      OCU_GATEWAY_URL: ${OCU_GATEWAY_URL:-http://mcp-gateway:8080/}
+      # A credential of the portal's OWN, never the caller key OpenWebUI holds:
+      # two components sharing one credential cannot be told apart in an audit
+      # trail, and the portal needs a strictly smaller authority. It must sit in
+      # the same TENANT as the OpenWebUI key -- the gateway derives its session
+      # hint from the resolved principal's tenant, so a foreign-tenant credential
+      # resolves a different session and hands back a scope matching no guest.
+      # Narrow the tool set, never the tenant.
+      OCU_GATEWAY_BEARER_FILE: ${OCU_GATEWAY_BEARER_FILE:-/run/portal-gw/portal-bearer.txt}
+    volumes:
+      # Read-only: the portal reads its bearer from a path rather than an
+      # environment value, because a container's environment is readable by
+      # anything that can inspect it and this credential is its whole authority.
+      - type: bind
+        source: ./secrets/gateway
+        target: /run/portal-gw
+        read_only: true
+      # The portal's own client identity (CN=embed-portal-client, SPIFFE
+      # .../embed-portal), signed by the same CA control checks callers against.
+      # Deliberately not the gateway's cert: two components sharing one identity
+      # cannot be told apart in an audit trail.
+      - type: bind
+        source: ./gateway-pki
+        target: /run/portal-pki
+        read_only: true
+    ports:
+      - "127.0.0.1:3003:3003"
+    networks:
+      - ocu-frontend
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  # -------------------------------------------------------------------------
+  # Postgres — the durable state.Store backing the control plane's session
+  # reservation registry, deny posture, and quota counters. control applies the
+  # embedded schema idempotently on boot (postgres.Open), so no init job is
+  # needed. Replaces the in-memory minimal-shelf store.
+  # -------------------------------------------------------------------------
+  control-db:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_USER: ${OCU_PG_USER:-ocu}
+      POSTGRES_PASSWORD: ${OCU_PG_PASSWORD:-ocu-fleet-pg}
+      POSTGRES_DB: ${OCU_PG_DB:-ocu_control}
+    volumes:
+      - control-db-data:/var/lib/postgresql/data
+    networks:
+      - ocu-state
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${OCU_PG_USER:-ocu} -d ${OCU_PG_DB:-ocu_control}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # -------------------------------------------------------------------------
+  # control plane — one per deployment. Gateway ingress (service-identity
+  # session create) on 0.0.0.0:9466 for the cross-container MCP caller; the
+  # operator ingress stays a host-owned UDS (kill-switch / mint never reachable
+  # from the gateway — NFR-SEC-52, structural). Creates the sandbox guest per
+  # session through the Docker socket (shared dockerd). A create with no storage
+  # scope skips mint+render and boots a compute-only guest (ADR-0017). Session
+  # state is durable in Postgres (-state-dsn) — it survives a daemon restart.
+  # -------------------------------------------------------------------------
+  control:
+    build:
+      context: ../../../ocu-control
+      dockerfile: Dockerfile
+    image: ocu-control:fleet
+    command:
+      - -operator-listen
+      - unix:///run/ocu-control/operator.sock
+      - -gateway-listen
+      - 0.0.0.0:9466
+      - -runtime-tier
+      - ${OCU_RUNTIME_TIER:-runc}
+      - -runtime-provider
+      - docker
+      - -workload-profile
+      - ${OCU_WORKLOAD_PROFILE:-untrusted}
+      # The deployment-declared default guest image a create runs when the body
+      # names none (ADR-0020 inject-at-materialize). A create body may still name an
+      # allow-listed override; an empty body with no default here is refused 400.
+      - -guest-image
+      - ${OCU_GUEST_IMAGE:-ocu-guest:poc-fat}
+      # The default is the python3-bearing FAT guest (build recipe in the README
+      # "Running the journey suite" section): the chat file tools project onto
+      # python3, and the system prompt promises a usable workspace — a stripped
+      # guest yields a dead first chat input. The stripped tags stay one env var
+      # away: ocu-guest:assembled (distroless, no shell) for the minimal rung,
+      # ocu-guest:assembled-demo (static busybox layered on) for the storage
+      # chain demo scripts. A caller naming a non-default image is refused 400
+      # unless it is on this allow-list (deny-by-default, #94b).
+      - -guest-image-allow
+      - ${OCU_GUEST_IMAGE_ALLOW:-ocu-guest:assembled-demo}
+      - -jwt-signing-key
+      - /run/secrets/storage-jwt-signing.key
+      - -exec-signing-key
+      - /run/secrets/exec-signing.key
+      - -gateway-tls-cert
+      - /run/gateway-pki/server.pem
+      - -gateway-tls-key
+      - /run/gateway-pki/server.key
+      - -gateway-client-ca
+      - /run/gateway-pki/ca.pem
+      - -service-url
+      - https://edge:8450
+      - -ca-cert
+      - /run/south-pki/ca.pem
+      # A storage-scoped guest joins this shared network (where the edge lives) so
+      # its co-located mount can reach the edge — the guest's only outbound path.
+      # The name is docker-compose-project-prefixed (project `ocu-fleet`). A pure-
+      # exec session ignores it and stays on its per-session Internal deny-all bridge.
+      - -egress-network
+      - ${OCU_EGRESS_NETWORK:-ocu-fleet_ocu-mount-facing}
+      # The fixed edge IP the gVisor guest resolves `edge` to via a static ExtraHosts
+      # entry (the sentry cannot reach docker's embedded DNS at 127.0.0.11). Pinned by
+      # the ocu-mount-facing IPAM subnet + edge ipv4_address above.
+      - -edge-host
+      - ${OCU_EDGE_HOST:-172.20.0.2}
+      # Storage-JWT signing algorithm: ES256 (EC P-256). The egress edge and the
+      # RFC-8693 exchange in this fleet verify Storage-JWTs with an ES256-only
+      # verifier, so control MUST mint ES256 (matched by the EC P-256 signing key
+      # signing-key-init writes). NFR-SEC-11 / ADR-0019 name ES256 as the default.
+      - -jwt-alg
+      - es256
+      # The issuer/audience the edge + exchange PIN when they verify a Storage-JWT.
+      # They must equal the verifier's cpIssuer/cpAudience constants exactly, else a
+      # correctly-signed token is refused ErrUntrusted (iss/aud mismatch).
+      - -storage-issuer
+      - https://control-plane.test
+      - -storage-audience
+      - filestore-edge
+      # Control renders its Storage-JWT public key as a static JWKS artifact here
+      # (ADR-0019 §35: control adds NO listener; the deploy layer serves the file).
+      # The `jwks` nginx service serves this at https://jwks:8443/.well-known/jwks.json,
+      # the URI the edge + exchange fetch their verify key from.
+      - -jwks-path
+      - /run/jwks/jwks.json
+      - -audit-sink
+      - /var/log/ocu-control/audit.ocsf.jsonl
+      - -state-dsn
+      - postgres://${OCU_PG_USER:-ocu}:${OCU_PG_PASSWORD:-ocu-fleet-pg}@control-db:5432/${OCU_PG_DB:-ocu_control}?sslmode=disable
+      # Session idle-TTL (NFR-SEC-40, shelf-split): on the full shelf (state-dsn
+      # set) this is ON and tunable-down within the ≤15 min ceiling; unset would
+      # resolve to the 15 min ceiling. The default sits AT the ceiling: a chat
+      # session's scratch (/tmp and the home tmpfs) dies with the container, and
+      # a 1m window reaped the guest while the user was still reading the reply,
+      # wiping work mid-conversation. Set a short value (e.g. 1m) via env to
+      # demo the reaper visibly. An idle ACTIVE session past this is
+      # force-killed and its concurrency slot returned (NFR-REL-09).
+      - -session-idle-ttl
+      - ${OCU_SESSION_IDLE_TTL:-15m}
+      # D5 per-chat storage isolation (ADR-0030). Control derives a distinct scope
+      # per (attested owner, chat handle) - "<base>-<hex>" - and mints it into the
+      # guest's Storage-JWT claim, so a peer chat's guest gets a DIFFERENT credential
+      # and cannot read another chat's objects. OCU_FILESYSTEM_ID=fs-fleet stays the
+      # BASE the suffix is appended to; the south filestore runs -claims-bind so the
+      # derived claim actually binds on the read/write path (isolation is not vacuous).
+      # Turn off (OCU_DERIVE_CHAT_SCOPE=false) to fall back to today's single static
+      # scope shared across chats.
+      - -derive-chat-scope=${OCU_DERIVE_CHAT_SCOPE:-true}
+      # Grant ONE dedicated gid access to the operator-plane socket (dir 0750 +
+      # socket 0660) so the co-located admin read-plane peer, running under a
+      # different uid, can connect. Without it the socket stays owner-only 0700
+      # and admin's cross-uid connect(2) gets EACCES -> the dashboard reads 503
+      # -> the operator console shows state=unavailable. The gid matches the
+      # admin service's group_add below; -1 (unset) keeps the owner-only posture.
+      - -operator-socket-gid
+      - ${OCU_OPERATOR_SOCKET_GID:-988}
+    depends_on:
+      control-db:
+        condition: service_healthy
+      signing-key-init:
+        condition: service_completed_successfully
+      # Control reads -ca-cert /run/south-pki/ca.pem ONCE at boot and latches it
+      # (an unreadable file yields an empty CA, and the mount-config render then
+      # refuses fail-closed at create time — every storage-scoped create dies at
+      # the render stage, audit-silent). harness-init mints that ca.pem into the
+      # south-shared volume, so control must not boot before it completes; a
+      # clean `down -v` + `up` otherwise races control ahead of the CA write.
+      harness-init:
+        condition: service_completed_successfully
+    volumes:
+      - control-audit:/var/log/ocu-control
+      - /run/ocu-control:/run/ocu-control
+      # The Storage/Exec-JWT signing key lives in a shared volume that
+      # signing-key-init populates with a real Ed25519 PKCS8 key on first `up`.
+      # An operator-managed key overrides it: drop your PKCS8 PEM key into this
+      # volume as storage-jwt-signing.key before the first `up` (see README), or
+      # bind it in through a compose override. Control mounts /run/secrets
+      # read-only.
+      - control-signing-key:/run/secrets:ro
+      - south-shared:/run/south-pki:ro
+      - ./gateway-pki:/run/gateway-pki:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Control renders its Storage-JWT public key here at boot (-jwks-path); the
+      # `jwks` nginx service serves the file. RW — control's only writable mount
+      # besides the audit log.
+      - control-jwks:/run/jwks
+    ports:
+      - "127.0.0.1:9466:9466"
+    networks:
+      - ocu-frontend
+      - ocu-state
+      # Reachable from the g7 visualiser, which no longer shares the frontend
+      # bridge with the web tier.
+      - ocu-g7
+    user: "65532:65532"
+    # Control runs as uid 65532 with a read-only rootfs, so it must JOIN the
+    # group that owns the Docker socket to read it for the per-session container
+    # lifecycle. That gid differs by host: it is 0 (root:root) under Docker
+    # Desktop, but a distinct `docker` gid (often 988/999) under a native
+    # Linux/Lima dockerd. OCU_DOCKER_GID selects it (default 0 for Docker
+    # Desktop); set it to the socket's gid on a native host — e.g.
+    # OCU_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock). A hardened deployment
+    # replaces this with a brokered / rootless socket (see the docker.sock note).
+    group_add: ["${OCU_DOCKER_GID:-0}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ocu-controld", "-health-check", "-operator-listen", "unix:///run/ocu-control/operator.sock"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # =========================================================================
+  # MCP GATEWAY (component-01) — the north auth edge. MCP callers present an
+  # sk-ocu- key here (ADR-0027); the gateway validates it in-process against the
+  # Control-rendered boot-set (hashes only), then forwards the F5 create/destroy
+  # to control over the gateway mTLS plane. A forged/missing key is refused 401
+  # at ingress before any forward (invariant #9). The 4 mounted materials all
+  # fail closed at boot if absent: boot-set (key hashes), service-credential (the
+  # gateway's own F5 identity token), provisioning-policy (deployment config),
+  # and the mTLS client pair (the same gateway-pki client leaf control already
+  # trusts on its ingress). -listen 0.0.0.0:8080 is safe in-container behind the
+  # compose netns; the DNS-rebinding guard is the -allowed-origin Origin policy,
+  # which still runs (an empty allowlist admits only originless CLI/SDK callers —
+  # the MCP caller). The bind override is declared here (auditable), not baked.
+  # =========================================================================
+  mcp-gateway:
+    # Built firsthand from feat/live-chain-combined @31a53f2 (G4 Dockerfile + G6
+    # readiness /healthz + G7 durable FileSink). The FileSink (-audit-sink) is what
+    # turns a valid keyed create from a fail-closed 500 into a 201 with a durable
+    # OCSF line on disk — the last hop of the north auth edge.
+    image: ocu-mcp-gateway:fleet-combined
+    depends_on:
+      control:
+        condition: service_healthy
+      mcp-gateway-audit-init:
+        condition: service_completed_successfully
+    command:
+      - -listen=0.0.0.0:8080
+      - -deployment=fleet-local
+      - -boot-set=/etc/ocu/boot-set.json
+      - -service-credential-file=/etc/ocu/service-credential.token
+      - -provisioning-policy=/etc/ocu/provisioning-policy.json
+      - -control-url=https://control:9466
+      - -control-ca=/run/gateway-pki/ca.pem
+      - -control-client-cert=/run/gateway-pki/client.pem
+      - -control-client-key=/run/gateway-pki/client.key
+      # G7 durable audit sink — the append-only OCSF spine the gateway fsyncs a
+      # tool_call event to before acking (NFR-SEC-03 emit-before-ack). Without it a
+      # valid key fails closed at 500; with it the same call reaches 201.
+      - -audit-sink=/var/log/ocu-mcp-gateway/audit.ocsf.jsonl
+      # The embed portal holds a credential of its own so it can learn which
+      # storage scope a chat is bound to. Learning a scope is all it needs, so
+      # this confines that key id to resolve_scope: with the same credential and
+      # no restriction, the portal can execute bash_tool, create_file, str_replace
+      # and view — measured on this stand before the guard existed. The key stays
+      # in the caller's tenant (the session hint derives from it); only the tool
+      # set narrows.
+      - -resolve-only-key-ids=${OCU_RESOLVE_ONLY_KEY_IDS:-kid-portal-resolve,kid-filter-resolve}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./secrets/gateway/boot-set.json:/etc/ocu/boot-set.json:ro
+      - ./secrets/gateway/service-credential.token:/etc/ocu/service-credential.token:ro
+      - ./secrets/gateway/provisioning-policy.json:/etc/ocu/provisioning-policy.json:ro
+      - ./gateway-pki:/run/gateway-pki:ro
+      # The one writable mount: the durable audit journal the FileSink appends to.
+      - mcp-gateway-audit:/var/log/ocu-mcp-gateway
+    networks:
+      - ocu-frontend
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # G6 readiness: the probe dials the same listener the server binds, so
+      # healthy means :8080 is accepting AND the boot-set loaded, not just that the
+      # binary runs. The -listen must match the bind address above.
+      test: ["CMD", "/usr/local/bin/ocu-mcp-gatewayd", "-health-check", "-listen", "0.0.0.0:8080"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # =========================================================================
+  # SOUTH MOUNT LEG — guest -> edge -> south object-store (:8444).
+  #
+  # The validate -> strip -> RFC-8693 exchange -> inject -> route chain runs on
+  # the Go edge (test/harness/cmd/edge + edgeglue), the Phase-E live-proven
+  # realization (PR #38). The stock-Envoy container hop is Phase F (README).
+  #
+  # The auth peers stay the SELF-CONTAINED harness stack — harness
+  # control-plane (JWKS + signing) and exchange (RFC-8693) — but the edge
+  # upstream is the REAL object-store south face (:8444, S3-backed), dialed as
+  # `objectstore-south`: a guest FUSE write lands as an object in MinIO. The
+  # object-store daemon binds every present bearer to its -filesystem-id /
+  # -granted-intents scope (the interim single-tenant bind) and 403s a request
+  # body whose filesystem_id disagrees, so the guest mounts carry
+  # filesystem_id fs-fleet (see fixtures/guest-config.json). south-filestore,
+  # the Phase-E local-volume stand-in, stays up as the negative-probe target
+  # and keeps its `filestore` alias; it serves no live mount traffic.
+  # Repointing -control-plane-jwks at the real ocu-control JWKS is a flag-only
+  # follow-up (no edge code change).
+  #
+  # Single hop: guest + edge on ocu-mount-facing; edge + control-plane +
+  # exchange + south-filestore on ocu-edge-backend; the guest has NO
+  # ocu-edge-backend membership and no direct route to south-filestore.
+  # =========================================================================
+
+  # harness-init — mints CA + per-service leaf certs + the control-plane signing
+  # key + per-scope weak JWTs, and renders guest-config.json into /shared
+  # (service_url -> https://edge:8450, auth_token -> weak JWT, ca_cert_pem). Runs
+  # once; every south peer waits on it.
+  harness-init:
+    build:
+      context: ../../../ocu-rclone-filestore
+      dockerfile: deploy/compose/peer.Dockerfile
+      args:
+        CMD_PKG: ./test/harness/cmd/harness-init
+    image: ocu-south-harness-init:fleet
+    command:
+      - -out
+      - /shared
+      - -edge-host
+      - edge
+      - -edge-port
+      - "8450"
+      - -fixture-template
+      - /fixtures/guest-config.json
+      # 30-day PKI so the stand survives the demo window. The default TTL is 24h
+      # (test-harness hygiene); an unqualified re-up does NOT re-mint (the guard
+      # is expiry-aware after #51 — it re-issues when the leaf is within
+      # -cert-renew-before of expiry, else honours the existing set). Raising the
+      # TTL here means the leaf never enters that window during the demo.
+      - -cert-ttl
+      - 720h
+    volumes:
+      - south-shared:/shared
+      # Fleet-local template (NOT the harness default): 2 mounts, both
+      # filesystem_id fs-fleet — the id the real object-store daemon binds via
+      # -filesystem-id. RO/RW is per-mount (readonly flag), not per-fsid.
+      - ./fixtures/guest-config.json:/fixtures/guest-config.json:ro
+    networks:
+      - ocu-edge-backend
+
+  control-plane:
+    build:
+      context: ../../../ocu-rclone-filestore
+      dockerfile: deploy/compose/peer.Dockerfile
+      args:
+        CMD_PKG: ./test/harness/cmd/controlplane
+    image: ocu-south-controlplane:fleet
+    command:
+      - -addr
+      - ":8443"
+      - -cert
+      - /shared/control-plane.cert.pem
+      - -key
+      - /shared/control-plane.key.pem
+      - -signing-key
+      - /shared/control-plane.signing.key.pem
+    depends_on:
+      harness-init:
+        condition: service_completed_successfully
+    volumes:
+      - south-shared:/shared:ro
+    networks:
+      - ocu-edge-backend
+
+  exchange:
+    build:
+      context: ../../../ocu-rclone-filestore
+      dockerfile: deploy/compose/peer.Dockerfile
+      args:
+        CMD_PKG: ./test/harness/cmd/exchange
+    image: ocu-south-exchange:fleet
+    command:
+      - -addr
+      - ":8447"
+      - -cert
+      - /shared/exchange.cert.pem
+      - -key
+      - /shared/exchange.key.pem
+      - -ca
+      - /shared/ca.pem
+      - -control-plane-jwks
+      - https://jwks:8443/.well-known/jwks.json
+    depends_on:
+      harness-init:
+        condition: service_completed_successfully
+      control-plane:
+        condition: service_started
+      # The exchange re-verifies the subject_token against the `jwks` service, and
+      # dials it with the south CA bundle that south-trust-bridge appends the
+      # cert-init CA into — so it must wait for the bridge, else it loads a bundle
+      # that does not yet trust the jwks leaf and every exchange 401s.
+      south-trust-bridge:
+        condition: service_completed_successfully
+    volumes:
+      - south-shared:/shared:ro
+    networks:
+      - ocu-edge-backend
+
+  # south-trust-bridge — appends the cert-init CA to the harness CA bundle so
+  # the edge (which loads exactly one -ca bundle for every upstream dial) can
+  # verify the real object-store's south leaf. Every south CA consumer loads
+  # the bundle via x509 AppendCertsFromPEM, which accepts multi-PEM
+  # concatenation. Idempotent one-shot; the edge waits on it.
+  south-trust-bridge:
+    image: alpine/openssl:latest@sha256:3da6a24cdaa2f2ac8ef4defb322249fae6159983104653a9e5312f5b75dac7af
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+      harness-init:
+        condition: service_completed_successfully
+    volumes:
+      - south-shared:/shared
+      - tls-certs:/certs:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        sig="$(sed -n 2p /certs/ca.pem)"
+        if grep -qF "$$sig" /shared/ca.pem; then
+          echo "cert-init CA already in /shared/ca.pem (bridge present)"; exit 0
+        fi
+        cat /certs/ca.pem >> /shared/ca.pem
+        echo "appended cert-init CA to /shared/ca.pem (edge -> objectstore-south trust)"
+
+  # south-filestore — the harness REST local-volume stand-in (cmd/filestored),
+  # validates the injected post-exchange credential against the exchange
+  # credential-JWKS. Renamed from the harness's `filestore` to avoid colliding
+  # with the north object-store service in this one compose. edge-backend ONLY.
+  # No longer the edge upstream (that is the real object-store south face);
+  # kept as the misrouting negative-probe target.
+  south-filestore:
+    build:
+      context: ../../../ocu-rclone-filestore
+      dockerfile: deploy/compose/peer.Dockerfile
+      args:
+        CMD_PKG: ./test/harness/cmd/filestored
+    image: ocu-south-filestored:fleet
+    command:
+      - -addr
+      - ":8444"
+      - -cert
+      - /shared/filestore.cert.pem
+      - -key
+      - /shared/filestore.key.pem
+      - -ca
+      - /shared/ca.pem
+      - -credential-jwks
+      - https://exchange:8447/credential-jwks
+      - -root
+      - /workspace
+    depends_on:
+      harness-init:
+        condition: service_completed_successfully
+      exchange:
+        condition: service_started
+    volumes:
+      - south-shared:/shared:ro
+      - south-filestore-workspace:/workspace
+    networks:
+      ocu-edge-backend:
+        # The harness fixtures + edge upstream-url dial the name `filestore`;
+        # keep that alias on the backend net so the edge reaches it unchanged.
+        aliases: [filestore]
+
+  # edge — validate -> strip -> keyed RFC-8693 exchange -> inject -> route. The
+  # only dual-homed service: the guest dials it inbound on mount-facing, it
+  # dials its peers on edge-backend. That dual membership is the single hop.
+  edge:
+    build:
+      context: ../../../ocu-rclone-filestore
+      dockerfile: deploy/compose/peer.Dockerfile
+      args:
+        CMD_PKG: ./test/harness/cmd/edge
+    image: ocu-south-edge:fleet
+    command:
+      - -addr
+      - ":8450"
+      - -cert
+      - /shared/edge.cert.pem
+      - -key
+      - /shared/edge.key.pem
+      - -ca
+      - /shared/ca.pem
+      - -control-plane-jwks
+      - https://jwks:8443/.well-known/jwks.json
+      - -exchange-url
+      - https://exchange:8447/token
+      # The REAL object-store south face (S3-backed), not the harness stand-in
+      # (`filestore` on this net). The leaf it presents covers this SAN
+      # (cert-init) and chains to the cert-init CA that south-trust-bridge
+      # appends to /shared/ca.pem.
+      - -upstream-url
+      - https://objectstore-south:8444
+      # The store on this stand runs -verify-storage-jwt: it verifies the GUEST
+      # Storage-JWT itself (control-plane JWKS, aud filestore-edge). An exchanged
+      # credential is not a Storage-JWT, so the store refuses it and the guest
+      # sees a bare EIO on every mount op. Passthrough presents the token this
+      # edge has ALREADY validated; stage-1 validation is unchanged, so an
+      # unverifiable token still never reaches the store.
+      - -credential-mode
+      - passthrough
+    depends_on:
+      harness-init:
+        condition: service_completed_successfully
+      south-trust-bridge:
+        condition: service_completed_successfully
+      control-plane:
+        condition: service_started
+      exchange:
+        condition: service_started
+      south-filestore:
+        condition: service_started
+      filestore:
+        condition: service_healthy
+    volumes:
+      - south-shared:/shared:ro
+    networks:
+      ocu-mount-facing:
+        # Pinned so the storage guest's static `edge` ExtraHosts entry (control's
+        # -edge-host) resolves to a stable address across restarts. TLS SAN stays a
+        # DNS name (edge.cert covers `edge`); only the name->IP binding is pinned here.
+        ipv4_address: 172.20.0.2
+      ocu-edge-backend: {}
+
+  # G7 VISUALIZER (demo): a page driving the REAL MCP->gateway->control->gVisor
+  # chain. LEFT pane = live view inside the container; RIGHT pane = MCP tool
+  # buttons. The proxy is the single holder of the gateway client-cert (a browser
+  # cannot present an Ed25519 client-cert); every button drives the real chain.
+  g7-visualizer:
+    image: g7-proxy:demo
+    build:
+      context: ./g7-visualizer
+      dockerfile: Dockerfile
+    environment:
+      - GATEWAY_URL=https://control:9466
+      - CLIENT_CERT=/pki/client.pem
+      - CLIENT_KEY=/pki/client.key
+      - CA_CERT=/pki/ca.pem
+      - LISTEN=:8099
+      - WEB_ROOT=/web
+    volumes:
+      - ./gateway-pki:/pki:ro
+    ports:
+      - "127.0.0.1:8099:8099"
+    networks:
+      - ocu-g7
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  # =========================================================================
+  # ADMIN (component-08 read-only operator console, ocu-admin) — a BFF that
+  # projects control's frozen ADR-0022 read surface (GET /v1alpha/sessions,
+  # /v1alpha/sessions/{key}, /v1alpha/deployment, /metrics) behind its own
+  # bcrypt + session-cookie gate (CONSTITUTION §8: operator-sees-every-session,
+  # no per-tenant scoping of the read). It dials control the same way the
+  # operator CLI does: the host-owned operator UDS bind-mounted below — never
+  # the gateway mTLS plane, never a new control listener. Read-only: it issues
+  # only GETs and holds no mutating authority (revoke/resume stay the CLI's
+  # job over the same socket).
+  # =========================================================================
+  admin:
+    build:
+      context: ../../../ocu-admin
+      dockerfile: web/Dockerfile
+    image: ocu-admin:fleet
+    depends_on:
+      control:
+        condition: service_healthy
+    environment:
+      # The operator credential + session-signing secret. No default, same
+      # posture as OCU_EMBED_VERIFY_SECRET/OCU_SESSION_SECRET below: a bcrypt
+      # hash contains literal `$` characters that compose's ${VAR:-default}
+      # interpolation cannot round-trip safely (a bare `$2y$12$...` default is
+      # parsed as positional variable references, not a literal string), so
+      # the demo value lives in .env.example instead of a compose default.
+      # Fail-closed by design (web/src/lib/auth/config.ts): the server refuses
+      # to boot with any of the three unset — no silent unauthenticated
+      # fallback. Regenerate the hash with `htpasswd -nbBC 12 <user> <pass>`.
+      OCU_ADMIN_OPERATOR_USER: ${OCU_ADMIN_OPERATOR_USER:?set the admin operator username}
+      OCU_ADMIN_OPERATOR_BCRYPT_HASH: ${OCU_ADMIN_OPERATOR_BCRYPT_HASH:?set a bcrypt(cost=12) hash - see .env.example}
+      # >=32 bytes (byte-floor enforced at boot); generate with
+      # `openssl rand -hex 32` for any non-demo deployment.
+      OCU_ADMIN_SESSION_SECRET: ${OCU_ADMIN_SESSION_SECRET:?set a >=32-byte admin session secret}
+      # Same host-bind-mounted operator socket control writes -operator-listen
+      # to (see the control service block). The default in
+      # web/src/lib/read/control-config.ts already matches this path; the env
+      # is set explicitly here so the fleet wiring is auditable in one place
+      # rather than relying on the image default.
+      OCU_ADMIN_CONTROL_SOCKET: /run/ocu-control/operator.sock
+    volumes:
+      # Read-only: admin only ever GETs the operator plane, never mutates it.
+      - /run/ocu-control:/run/ocu-control:ro
+    ports:
+      - "127.0.0.1:3004:3000"
+    networks:
+      - ocu-frontend
+    user: "node"
+    # Admin (uid 1000/node) joins the gid control grants on its operator socket
+    # (-operator-socket-gid above) so its cross-uid connect(2) to the read-plane
+    # socket succeeds. Without it the socket is owner-only 0700 and admin reads
+    # 503 -> the dashboard shows state=unavailable. Read-only plane: admin only
+    # GETs the operator surface. The gid matches control's -operator-socket-gid.
+    group_add: ["${OCU_OPERATOR_SOCKET_GID:-988}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # No curl/wget in node:22-bookworm-slim; probe with Node's own http
+      # client instead. Every route but /api/auth/login is gated by
+      # middleware.ts, so an unauthenticated GET / answers 401 — that is the
+      # BFF working correctly (config loaded, auth gate live), not a health
+      # failure. Any HTTP response proves the server is up; only a connection
+      # error (process not listening yet) fails the check.
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3000/',()=>process.exit(0)).on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # =========================================================================
+  # OPENWEBUI CLIENT LEG — the agent client that drives the fleet through our
+  # MCP gateway. The old PoC integration under openwebui/ already speaks MCP
+  # Streamable HTTP (tools/call); here it is REPOINTED at OUR next/v1 gateway
+  # (mcp-gateway:8080) with an sk-ocu- boot-set key, not the old monolithic
+  # Computer Use Server. A tool-call goes OpenWebUI -> gateway (auth + validate)
+  # -> control (create) -> gVisor guest, and executes behind the gateway. The
+  # session lifecycle (create + auto-disconnect) is the control plane's job; the
+  # tool never destroys. init.sh seeds the tool + filter Valves on first boot.
+  # =========================================================================
+  open-webui:
+    build:
+      context: ../../openwebui
+      dockerfile: Dockerfile
+      args:
+        OPENWEBUI_VERSION: ${OPENWEBUI_VERSION:-0.9.2}
+    depends_on:
+      openwebui-db:
+        condition: service_healthy
+      mcp-gateway:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://openwebui:${OPENWEBUI_DB_PASSWORD:-openwebui}@openwebui-db:5432/openwebui
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL:-}
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-fleet-demo-secret}
+      - BYPASS_EMBEDDING_AND_RETRIEVAL=true
+      - RAG_EMBEDDING_MODEL_AUTO_UPDATE=false
+      - ENABLE_OPENAI_API_SSL_VERIFY=${ENABLE_OPENAI_API_SSL_VERIFY:-true}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@open-computer-use.dev}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      # OUR MCP gateway is the endpoint the tool hits — a drop-in replacement for
+      # the old Computer Use Server. Service DNS on ocu-frontend; the tool POSTs
+      # tools/call here with MCP-Protocol-Version + the sk-ocu- bearer. Browsers
+      # never see this URL (it is server-side, container-to-container only).
+      - ORCHESTRATOR_URL=http://mcp-gateway:8080
+      # The sk-ocu- boot-set key the gateway validates in-process (ADR-0027). Held
+      # server-side in the OpenWebUI container, seeded into the tool Valve by
+      # init.sh; never reaches the browser.
+      - MCP_API_KEY=${MCP_API_KEY:-}
+      - CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES=200
+      - TOOL_RESULT_MAX_CHARS=${TOOL_RESULT_MAX_CHARS:-50000}
+      - TOOL_RESULT_PREVIEW_CHARS=${TOOL_RESULT_PREVIEW_CHARS:-2000}
+      # Chat attachments are written to the guest over the F9 north Files-API
+      # (object-store service), NOT the MCP gateway — the gateway has no file
+      # endpoints. filestore is on ocu-north, served over TLS with the fleet CA
+      # (verified via FILESTORE_CA_CERT, mirroring the pane BFF's
+      # NODE_EXTRA_CA_CERTS trust). OCU_FILESYSTEM_ID is the single deploy-pinned
+      # scope on this stand (same fixtured value control/guest-mount use).
+      - FILESTORE_URL=${FILESTORE_URL:-https://filestore:7080}
+      - OCU_FILESYSTEM_ID=${OCU_FILESYSTEM_ID:-fs-fleet}
+      - FILESTORE_CA_CERT=${FILESTORE_CA_CERT:-/etc/ocu/ca.pem}
+      # Browser-facing base of the download links the outlet mints. It is a
+      # BROWSER origin, not a service name, and it must be the same origin the
+      # pane is embedded under: the session cookie the /download route needs is
+      # set on that origin, and localhost and 127.0.0.1 are different origins to
+      # the cookie jar. Pinned here rather than left to a default so it moves
+      # together with NEXT_PUBLIC_OCU_PARENT_ORIGIN and OCU_FRAME_ANCESTORS,
+      # which name the same host for the same reason.
+      - OCU_DOWNLOAD_BASE_URL=${OCU_DOWNLOAD_BASE_URL:-http://localhost:3000}
+      # Where init.sh points the link filter to learn a chat's storage scope.
+      # Under per-chat isolation OCU_FILESYSTEM_ID above is the FALLBACK only:
+      # the pane session's filesystem_id is <base>-<hex> per chat, so a link
+      # built from the base renders its download page and returns no bytes.
+      # Seeding these two here is what keeps a later init run from dropping
+      # them and silently restoring that broken link.
+      - OCU_RESOLVE_SCOPE_URL=${OCU_RESOLVE_SCOPE_URL:-http://mcp-gateway:8080/}
+      # A PATH, not the value: a container's environment is readable by anything
+      # that can inspect it. The credential is confined gateway-side to
+      # resolve_scope (see -resolve-only-key-ids) because rendering chat text
+      # must not carry the authority to execute tools.
+      - OCU_RESOLVE_SCOPE_BEARER_FILE=${OCU_RESOLVE_SCOPE_BEARER_FILE:-/run/ocu-gw/filter-bearer.txt}
+    volumes:
+      - open-webui-data:/app/backend/data
+      # The fleet CA that signs filestore's TLS leaf; the attachment sync path
+      # verifies https://filestore:7080 against /etc/ocu/ca.pem (read-only).
+      - tls-certs:/etc/ocu:ro
+      # Read-only: the resolve-only bearer init.sh seeds into the filter valve.
+      - type: bind
+        source: ./secrets/gateway
+        target: /run/ocu-gw
+        read_only: true
+    ports:
+      # 3000 is taken by the fleet webui BFF; the OpenWebUI client binds 3001.
+      - "127.0.0.1:${OPENWEBUI_PORT:-3001}:8080"
+    networks:
+      # ocu-frontend reaches the MCP gateway (bash/create_file); ocu-north reaches
+      # the object-store service's F9 Files-API so chat attachments appear in the
+      # guest's read-only /mnt/user-data/uploads view (engine key uploads/<name>).
+      - ocu-frontend
+      - ocu-north
+    restart: unless-stopped
+
+  # OpenWebUI's OWN Postgres — its user/chat/tool state. It is a SEPARATE service
+  # from control-db (ocu_control on ocu-state); the UI DB never shares control's
+  # private state network or credentials.
+  openwebui-db:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_USER: openwebui
+      POSTGRES_PASSWORD: ${OPENWEBUI_DB_PASSWORD:-openwebui}
+      POSTGRES_DB: openwebui
+    volumes:
+      - openwebui-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwebui"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ocu-frontend
+    restart: unless-stopped

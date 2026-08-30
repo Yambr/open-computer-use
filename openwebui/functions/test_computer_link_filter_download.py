@@ -172,3 +172,98 @@ def test_multiple_markers_all_minted():
     assert "[a.txt](http://localhost:3000/download/fs-fleet/a.txt)" in c
     assert "[b.pdf](http://localhost:3000/download/fs-fleet/b.pdf)" in c
     assert "[[ocu-download:" not in c
+
+
+# --- per-chat scope resolution -------------------------------------------------
+#
+# The {scope} segment must equal the filesystem_id of THIS chat's pane session.
+# Where the deployment derives a per-chat scope that value differs per chat, so a
+# single static DOWNLOAD_SCOPE cannot be right for more than one of them. Measured
+# on the stand before this landed: the link built from the base scope rendered a
+# download page and returned NO BYTES, while the same file under the chat's own
+# scope returned them. The GET renders either way — only the byte leg tells them
+# apart, which is why these cases assert on the minted SCOPE, not on a 200.
+
+
+def _filter_with_resolver(scope_or_exc, base="http://localhost:3000"):
+    """A filter whose scope resolution is stubbed. Passing an Exception makes the
+    resolution FAIL (as an unreachable gateway would); passing "" is the
+    deployment that derives no per-chat scope."""
+    f = _filter(base=base)
+    f.valves.RESOLVE_SCOPE_URL = "http://gateway.invalid/"
+    f.valves.RESOLVE_SCOPE_BEARER = "sk-ocu-filter-resolve-only"
+
+    def _stub(chat_id: str):
+        if isinstance(scope_or_exc, Exception):
+            return None, False
+        return (scope_or_exc or None), True
+
+    f._resolve_chat_scope = _stub
+    return f
+
+
+def test_link_carries_the_chats_own_scope_not_the_base():
+    """The defect this closes: with per-chat isolation the base scope names a tree
+    the chat's file is not in, so the link resolves to nothing."""
+    f = _filter_with_resolver("fs-fleet-94e885c52f5eb171")
+    out = f.outlet(
+        _assistant("[[ocu-download:ONLY-THIS-CHAT.txt]]"),
+        __metadata__={"chat_id": "chat-a"},
+    )
+    c = out["messages"][0]["content"]
+    assert "/download/fs-fleet-94e885c52f5eb171/ONLY-THIS-CHAT.txt" in c, c
+    assert "/download/fs-fleet/ONLY-THIS-CHAT.txt" not in c, c
+
+
+def test_two_chats_get_two_different_scopes():
+    """Isolation means the same filename in two chats mints two different links.
+    A build that resolved once and reused it would pass the case above."""
+    seen = []
+    for chat, scope in (("chat-a", "fs-fleet-aaa"), ("chat-b", "fs-fleet-bbb")):
+        f = _filter_with_resolver(scope)
+        out = f.outlet(
+            _assistant("[[ocu-download:same-name.txt]]"),
+            __metadata__={"chat_id": chat},
+        )
+        seen.append(out["messages"][0]["content"])
+    assert "/download/fs-fleet-aaa/same-name.txt" in seen[0], seen[0]
+    assert "/download/fs-fleet-bbb/same-name.txt" in seen[1], seen[1]
+
+
+def test_no_per_chat_scope_falls_back_to_the_base_valve():
+    """Known-positive control: where the deployment derives no per-chat scope the
+    gateway answers with an empty effective_scope and the static valve IS correct.
+    Without this, a change that always required resolution would break the
+    non-isolated deployment."""
+    f = _filter_with_resolver("")
+    out = f.outlet(
+        _assistant("[[ocu-download:report.docx]]"),
+        __metadata__={"chat_id": "chat-a"},
+    )
+    assert "/download/fs-fleet/report.docx" in out["messages"][0]["content"]
+
+
+def test_failed_resolution_mints_no_link_at_all():
+    """Fail-closed: a scope we could not confirm must not be guessed from the base.
+    A link with the wrong scope renders a download page and returns no bytes, which
+    reads to the user as success — worse than a bare filename."""
+    f = _filter_with_resolver(RuntimeError("gateway unreachable"))
+    out = f.outlet(
+        _assistant("[[ocu-download:report.docx]]"),
+        __metadata__={"chat_id": "chat-a"},
+    )
+    c = out["messages"][0]["content"]
+    assert "/download/" not in c, c
+    assert "[[ocu-download:" not in c, c
+    assert "report.docx" in c, c
+
+
+def test_resolver_unconfigured_keeps_the_previous_behaviour():
+    """Known-positive control: with no RESOLVE_SCOPE_URL the filter must behave
+    exactly as it did before — the static valve, no resolution attempted."""
+    f = _filter()  # RESOLVE_SCOPE_URL left empty
+    out = f.outlet(
+        _assistant("[[ocu-download:report.docx]]"),
+        __metadata__={"chat_id": "chat-a"},
+    )
+    assert "/download/fs-fleet/report.docx" in out["messages"][0]["content"]

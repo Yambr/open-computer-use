@@ -1,0 +1,126 @@
+{
+  "$comment": "SPDX-License-Identifier: FSL-1.1-Apache-2.0 | Copyright (c) 2025 Open Computer Use Contributors | Vendored into the fleet deploy layer alongside scripts/mint_boot_set.py so a clean clone of THIS repo can structurally validate a minted boot-set without the gateway checkout. Keep in sync with the gateway's contracts/mcp/mcp-key-set.schema.json if the boot-set shape changes. STATUS frozen (Artifact-2, the Control->gateway hashed-key-set). The config-plane boot-set the MCP gateway loads at boot to validate a presented sk-ocu- caller key in-process (ADR-0027). Control mints the key (occ mcp-key create), stores the salted hash, and re-renders this set on every mint/revoke; the gateway hashes the presented bearer and constant-time-compares against these records. This is delivered over the same config plane that carries the gateway's signing material, NEVER a per-request Control lookup (component-01 no-state-that-outlives-a-request invariant is kept: the set is configuration, not request-derived state). FENCED SURFACE: hashes + salts only. No plaintext secret, no sk-ocu- key, no unsalted digest, no signing key ever appears here; additionalProperties:false at both levels forbids smuggling one in. The published subset is fail-closed to the ACTIVE, non-expired records: a revoked or expired key is OMITTED before render, so status is always \"active\" on the wire (a key absent from this set is refused with 401 at the gateway). Status is pinned const \"active\" on this wire (the at-rest record type also carries revoked; it never reaches this artifact), and records has minItems 1 (Control refuses to render an empty active set), so both bad-render classes are schema-detectable. This schema validates the SHAPE; the omit-before-render, boot-refresh-within-5-min (NFR-SEC-04), and constant-time comparison are peer invariants, not schema-checkable (NFR-SEC-87, ADR-0027). JSON Schema 2020-12 (json-schema.org).",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.open-computer-use.dev/mcp/mcp-key-set.schema.json",
+  "title": "MCP hashed-key-set (Control -> gateway boot-set)",
+  "description": "The versioned hashed-key-set the Control plane renders for the MCP gateway to boot-load and validate presented sk-ocu- caller keys in-process (ADR-0027). Top-level `version` (const 1) + `records[]`; each record is one MCP API key as a salted SHA-256 hash plus its binding metadata, never the plaintext secret. Only active, non-expired records reach this set. The gateway resolves a presented bearer to a record here or refuses it (401); tenant and deployment scope are read from the resolved record, never from the opaque key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "records"],
+
+  "$defs": {
+    "KeyId": {
+      "description": "Opaque public handle for the key: the value passed to `occ mcp-key revoke --id` and the correlation field on the audit record. A short random handle, structurally independent of the secret (never derived from it). Control mints it as the lowercase-hex encoding of 12 CSPRNG bytes (24 hex chars); the schema pins only that it is a non-empty opaque string, so a future id shape stays additive.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "examples": ["a1b2c3d4e5f6a7b8c9d0e1f2"]
+    },
+
+    "KeyHash": {
+      "description": "Salted key digest: `sha256(salt || secret)`, lowercase-hex. Exactly 64 hex chars (256-bit SHA-256). The unsalted digest is rejected at construction (pass-the-hash floor, NFR-SEC-87). Lowercase-hex, NOT base64 (a raw []byte defaults to base64; the projection hex-encodes it to satisfy this pattern).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "examples": ["0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"]
+    },
+
+    "Salt": {
+      "description": "Per-key salt, lowercase-hex, an even number of hex chars, at least 16 (>= 64-bit). Control draws a fresh 32-byte crypto/rand salt per key, so the rendered value is 64 hex chars; the pattern floor of 16 keeps the entropy floor without pinning the exact width. Stored alongside the hash so the gateway can re-hash a presented bearer for comparison.",
+      "type": "string",
+      "pattern": "^([0-9a-f]{2}){8,}$",
+      "examples": ["2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40"]
+    },
+
+    "Tenant": {
+      "description": "The tenant the key is scoped to, read from THIS record at the gateway, never from a claim in the opaque key (an opaque key carries none). Operator-supplied at issuance (`occ mcp-key create --tenant <T>`).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "examples": ["tenant-a"]
+    },
+
+    "Deployment": {
+      "description": "The deployment the key is scoped to. A key whose deployment does not match this set's deployment fails to resolve and is refused with 401 (ADR-0027 absent-from-set refuse-path). Operator-supplied at issuance.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "examples": ["deploy-1"]
+    },
+
+    "Status": {
+      "description": "Lifecycle state as PUBLISHED on this wire: always `active`. Revoked/expired records are omitted before render (fail-closed), and the const makes a mis-render that leaks a revoked record schema-detectable by the vendored validator instead of silently usable. The at-rest record type also carries a `revoked` state; that state never reaches this artifact.",
+      "type": "string",
+      "const": "active"
+    },
+
+    "Timestamp": {
+      "description": "An RFC 3339 date-time (UTC, e.g. 2026-03-01T12:00:00Z). Control formats the record's time from an injected monotonic Clock.",
+      "type": "string",
+      "format": "date-time",
+      "examples": ["2026-03-01T12:00:00Z"]
+    },
+
+    "HashedKeyRecord": {
+      "description": "One MCP API key as a salted hash plus its binding metadata. NEVER the plaintext secret. Required: key_id, key_hash, salt, tenant, deployment, status, created_at. Optional: expires_at (absent => non-expiring, so the one-click path is not blocked). additionalProperties:false forbids any extra field smuggling a secret in.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_id", "key_hash", "salt", "tenant", "deployment", "status", "created_at"],
+      "properties": {
+        "key_id": { "$ref": "#/$defs/KeyId" },
+        "key_hash": { "$ref": "#/$defs/KeyHash" },
+        "salt": { "$ref": "#/$defs/Salt" },
+        "tenant": { "$ref": "#/$defs/Tenant" },
+        "deployment": { "$ref": "#/$defs/Deployment" },
+        "status": { "$ref": "#/$defs/Status" },
+        "expires_at": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "Optional expiry. ABSENT means the key is non-expiring (ADR-0027). When present it is an RFC 3339 date-time; an expired record is omitted from this set before render, so a present expires_at here is always in the future relative to render time."
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "The instant the record was minted."
+        }
+      }
+    }
+  },
+
+  "properties": {
+    "version": {
+      "description": "Boot-set envelope format version. Pinned const 1; a format migration bumps it (NFR-IC-04, additive-only otherwise).",
+      "const": 1
+    },
+    "records": {
+      "description": "The active, non-expired records the gateway boot-loads. minItems 1 pins the empty-set refusal schema-side: Control refuses to render an empty active set (fail-closed - an empty boot-set would make the gateway reject every presented key, masking a misconfiguration), so an empty artifact is invalid, not merely unexpected.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/HashedKeyRecord" }
+    }
+  },
+
+  "examples": [
+    {
+      "version": 1,
+      "records": [
+        {
+          "key_id": "a1b2c3d4e5f6a7b8c9d0e1f2",
+          "key_hash": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+          "salt": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+          "tenant": "tenant-a",
+          "deployment": "deploy-1",
+          "status": "active",
+          "created_at": "2026-03-01T12:00:00Z"
+        },
+        {
+          "key_id": "0011223344556677889900aa",
+          "key_hash": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+          "salt": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+          "tenant": "tenant-a",
+          "deployment": "deploy-1",
+          "status": "active",
+          "expires_at": "2026-03-02T12:00:00Z",
+          "created_at": "2026-03-01T12:00:00Z"
+        }
+      ]
+    }
+  ]
+}

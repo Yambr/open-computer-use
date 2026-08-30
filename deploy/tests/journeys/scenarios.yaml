@@ -1,0 +1,561 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+# Copyright (c) 2025 Open Computer Use Contributors
+#
+# Single source of truth for the PoC-vs-fleet user-journey e2e suite.
+# One entry per scenario A1..G6 (45 total). CONTRAST.md and the paired
+# pytest cases are generated from / keyed on this file. Do not hand-edit
+# CONTRAST.md; run render_contrast.py.
+#
+# Fields per scenario:
+#   id            stable scenario id (group letter + index)
+#   group         A..G bucket letter
+#   story         one-line "As a user I ..." journey framing
+#   proves        the ONE invariant the scenario proves
+#   poc_expect    short outcome string on the PoC (main) system
+#   fleet_expect  short outcome string on the fleet (next/v1) system
+#   bucket        IDENTICAL | HARDENED | PoC-HOLE
+#   keystone      the negative / inversion that makes the assertion non-vacuous
+#
+# bucket meanings:
+#   IDENTICAL   both systems deliver the same user-visible outcome
+#   HARDENED    the fleet enforces a boundary the PoC leaves loose / absent
+#   PoC-HOLE    the PoC has no boundary at all; the fleet closes it
+
+scenarios:
+
+  # =====================================================================
+  # GROUP A — Auth & Bootstrap
+  # =====================================================================
+  - id: A1
+    group: A
+    story: "As a user I open the UI and get a session."
+    proves: "First-party cookie set on bootstrap."
+    poc_expect: "No cookie (Open WebUI only)."
+    fleet_expect: "SameSite=None/Secure/HttpOnly cookie + embed-token verified (sig+aud+exp<=120s)."
+    bucket: HARDENED
+    keystone: "Strip the cookie -> protected call returns 401/redirect (green flips to red without it)."
+
+  - id: A2
+    group: A
+    story: "As a user I load the UI from an allowed parent origin."
+    proves: "Frame-ancestor allowlist enforced."
+    poc_expect: "No CSP; any parent may frame it."
+    fleet_expect: "CSP frame-ancestors from allowlist; foreign parent blocked."
+    bucket: HARDENED
+    keystone: "Allowlisted origin STILL renders (block is scoped, not a blanket deny); foreign origin yields a console CSP violation and no document."
+
+  - id: A3
+    group: A
+    story: "As a user I perform a mutating action (upload)."
+    proves: "CSRF token required on mutations."
+    poc_expect: "No CSRF; mutation accepted unconditionally."
+    fleet_expect: "Mutation without a valid CSRF token refused."
+    bucket: HARDENED
+    keystone: "The same request minus the CSRF token flips 2xx to 403."
+
+  - id: A4
+    group: A
+    story: "As an MCP caller I connect to the orchestrator."
+    proves: "Caller identity is host-attested."
+    poc_expect: "Plain HTTP; any caller with a chat-id is served."
+    fleet_expect: "Gateway mTLS, one client cert = one caller; no cert -> TLS/401."
+    bucket: PoC-HOLE
+    keystone: "A malformed-but-present client cert is also rejected (not only the no-cert case)."
+
+  - id: A5
+    group: A
+    story: "As an MCP caller I present a valid static key."
+    proves: "ADR-0027 static key gate."
+    poc_expect: "No analogue (no key gate)."
+    fleet_expect: "Valid sk-ocu- key accepted; unknown key -> 401."
+    bucket: HARDENED
+    keystone: "A key from the revoked set -> 401 (a minted key alone is not sufficient)."
+
+  - id: A6
+    group: A
+    story: "As a user I get a sandbox to run work."
+    proves: "Session creation is quota-reserved and image-gated."
+    poc_expect: "docker run of any image, unbounded."
+    fleet_expect: "control create: image allow-list + row-as-reservation quota."
+    bucket: HARDENED
+    keystone: "Empty-body create resolves the DEFAULT image (201) rather than trusting image ENTRYPOINT metadata (the #94 bug); a foreign image is still denied."
+
+  # =====================================================================
+  # GROUP B — Journey 1: create a docx and download it
+  # =====================================================================
+  - id: B1
+    group: B
+    story: "As a user I ask the agent to build report.docx."
+    proves: "Agent writes to the outputs surface."
+    poc_expect: "Writes host-bind /data/{chat}/outputs."
+    fleet_expect: "Guest writes /mnt/user-data/outputs (FUSE rw, dir 0755 / file 0644)."
+    bucket: IDENTICAL
+    keystone: "The same write directed at the INPUTS surface fails."
+
+  - id: B2
+    group: B
+    story: "As a user I see the docx in my files list."
+    proves: "Outputs are enumerable to me."
+    poc_expect: "GET /api/outputs/{chat_id} lists the file."
+    fleet_expect: "F9 /v1/files returns a server-minted scope-bound file_id, cursor-paginated."
+    bucket: HARDENED
+    keystone: "A list from a different scope does NOT show the file."
+
+  - id: B3
+    group: B
+    story: "As a user I download the docx."
+    proves: "The byte path to the user works end-to-end."
+    poc_expect: "GET /files/{chat}/{file} streams the bytes."
+    fleet_expect: "UI download -> three-axis authz (scope+read+downloadable) -> bytes."
+    bucket: HARDENED
+    keystone: "A request lacking the download axis does NOT stream (ties D6). Real Playwright click, never page.evaluate(fetch)."
+
+  - id: B4
+    group: B
+    story: "As a user I open the downloaded docx."
+    proves: "The artifact is a valid document, not a stub."
+    poc_expect: "File exists on outputs."
+    fleet_expect: "Valid OOXML delivered."
+    bucket: IDENTICAL
+    keystone: "A corrupted / zero-byte file FAILS this check (guards against 200 + garbage)."
+
+  - id: B5
+    group: B
+    story: "As a user I download all outputs as a zip."
+    proves: "Bulk export works."
+    poc_expect: "GET /files/{chat}/archive returns a zip."
+    fleet_expect: "Per-file loop over F9 (no invented zip endpoint) yields the same file-set."
+    bucket: IDENTICAL
+    keystone: "Another scope's file is ABSENT from the archive / file-set."
+
+  - id: B6
+    group: B
+    story: "As a user I download while the agent is still writing."
+    proves: "Partial / in-flight download handling is defined."
+    poc_expect: "Serves whatever bytes exist (may be truncated)."
+    fleet_expect: "Full-file-or-404, not silent truncation (assert the envelope, not a byte guess)."
+    bucket: HARDENED
+    keystone: "A post-completion download returns the full valid docx (re-checks B4)."
+
+  # =====================================================================
+  # GROUP C — Journey 2: upload -> edit-in-guest -> download from outputs
+  # =====================================================================
+  - id: C1
+    group: C
+    story: "As a user I upload a file into inputs."
+    proves: "Upload lands where the guest reads."
+    poc_expect: "Open WebUI -> /data/{chat}/uploads (:ro bind)."
+    fleet_expect: "F9 / mount upload -> inputs mount (readonly:true, dir 0555 / file 0444)."
+    bucket: HARDENED
+    keystone: "An upload aimed at the OUTPUTS path is rejected."
+
+  - id: C2
+    group: C
+    story: "As a user I have the guest read my uploaded file."
+    proves: "Inputs are readable in-guest."
+    poc_expect: "Container reads the :ro bind."
+    fleet_expect: "Guest reads /mnt/user-data/inputs/<f> (cache 5s)."
+    bucket: IDENTICAL
+    keystone: "Guest exec `cat` equals the uploaded content byte-for-byte."
+
+  - id: C3
+    group: C
+    story: "As a user I have the agent transform it and write to outputs."
+    proves: "read-inputs / write-outputs split."
+    poc_expect: "Reads uploads, writes outputs (both binds)."
+    fleet_expect: "Read inputs (ro) -> write outputs (rw)."
+    bucket: IDENTICAL
+    keystone: "An empty input yields an output that reflects that (content diff, not presence)."
+
+  - id: C4
+    group: C
+    story: "As a user I download the edited result from outputs."
+    proves: "The transform round-trips back to me."
+    poc_expect: "Download endpoint serves the transformed bytes."
+    fleet_expect: "Transformed content downloads via F9."
+    bucket: IDENTICAL
+    keystone: "The original input is unchanged on re-read."
+
+  - id: C5
+    group: C
+    story: "As a user I try to overwrite my input file."
+    proves: "Inputs are genuinely read-only."
+    poc_expect: ":ro bind -> write fails EROFS."
+    fleet_expect: "Write to inputs -> EROFS/denied at FUSE (dir 0555)."
+    bucket: HARDENED
+    keystone: "The PoC :ro bind also denies the write; if the RO mechanism is inactive in the env, MARK it (do not ship a fake green)."
+
+  - id: C6
+    group: C
+    story: "As a user I upload a file with a nasty name (../, spaces, unicode, 255-char)."
+    proves: "Path handling is safe."
+    poc_expect: "Host-bind join carries an escape risk."
+    fleet_expect: "Name sanitized / scoped; no escape."
+    bucket: HARDENED
+    keystone: "A crafted ../ name aimed at a host path returns 404/denied, never /etc/passwd."
+
+  - id: C7
+    group: C
+    story: "As a user I upload a zero-byte file and a large (>chunk) file."
+    proves: "Boundary sizes + chunked upload."
+    poc_expect: "Single PUT."
+    fleet_expect: "Chunked fileUpload reassembles; 0-byte handled."
+    bucket: HARDENED
+    keystone: "Interrupting a chunk mid-upload yields a clean fail, not a silent truncation; 0-byte round-trips as 0; large reassembles hash-match."
+
+  # =====================================================================
+  # GROUP D — Authz boundary (every-hop enforcement, adversarial)
+  # =====================================================================
+  - id: D1
+    group: D
+    story: "As an attacker I read another user's file by guessing an id."
+    proves: "No cross-scope read and no enumeration leak."
+    poc_expect: "SUCCEEDS — any chat_id reads that chat's files."
+    fleet_expect: "Foreign file_id -> 404 (not 403), no enumeration oracle."
+    bucket: PoC-HOLE
+    keystone: "A reading A's OWN id -> 200 (the 404 is scope-specific, not a blanket deny); sequential probes 404 uniformly, revealing no existence oracle."
+
+  - id: D2
+    group: D
+    story: "As an attacker I present a valid token for a foreign scope."
+    proves: "The scope check is distinct from the auth check."
+    poc_expect: "No analogue."
+    fleet_expect: "Valid signature, foreign scope -> 403."
+    bucket: PoC-HOLE
+    keystone: "Swapping ONLY the scope claim flips 200 to 403 (a matching scope -> 200)."
+
+  - id: D3
+    group: D
+    story: "As an attacker I call the filestore with no or an expired token."
+    proves: "Missing-auth is refused."
+    poc_expect: "No analogue (no token model)."
+    fleet_expect: "Missing/expired -> 401 with a BoundedReason envelope."
+    bucket: PoC-HOLE
+    keystone: "A fresh valid token -> 200 (401 is auth-specific, not a permanent wall)."
+
+  - id: D4
+    group: D
+    story: "As an attacker in the guest I hit MinIO / control directly."
+    proves: "Guest network isolation."
+    poc_expect: "SUCCEEDS — guest has full network."
+    fleet_expect: "Guest only on the mount-facing net; no route to control/south/exchange/MinIO."
+    bucket: PoC-HOLE
+    keystone: "The guest reaching the mount-edge (its allowed peer) SUCCEEDS (isolation is a route restriction, not a dead NIC)."
+
+  - id: D5
+    group: D
+    story: "As an attacker in the guest I read the real filestore credential."
+    proves: "The guest never holds the upstream secret."
+    poc_expect: "Host has raw files; no secret model at all."
+    fleet_expect: "Guest holds only the weak JWT; the real credential is injected at egress, absent in the guest."
+    bucket: PoC-HOLE
+    keystone: "The exchanged / injected credential DOES work through egress (custody is real, not a broken path); a direct guest->MinIO with only the weak JWT fails."
+
+  - id: D6
+    group: D
+    story: "As a user I preview a downloadable=false file, then try to save it."
+    proves: "Preview-not-download exfil control."
+    poc_expect: "No analogue — everything downloads."
+    fleet_expect: "Preview renders in-session; the byte path to the browser is REFUSED."
+    bucket: PoC-HOLE
+    keystone: "A downloadable=true file DOES download (the refusal is axis-specific, not a broken viewer)."
+
+  - id: D7
+    group: D
+    story: "As an attacker I replay a captured / expired session-JWT at egress."
+    proves: "Token freshness is enforced at the edge."
+    poc_expect: "No analogue."
+    fleet_expect: "Egress validates via control JWKS; expired/replayed -> 401."
+    bucket: PoC-HOLE
+    keystone: "A currently-valid JWT exchanges and fetches (401 is freshness-specific)."
+
+  # =====================================================================
+  # GROUP E — Auto-disconnect, lifecycle, kill-switch
+  # =====================================================================
+  - id: E1
+    group: E
+    story: "As a user I go idle and get reaped."
+    proves: "Idle reaper / TTL releases the session."
+    poc_expect: "Reaper per backlog #91 (verify what exists)."
+    fleet_expect: "Session -> released; next op returns a deny status (assert released-state + status, not a hardcoded timeout)."
+    bucket: HARDENED
+    keystone: "An ACTIVE session past a shorter interval is NOT reaped (the reaper keys on idleness). If idle-TTL is unspecified, drive release via the operator surface that DOES exist and mark the idle-TTL assertion envelope-until-contract-pins."
+
+  - id: E2
+    group: E
+    story: "As an operator I force-disconnect everyone."
+    proves: "The kill-switch revoke/all denies everyone."
+    poc_expect: "No kill-switch."
+    fleet_expect: "revoke/all (SO_PEERCRED sock) -> all sessions denied."
+    bucket: PoC-HOLE
+    keystone: "resume/all clears it (a toggle, not a crash)."
+
+  - id: E3
+    group: E
+    story: "As a user I come back after the operator resumes."
+    proves: "resume/all restores new sessions."
+    poc_expect: "No analogue."
+    fleet_expect: "resume/all -> new create ok; pre-revoke sessions stay denied."
+    bucket: HARDENED
+    keystone: "resume does NOT un-revoke an already-killed session."
+
+  - id: E4
+    group: E
+    story: "As a user I keep working after a control restart."
+    proves: "State durability / boot-reconcile."
+    poc_expect: "In-memory; the container map is lost on restart."
+    fleet_expect: "Postgres state survives; #93 reconcile reclaims orphan rows."
+    bucket: HARDENED
+    keystone: "A never-created key still 404s after the restart (durability is not a blanket 200)."
+
+  - id: E5
+    group: E
+    story: "As an operator I restart control after a guest crashed."
+    proves: "An orphan row does not leak a quota slot."
+    poc_expect: "No analogue."
+    fleet_expect: "Container-less row -> reclaimed to released + slot returned; a fresh create 201s without a manual RevokeAll."
+    bucket: PoC-HOLE
+    keystone: "A LIVE session matched to its row is NOT killed by the reconcile."
+
+  - id: E6
+    group: E
+    story: "As an operator I restart control with a stray container."
+    proves: "A row-less container is killed."
+    poc_expect: "No analogue."
+    fleet_expect: "A row-less container is killed on reconcile."
+    bucket: HARDENED
+    keystone: "A container WITH a valid row survives the reconcile."
+
+  - id: E7
+    group: E
+    story: "As a user I hit the quota ceiling."
+    proves: "Concurrency is actually capped."
+    poc_expect: "Unbounded docker run."
+    fleet_expect: "N sessions ok, N+1 -> 409 at the tier cap."
+    bucket: PoC-HOLE
+    keystone: "After releasing one, a new create 201s again (a live counter, not a permanent wall)."
+
+  - id: E8
+    group: E
+    story: "As a user my session-JWT expires mid-journey."
+    proves: "Expiry surfaces cleanly, not as a hang."
+    poc_expect: "No token."
+    fleet_expect: "Mid-download 401 at egress; UI re-auth on embed-token exp<=120s."
+    bucket: HARDENED
+    keystone: "Within-exp the same download completes; an embed token past 120s drives a UI re-auth surface, not a blank frame or 500."
+
+  # =====================================================================
+  # GROUP F — Agentic-load simulation
+  # =====================================================================
+  - id: F1
+    group: F
+    story: "As a user I run many sessions concurrently."
+    proves: "Isolation + quota hold under concurrency."
+    poc_expect: "Containers created freely; noisy-neighbor."
+    fleet_expect: "Up-to-cap concurrent sessions isolated; cap enforced under race."
+    bucket: HARDENED
+    keystone: "K=cap concurrent creates all succeed and each sees only its own files; K+1 concurrent, exactly the overflow gets 409 (no double-admit); session i cannot read session j outputs under load."
+
+  - id: F2
+    group: F
+    story: "As a user I fan out sub-agents / parallel exec in one session."
+    proves: "Parallel work is stable."
+    poc_expect: "MCP sub_agent tool."
+    fleet_expect: "Concurrent exec calls carry the correct exec-identity (RuntimeID:cname); no cross-talk."
+    bucket: HARDENED
+    keystone: "P parallel exec calls each return their own correct output (distinct markers, 1:1, not interleaved/misrouted)."
+
+  - id: F3
+    group: F
+    story: "As a user I push a large file through the storage chain."
+    proves: "Streaming / backpressure without truncation."
+    poc_expect: "Single stream."
+    fleet_expect: "Chunked up+down, hash-stable."
+    bucket: HARDENED
+    keystone: "Pick a size that stresses the whole buffer chain (above the stream ceiling, not a neuter payload); assert the round-trip is bidirectional and hash-matches (a neuter payload passing is vacuous)."
+
+  - id: F4
+    group: F
+    story: "As a user I list a directory with hundreds of files."
+    proves: "Pagination does not leak or OOM."
+    poc_expect: "One dir listing."
+    fleet_expect: "F9 cursor pagination; page N+1 continues with no dupes/gaps."
+    bucket: HARDENED
+    keystone: "No file appears twice or is missing across pages; a foreign-scope file never appears on any page."
+
+  - id: F5
+    group: F
+    story: "As a user I churn create->exec->release rapidly."
+    proves: "Slots do not leak under churn."
+    poc_expect: "No analogue."
+    fleet_expect: "Steady-state slot count returns to baseline (reconcile under load)."
+    bucket: HARDENED
+    keystone: "Killing a guest mid-churn still returns its slot on reconcile."
+
+  # =====================================================================
+  # GROUP G — Negative / adversarial / isolation invariants
+  # =====================================================================
+  - id: G1
+    group: G
+    story: "As an auditor I inspect the guest for the mount-config after boot."
+    proves: "The config is scrubbed post-load (NFR-SEC-25)."
+    poc_expect: "No such config exists."
+    fleet_expect: "Config unlinked after Load; absent in the guest."
+    bucket: HARDENED
+    keystone: "The guest still functions (mount up) after the config is gone; an A/B no-scrub control still shows the config."
+
+  - id: G2
+    group: G
+    story: "As an attacker I send a forged / tampered wire frame to a hop."
+    proves: "Signature verification refuses forgeries."
+    poc_expect: "No signing."
+    fleet_expect: "A forged frame is refused (F9 / gateway signature check)."
+    bucket: PoC-HOLE
+    keystone: "Mutating one byte of a valid signature flips accept to refuse."
+
+  - id: G3
+    group: G
+    story: "As an attacker I tamper with an audit event on disk."
+    proves: "Audit hash-chain integrity + fail-closed."
+    poc_expect: "NO audit at all."
+    fleet_expect: "A file-op emits an OCSF class-1001 hash-chained event; tamper -> chain verify fails; sink-down -> op refused."
+    bucket: PoC-HOLE
+    keystone: "Tampering one chain link makes verify fail; an unreachable sink refuses the op (fail-closed)."
+
+  - id: G4
+    group: G
+    story: "As an attacker in the guest I reach the internet."
+    proves: "Egress is allow-listed, not open."
+    poc_expect: "Full network."
+    fleet_expect: "Only allow-listed egress is reachable."
+    bucket: PoC-HOLE
+    keystone: "The block is at the egress edge and the allow-listed endpoint still works (not a blanket net-off)."
+
+  - id: G5
+    group: G
+    story: "As a user I read a file after my session ended."
+    proves: "Post-session data lifecycle is defined."
+    poc_expect: "Host-bind persists on disk; container gone -> download 404s."
+    fleet_expect: "Assert the DEFINED end state (file_id lifecycle) and the status class; do not invent a retention window."
+    bucket: HARDENED
+    keystone: "Do NOT assert an invented retention window; assert the status class plus the PoC-side disk-persistence contrast (that contrast IS the finding)."
+
+  - id: G6
+    group: G
+    story: "As a user I download a file I own but marked non-downloadable via the raw byte route."
+    proves: "The exfil control cannot be bypassed at the wire."
+    poc_expect: "No analogue."
+    fleet_expect: "The direct byte route for downloadable=false is refused (mirrors D6 at the API level)."
+    bucket: PoC-HOLE
+    keystone: "A downloadable=true file via the SAME route -> bytes (no bypass gap between layers)."
+
+  # =====================================================================
+  # GROUP I — MCP tool-surface below-the-exec-contract properties
+  # (the L5 half of mcp_tool_surface.feature; the L4 half lives in the
+  # gateway forward e2e. These prove what only a live guest can: the exit
+  # code is really transported, output is really bounded, and one session's
+  # workspace really persists across tool calls.)
+  # =====================================================================
+  - id: I1
+    group: I
+    story: "As a model I run a command that fails and need to see it failed."
+    proves: "A non-zero guest exit is really transported to isError, not fabricated."
+    poc_expect: "Non-zero exit returned as the tool output string (no isError concept)."
+    fleet_expect: "isError:true reaches the caller for a real failing command through the live gateway."
+    bucket: HARDENED
+    keystone: "A zero-exit command over the SAME path returns isError:false (the flag tracks the real exit, not a constant)."
+
+  - id: I2
+    group: I
+    story: "As a model I run a command that prints far more than fits."
+    proves: "Oversized guest output is a bounded tool result, never dropped (the whole result lost to a 502)."
+    poc_expect: "Truncated at 30000 chars with a middle-omitted marker (mcp_tools.py)."
+    fleet_expect: "Step 1 (#127, PR #43): output up to the read-cap is returned whole, not 502'd. Step 2 (#128): bounded at the 64KiB caller ceiling with a truncation marker."
+    bucket: HARDENED
+    keystone: "A DEFECT the journal found: output above ~48KiB used to 502 (whole result lost). I2 pins nothing-lost; I2c (xfail #128) pins the 64KiB ceiling. A small command returns whole."
+
+  - id: I3
+    group: I
+    story: "As a model I run a command that hangs past the timeout."
+    proves: "Timeout enforcement kills the command; the killed run should surface as a Tier-2 result, not a 502."
+    poc_expect: "GNU timeout kills at COMMAND_TIMEOUT-5; output notes the timeout and keeps partial output."
+    fleet_expect: "Enforcement holds (the kill happens < wall-clock). Result shaping is a DEFECT (#129): control returns 409 on a timed-out exec -> gateway 502, partial output lost, where the PoC returns a Tier-2 timeout result."
+    bucket: HARDENED
+    keystone: "I3 pins the KILL (fast command returns promptly, hung one is terminated). I3b (xfail #129) pins the Tier-2 result-shape the fleet does not yet meet."
+
+  - id: I4
+    group: I
+    story: "As a model I write a file to a path the guest user cannot write."
+    proves: "EACCES is a function of the live guest identity, recorded as a PoC-vs-fleet contrast."
+    poc_expect: "create_file into /home/assistant -> [Errno 13] Permission denied (guest user is not owner)."
+    fleet_expect: "Record the LIVE outcome against the PoC's; the fleet guest identity may differ (root vs assistant)."
+    bucket: HARDENED
+    keystone: "A writable path over the SAME path succeeds (the deny is the identity/perm, not a broken write plane)."
+
+  - id: I5
+    group: I
+    story: "As a user my second command sees the file my first command wrote."
+    proves: "One chat maps to one persistent workspace across tool calls (not a fresh container per exec)."
+    poc_expect: "Per-chat container; files persist across calls in a chat (docker_manager.py)."
+    fleet_expect: "A marker written by call 1 is read back by call 2 in the same session -> the workspace persisted."
+    bucket: IDENTICAL
+    keystone: "A DIFFERENT chat id does NOT see the marker (persistence is per-session, not a shared global fs)."
+
+  - id: I6
+    group: I
+    story: "As a user I create, view, edit, and confirm a file across four tool calls."
+    proves: "The four MCP tools compose over one workspace end-to-end (the owner-shown journey)."
+    poc_expect: "create_file -> view -> str_replace -> bash cat all hit the same per-chat container."
+    fleet_expect: "create ALPHA original -> view shows it -> str_replace to EDITED -> bash cat = ALPHA EDITED; no bash fallback."
+    bucket: IDENTICAL
+    keystone: "Requires a python3-bearing guest (#122); skips loudly on a stripped guest rather than passing vacuously."
+
+  # =====================================================================
+  # GROUP J -- two-way user<->agent file flow across the storage spine
+  # (fleet-only; the PoC shares one docker volume both ways with no
+  # engine/panel spine, so every J contrast is structural.)
+  # =====================================================================
+  - id: J1
+    group: J
+    story: "As a user I download the file the agent just saved for me."
+    proves: "An agent write to /mnt/user-data/outputs reaches the Files panel and downloads byte-exact (guest -> outputs/ -> F9 north -> content 200)."
+    poc_expect: "Shared volume: the file simply appears under the chat's files listing."
+    fleet_expect: "Pane lists the deliverable within the VFS write-back window and /content serves the exact bytes."
+    bucket: HARDENED
+    keystone: "A never-written ghost name stays absent from the same listing window (the list is real, not echoed)."
+
+  - id: J2
+    group: J
+    story: "As a user I attach a file and the agent reads it."
+    proves: "A pane upload is readable byte-exact from a fresh guest at /mnt/user-data/uploads (F9 create -> uploads/ -> south mount read)."
+    poc_expect: "Upload sync copies into the chat container; cat reads it."
+    fleet_expect: "A fresh guest cats the exact uploaded bytes at /mnt/user-data/uploads/<name> (the #143 south downloadable-misroute is fixed; downloadable gates only the north content egress)."
+    bucket: HARDENED
+    keystone: "Byte EQUALITY is asserted, never presence: the stat-visible-but-empty failure mode must fail, not pass."
+
+  - id: J3
+    group: J
+    story: "As the platform I keep 'agent may read it' separate from 'user may carry it out'."
+    proves: "The north content-egress gate survives both file-flow legs (NFR-SEC-73 stored-tag; egress-not-provenance)."
+    poc_expect: "No downloadable concept; every file in the volume is servable."
+    fleet_expect: "Uploads-side object refuses /content with 403; the agent's outputs-side deliverable serves 200 byte-exact."
+    bucket: HARDENED
+    keystone: "The ASYMMETRY is the control: loosening the north gate reddens the 403 half; a broken outputs leg reddens the 200 half."
+
+  - id: J4
+    group: J
+    story: "As the agent I verify the deliverable I just saved is really there."
+    proves: "The guest LISTS and re-reads its own outputs write (two-mount layout: the write-intent credential joins ALL its ops under outputs/, so the writer sees its own subtree - PoC parity, ADR-0029 credential-claim join)."
+    poc_expect: "outputs is a plain rw bind mount: ls shows the file immediately."
+    fleet_expect: "ls /mnt/user-data/outputs shows the just-written name in the SAME session; cat returns the exact bytes."
+    bucket: HARDENED
+    keystone: "A ghost sibling stays absent from the listing; under the flat-era route-op join this test REDDENS (reads resolved to uploads/, the writer never saw its own file)."
+
+  - id: J5
+    group: J
+    story: "As the platform I refuse agent writes into the user's uploads."
+    proves: "The uploads view is read-only end-to-end: the mount posture refuses the write AND the engine grants the read credential no write lease (NFR-SEC-49, ADR-0029)."
+    poc_expect: "uploads is a ro bind mount: the write fails with EROFS."
+    fleet_expect: "The guest write into /mnt/user-data/uploads fails; the attempted name never appears in the pane list."
+    bucket: HARDENED
+    keystone: "Two independent refusals asserted (guest-side failure + spine-side absence): a cosmetic :ro that the backend still accepts reddens the second half."

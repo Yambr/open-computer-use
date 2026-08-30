@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OCU — live sandbox visualizer</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#0d1117; color:#c9d1d9; font-size:13px; }
+  header { padding:10px 16px; background:#161b22; border-bottom:1px solid #30363d; }
+  header b { color:#58a6ff; } .chain { color:#8b949e; font-size:11px; margin-top:3px; }
+  .wrap { display:flex; height:calc(100vh - 52px); }
+  .left { flex:1; padding:12px; overflow:auto; border-right:1px solid #30363d; }
+  .right { width:360px; padding:12px; overflow:auto; }
+  .panel-title { color:#8b949e; font-size:10px; text-transform:uppercase; letter-spacing:.5px; margin:14px 0 6px; }
+  .panel-title:first-child { margin-top:0; }
+  #term { background:#010409; border:1px solid #30363d; border-radius:6px; padding:12px; white-space:pre-wrap; font-size:12px; line-height:1.5; min-height:220px; color:#3fb950; }
+  .meta { font-size:12px; color:#8b949e; margin-bottom:8px; } .meta span { color:#c9d1d9; }
+  button { display:block; width:100%; margin:5px 0; padding:8px 10px; background:#21262d; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; cursor:pointer; font:inherit; font-size:12px; text-align:left; }
+  button:hover { background:#30363d; border-color:#58a6ff; }
+  button.danger:hover { border-color:#f85149; }
+  input, textarea { width:100%; margin:3px 0; padding:6px 8px; background:#010409; color:#c9d1d9; border:1px solid #30363d; border-radius:5px; font:inherit; font-size:11.5px; }
+  textarea { resize:vertical; min-height:38px; }
+  .tool { border:1px solid #21262d; border-radius:6px; padding:8px; margin:6px 0; }
+  .tool h4 { margin:0 0 4px; font-size:12px; color:#58a6ff; }
+  .sess { border:1px solid #21262d; border-radius:6px; padding:7px 9px; margin:5px 0; font-size:11.5px; cursor:pointer; }
+  .sess:hover { border-color:#58a6ff; } .sess.active { border-color:#3fb950; background:#0f1a12; }
+  .sess .k { color:#8b949e; font-size:10.5px; } .sess .h { color:#c9d1d9; }
+  .log { font-size:10.5px; color:#6e7681; margin-top:8px; white-space:pre-wrap; max-height:120px; overflow:auto; }
+  .row2 { display:flex; gap:6px; } .row2 input { flex:1; }
+</style>
+</head>
+<body>
+<header>
+  <b>OCU live sandbox</b> — MCP → gateway (mTLS) → control → gVisor
+  <div class="chain">every action drives the REAL chain into a live gVisor container. no mock.</div>
+</header>
+<div class="wrap">
+  <div class="left">
+    <p class="panel-title">Live view — inside the gVisor container</p>
+    <div class="meta">session: <span id="sess">— none —</span> · runtime: <span id="rt">—</span> · state: <span id="st">—</span></div>
+    <div id="term">Create a sandbox, or pick one from the session list on the right.</div>
+
+    <p class="panel-title">Active sessions (this proxy)</p>
+    <div id="sesslist"><span style="color:#6e7681">none yet</span></div>
+  </div>
+
+  <div class="right">
+    <p class="panel-title">Lifecycle</p>
+    <button id="b-create">▶ Create gVisor sandbox</button>
+    <button id="b-destroy" class="danger">■ Destroy current sandbox</button>
+
+    <p class="panel-title">MCP tools (into the live container)</p>
+
+    <div class="tool">
+      <h4>bash</h4>
+      <input id="t-bash" placeholder="echo hi; ls -la /">
+      <button onclick="tool('bash',{command:val('t-bash')})">run bash</button>
+    </div>
+    <div class="tool">
+      <h4>create_file</h4>
+      <input id="t-cf-path" placeholder="/home/assistant/hello.txt">
+      <textarea id="t-cf-content" placeholder="file content"></textarea>
+      <button onclick="tool('create_file',{path:val('t-cf-path'),content:val('t-cf-content')})">create file</button>
+    </div>
+    <div class="tool">
+      <h4>str_replace</h4>
+      <input id="t-sr-path" placeholder="/home/assistant/hello.txt">
+      <div class="row2"><input id="t-sr-old" placeholder="old"><input id="t-sr-new" placeholder="new"></div>
+      <button onclick="tool('str_replace',{path:val('t-sr-path'),old:val('t-sr-old'),new:val('t-sr-new')})">replace</button>
+    </div>
+    <div class="tool">
+      <h4>view <span style="color:#6e7681;font-weight:normal">(file or directory)</span></h4>
+      <input id="t-view" placeholder="/home/assistant/hello.txt  or  /">
+      <button onclick="tool('view',{path:val('t-view')})">view</button>
+    </div>
+    <div class="tool">
+      <h4>sub_agent <span style="color:#6e7681;font-weight:normal">(CLI agent in container)</span></h4>
+      <textarea id="t-sa-task" placeholder="task for the sub-agent (needs a full-tooling image)"></textarea>
+      <button onclick="tool('sub_agent',{task:val('t-sa-task')})">dispatch sub-agent</button>
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+</div>
+<script>
+let hint = null;
+const $ = id => document.getElementById(id);
+const val = id => $(id).value;
+const now = () => new Date().toISOString();
+const logLine = m => { $("log").textContent = (new Date().toLocaleTimeString()+" "+m+"\n"+$("log").textContent).slice(0,3000); };
+const term = t => { $("term").textContent = t; };
+async function post(path, body) {
+  const r = await fetch(path, {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(body)});
+  const txt = await r.text(); let j={}; try{ j=JSON.parse(txt);}catch(e){}
+  return {status:r.status, body:j, raw:txt};
+}
+const b64d = s => { try { return decodeURIComponent(escape(atob(s))); } catch(e){ return s; } };
+
+async function refreshSessions() {
+  const r = await fetch("/api/sessions"); const rows = await r.json();
+  const el = $("sesslist");
+  if (!rows.length) { el.innerHTML = '<span style="color:#6e7681">none yet</span>'; return; }
+  el.innerHTML = rows.map(s => `<div class="sess ${s.hint===hint?'active':''}" onclick="pick('${s.hint}')">
+    <div class="h">${s.hint}</div><div class="k">key ${(s.key||'').slice(0,16)}… · ${s.image||''}</div></div>`).join("");
+}
+function pick(h){ hint=h; $("sess").textContent=h; $("rt").textContent="runsc (gVisor)"; $("st").textContent="ACTIVE"; term("selected "+h+" — run a tool."); refreshSessions(); }
+
+$("b-create").onclick = async () => {
+  hint = "viz-" + Date.now();
+  logLine("create "+hint);
+  // No image: control resolves its configured default guest-image (per #94).
+  const r = await post("/api/create", {session_hint:hint, now:now(),
+    egress_policy:{default_deny:true, allowed_upstream:"edge:8450", filesystem_id:"fs-fleet"}});
+  if (r.status===201) { $("sess").textContent=(r.body.key||hint).slice(0,16)+"…"; $("rt").textContent="runsc (gVisor)"; $("st").textContent="ACTIVE";
+    term("sandbox created — gVisor container is live.\nrun a tool on the right."); logLine("→ 201 ACTIVE"); }
+  else { term("create failed: HTTP "+r.status+"\n"+r.raw); logLine("→ "+r.status); }
+  refreshSessions();
+};
+async function tool(name, args) {
+  if (!hint) { term("no session — create or pick a sandbox first."); return; }
+  logLine(name+" "+JSON.stringify(args));
+  const r = await post("/api/tool", {session_hint:hint, tool:name, args:args, now:now()});
+  if (r.status===200 && r.body.refusal) { term("$ "+name+"\n[not available] "+r.body.refusal); logLine("→ refusal"); }
+  else if (r.status===200) { const out=b64d(r.body.stdout_b64||""); const er=b64d(r.body.stderr_b64||"");
+    term("$ "+name+"\n"+out+(er?"\n[stderr] "+er:"")+"\n[exit_code "+r.body.exit_code+"]"); logLine("→ 200 exit="+r.body.exit_code); }
+  else { term(name+" failed: HTTP "+r.status+"\n"+r.raw); logLine("→ "+r.status); }
+}
+$("b-destroy").onclick = async () => {
+  if (!hint) return; logLine("destroy "+hint);
+  const r = await post("/api/destroy", {session_hint:hint});
+  term("sandbox destroyed (HTTP "+r.status+"). the gVisor container is gone.");
+  $("sess").textContent="— none —"; $("rt").textContent="—"; $("st").textContent="DESTROYED"; hint=null; refreshSessions();
+};
+refreshSessions(); setInterval(refreshSessions, 5000);
+</script>
+</body>
+</html>

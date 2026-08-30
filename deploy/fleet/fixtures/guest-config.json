@@ -1,0 +1,29 @@
+{
+  "schema_version": "v1alpha",
+  "service_url": "https://edge.invalid",
+  "ca_cert_pem": "-----BEGIN CERTIFICATE-----\nTEMPLATE_PLACEHOLDER_RENDERED_AT_BRINGUP\n-----END CERTIFICATE-----\n",
+  "mounts": [
+    {
+      "destination": "/mnt/user-data/outputs/",
+      "auth_token": "TEMPLATE_PLACEHOLDER_RENDERED_AT_BRINGUP",
+      "filesystem_id": "fs-fleet",
+      "readonly": false,
+      "vfs_cache_mode": "writes",
+      "cache_duration_s": 3600,
+      "vfs_cache_max_size": "1G",
+      "dir_perms": "0755",
+      "file_perms": "0644"
+    },
+    {
+      "destination": "/mnt/user-data/uploads/",
+      "auth_token": "TEMPLATE_PLACEHOLDER_RENDERED_AT_BRINGUP",
+      "filesystem_id": "fs-fleet",
+      "readonly": true,
+      "vfs_cache_mode": "minimal",
+      "cache_duration_s": 5,
+      "vfs_cache_max_size": "256M",
+      "dir_perms": "0555",
+      "file_perms": "0444"
+    }
+  ]
+}

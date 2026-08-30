@@ -143,3 +143,25 @@ docs/future-architecture/research/21-*.md
 docs/future-architecture/research/22-*.md
 docs/future-architecture/research/23-*.md
 docs/future-architecture/research/proof-anthropic-*.md
+
+# Session scratch — live-demo proofs, click logs, ad-hoc compose snippets, agent configs.
+# Not part of the deployable fleet; never committed.
+*-proof.png
+walkthrough-*.png
+owner-live-click.txt
+live-4tools*.yml
+.codex/
+AGENTS.md
+
+# deploy/tests/journeys/test_k_admin.py: curl's cookie jar for the admin
+# login -> authenticated-read flow. Runtime scratch, never committed.
+deploy/tests/journeys/.admin-cookie-jar.txt
+deploy/fleet/BACKLOG-mcp-tools.md
+
+# Scratch working notes and build artifacts - never tracked (local-only)
+deploy/D5-BUILD-SPEC.md
+deploy/PARITY-D-RESUME-STATE.md
+deploy/PARITY-LEDGER-147.md
+deploy/fleet/embed-portal/embed-portal
+first-input-green.png
+prompt-probe.yml

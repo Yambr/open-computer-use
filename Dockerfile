@@ -5,6 +5,13 @@
 
 FROM ubuntu:24.04
 
+# TARGETARCH is auto-populated by buildx (amd64 | arm64) from --platform. The
+# image is built --platform linux/amd64 for the PoC (x86_64-faithful) and
+# --platform linux/arm64 for native execution on aarch64 hosts (e.g. gVisor on
+# an arm64 machine). Every arch-specific download below switches on it so one
+# Dockerfile builds both without a fork.
+ARG TARGETARCH
+
 LABEL maintainer="OpenWebUI Implementation"
 LABEL description="AI Computer Use Environment"
 LABEL version="1.0.0"
@@ -39,7 +46,7 @@ ENV PYTHONUNBUFFERED=1 \
     NODE_PATH=/home/node_modules:/usr/local/lib/node_modules_global/lib/node_modules \
     PATH=/usr/local/lib/node_modules_global/bin:/home/assistant/.local/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
-    JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
+    JAVA_HOME=/usr/lib/jvm/java-21-openjdk \
     NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
@@ -130,8 +137,15 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 22.x via binary distribution (more reliable than nodesource)
-RUN curl -fsSL https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-x64.tar.xz -o /tmp/node.tar.xz \
+# JAVA_HOME points at a stable, arch-independent symlink; the OpenJDK package
+# installs under an arch-suffixed path (java-21-openjdk-amd64 / -arm64). Link the
+# arch-specific dir to the stable name so JAVA_HOME resolves on both builds.
+RUN ln -sfn "/usr/lib/jvm/java-21-openjdk-${TARGETARCH}" /usr/lib/jvm/java-21-openjdk
+
+# Install Node.js 22.x via binary distribution (more reliable than nodesource).
+# Node's tarball uses x64/arm64; TARGETARCH is amd64/arm64, so map amd64→x64.
+RUN NODE_ARCH="$([ "${TARGETARCH}" = "amd64" ] && echo x64 || echo arm64)" \
+    && curl -fsSL "https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-${NODE_ARCH}.tar.xz" -o /tmp/node.tar.xz \
     && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
     && rm /tmp/node.tar.xz
 
@@ -153,6 +167,13 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 RUN useradd -m -s /bin/bash assistant && \
     echo "assistant ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
+# npm network resilience: on emulated or flaky networks npm's default idle
+# timeout (300s) aborts mid-fetch on binary postinstalls (phantomjs/sharp/
+# playwright). Seed the assistant user's npmrc once so every later global
+# install below retries with a longer ceiling instead of failing. Harmless when
+# the network is fast — the retries never trigger.
+RUN sudo -u assistant bash -c "npm config set fetch-retries 6 && npm config set fetch-retry-mintimeout 20000 && npm config set fetch-retry-maxtimeout 120000 && npm config set fetch-timeout 600000"
+
 # Configure npm global directory and sudo to preserve needed ENV variables
 RUN mkdir -p /usr/local/lib/node_modules_global && \
     chown -R assistant:assistant /usr/local/lib/node_modules_global && \
@@ -161,6 +182,7 @@ RUN mkdir -p /usr/local/lib/node_modules_global && \
 # Copy and install Python dependencies (as root first for system-wide availability)
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --break-system-packages --ignore-installed \
+    --timeout=300 --retries=10 \
     -r /tmp/requirements.txt
 
 # Pre-register Cyrillic and Emoji fonts in reportlab
@@ -174,9 +196,15 @@ RUN REPORTLAB_INIT=$(python3 -c "import reportlab; print(reportlab.__file__)") &
 #   Volume mounts on /home/assistant → /home/node_modules stays in image layer, shared
 #   Node.js resolves: /home/assistant/node_modules (volume) → /home/node_modules (image)
 COPY package.json /tmp/package.json
+# Install the global CLI tools listed in package.json. On arm64, markdown-pdf is
+# excluded: it pulls phantomjs-prebuilt, which ships x86_64 binaries only (the
+# package is abandoned and predates arm64 Linux), so its postinstall hard-fails
+# under a native arm64 build. The markdown→PDF skill helper is therefore
+# unavailable on arm64 (a documented host-ISA gap, like extract-text), while
+# every other global installs on both arches. TARGETARCH drives the filter.
 RUN chown assistant:assistant /tmp/package.json && \
     cd /tmp && \
-    sudo -u assistant bash -c "npm config set prefix '/usr/local/lib/node_modules_global' && npm install -g \$(node -pe \"Object.entries(require('./package.json').dependencies).map(([pkg, ver]) => pkg + '@' + ver).join(' ')\")"
+    sudo -u assistant TARGETARCH="${TARGETARCH}" bash -c "npm config set prefix '/usr/local/lib/node_modules_global' && npm install -g \$(node -pe \"Object.entries(require('./package.json').dependencies).filter(([pkg]) => !(process.env.TARGETARCH === 'arm64' && pkg === 'markdown-pdf')).map(([pkg, ver]) => pkg + '@' + ver).join(' ')\")"
 
 # Install packages in /home/node_modules for ES modules import support
 # This is OUTSIDE /home/assistant (volume mount point), so it stays in image layer
@@ -214,12 +242,56 @@ RUN sudo -u assistant bash -c "cd /tmp && npm install -g /tmp/html2pptx.tgz" && 
     ln -s /usr/local/lib/node_modules_global/lib/node_modules/@ant /home/node_modules/@ant
 
 # Install glab CLI for GitLab operations
-RUN curl -fsSL https://gitlab.com/gitlab-org/cli/-/releases/v1.52.0/downloads/glab_1.52.0_linux_amd64.tar.gz \
+#
+# The config below is WRITTEN as a file rather than produced by running
+# `glab config set check_update false --global`. glab is a pure-Go binary, and
+# executing it at build time crashes under qemu-user emulation (the Go-runtime
+# lfstack packing assertion — qemu-user can return addresses above the 48-bit
+# space Go's lock-free stack assumes). Building this x86_64 image with
+# `--platform linux/amd64` on an arm64 host runs that step under emulation. The
+# config.yml/aliases.yml below are the exact artifacts that `glab config set`
+# writes (check_update:false is the only non-default line the step set); shipping
+# the artifact instead of running the producer is byte-identical on both the
+# emulated and native build paths — no image drift, nothing guarded away.
+RUN curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v1.52.0/downloads/glab_1.52.0_linux_${TARGETARCH}.tar.gz" \
     | tar -xzf - -C /tmp && \
     mv /tmp/bin/glab /usr/local/bin/glab && \
     chmod +x /usr/local/bin/glab && \
     rm -rf /tmp/bin /tmp/LICENSE && \
-    sudo -u assistant glab config set check_update false --global
+    mkdir -p /home/assistant/.config/glab-cli && \
+    printf '%s\n' \
+      '# What protocol to use when performing Git operations. Supported values: ssh, https.' \
+      'git_protocol: ssh' \
+      '# What editor glab should run when creating issues, merge requests, etc. This global config cannot be overridden by hostname.' \
+      'editor:' \
+      '# What browser glab should run when opening links. This global config cannot be overridden by hostname.' \
+      'browser:' \
+      '# Set your desired Markdown renderer style. Available options are [dark, light, notty]. To set a custom style, refer to https://github.com/charmbracelet/glamour#styles' \
+      'glamour_style: dark' \
+      '# Allow glab to automatically check for updates and notify you when there are new updates.' \
+      'check_update: false' \
+      '# Whether or not to display hyperlink escape characters when listing items like issues or merge requests. Set to TRUE to display hyperlinks in TTYs only. Force hyperlinks by setting FORCE_HYPERLINKS=1 as an environment variable.' \
+      'display_hyperlinks: false' \
+      '# Default GitLab hostname to use.' \
+      'host: gitlab.com' \
+      '# Set to true (1) to disable prompts, or false (0) to enable them.' \
+      'no_prompt: false' \
+      '# Configuration specific for GitLab instances.' \
+      'hosts:' \
+      '    gitlab.com:' \
+      '        # What protocol to use to access the API endpoint. Supported values: http, https.' \
+      '        api_protocol: https' \
+      '        # Configure host for API endpoint. Defaults to the host itself.' \
+      '        api_host: gitlab.com' \
+      '        # Your GitLab access token. To get one, read https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html' \
+      '        token:' \
+      > /home/assistant/.config/glab-cli/config.yml && \
+    printf '%s\n' \
+      'ci: pipeline ci' \
+      'co: mr checkout' \
+      > /home/assistant/.config/glab-cli/aliases.yml && \
+    chmod 0600 /home/assistant/.config/glab-cli/config.yml /home/assistant/.config/glab-cli/aliases.yml && \
+    chown -R assistant:assistant /home/assistant/.config/glab-cli
 
 # xdg-open wrapper: routes browser-open through playwright-cli (CDP 9222)
 RUN printf '#!/bin/bash\nplaywright-cli open "$1" 2>/dev/null &\n' > /usr/local/bin/xdg-open && \
@@ -260,10 +332,11 @@ RUN ORIG=$(which playwright-cli) && \
     printf '#!/bin/bash\nexport PLAYWRIGHT_CLI_CONFIG="${PLAYWRIGHT_CLI_CONFIG:-/home/assistant/playwright-cli.json}"\nif ! pgrep -f "socat.*TCP-LISTEN:9222" >/dev/null 2>&1; then\n  socat TCP-LISTEN:9222,fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:9223 &\nfi\nif [ "$1" = "open" ] && [ -n "$2" ] && [[ "$2" == http* ]]; then\n  URL="$2"\n  shift 2\n  playwright-cli-orig open "$@"\n  sleep 3\n  exec playwright-cli-orig goto "$URL"\nfi\nexec playwright-cli-orig "$@"\n' > "$ORIG" && \
     chmod +x "$ORIG"
 
-# Install ttyd (WebSocket terminal server) — download binary for reliability
-# Download binary directly from GitHub releases for reliability
-RUN curl -fsSL https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 -o /usr/local/bin/ttyd && \
-    chmod +x /usr/local/bin/ttyd
+# Install ttyd (WebSocket terminal server) — download binary for reliability.
+# ttyd's release assets use x86_64/aarch64; map amd64→x86_64, arm64→aarch64.
+RUN TTYD_ARCH="$([ "${TARGETARCH}" = "amd64" ] && echo x86_64 || echo aarch64)" \
+    && curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.${TTYD_ARCH}" -o /usr/local/bin/ttyd \
+    && chmod +x /usr/local/bin/ttyd
 
 # CLAUDE.md is written by entrypoint (not here) because /home/assistant is a volume mount
 
@@ -605,8 +678,20 @@ WORKDIR /home/assistant
 # extract-text CLI: unified plain-text extractor for docx/odt/epub/xlsx/pptx/rtf/html/htm/ipynb
 # Anthropic-built Rust binary (x86_64 ELF, ~2MB). Used by the file-reading and pdf-reading skills.
 # See vendor/extract-text/README.md for licensing and the followup to fetch it at build time.
-COPY --chown=root:root vendor/extract-text/extract-text /usr/local/bin/extract-text
-RUN chmod +x /usr/local/bin/extract-text
+#
+# The vendored binary is x86_64 ONLY. It is staged unconditionally (inert file)
+# but installed to PATH only on amd64; on arm64 there is no arm64 build in the
+# context, so it is intentionally OMITTED rather than shipped as a broken ELF
+# that cannot exec. The arm64 image therefore lacks the extract-text skill helper
+# (a documented host-ISA gap), while every other tool is native. Ship an arm64
+# extract-text build here to close the gap.
+COPY --chown=root:root vendor/extract-text/extract-text /tmp/extract-text.x86_64
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+        install -m 0755 /tmp/extract-text.x86_64 /usr/local/bin/extract-text; \
+    else \
+        echo "[build] extract-text omitted on ${TARGETARCH}: vendored binary is x86_64-only"; \
+    fi && \
+    rm -f /tmp/extract-text.x86_64
 
 # Phase 2 D-09: canonical CLI default configs as single source of truth.
 # The sandbox entrypoint reads these instead of inline heredocs.

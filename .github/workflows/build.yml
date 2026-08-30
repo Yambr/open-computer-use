@@ -20,6 +20,8 @@ jobs:
       contents: read
       packages: write
     outputs:
+      # The pushed image digest (sha256:...), consumed by `sign` and `promote`
+      # below. Empty on pull_request, where the push step does not run.
       digest: ${{ steps.push.outputs.digest }}
     env:
       # Local only. Never reaches a registry, so it cannot be pulled by
@@ -133,6 +135,8 @@ jobs:
       contents: read
       packages: write
     outputs:
+      # The pushed image digest (sha256:...), consumed by `sign` and `promote`
+      # below. Empty on pull_request, where the push step does not run.
       digest: ${{ steps.push.outputs.digest }}
 
     steps:
@@ -200,6 +204,8 @@ jobs:
       contents: read
       packages: write
     outputs:
+      # The pushed image digest (sha256:...), consumed by `sign` and `promote`
+      # below. Empty on pull_request, where the push step does not run.
       digest: ${{ steps.push.outputs.digest }}
 
     steps:
@@ -267,6 +273,8 @@ jobs:
       contents: read
       packages: write
     outputs:
+      # The pushed image digest (sha256:...), consumed by `sign` and `promote`
+      # below. Empty on pull_request, where the push step does not run.
       digest: ${{ steps.push.outputs.digest }}
 
     steps:
@@ -342,6 +350,7 @@ jobs:
       contents: read
       id-token: write     # Cosign keyless via Sigstore OIDC.
       packages: write     # Signatures and attestations are pushed to GHCR.
+      attestations: write # Build provenance in the GitHub attestation store.
     strategy:
       fail-fast: false
       matrix:
@@ -407,6 +416,28 @@ jobs:
         env:
           IMAGE_REF: ${{ steps.ref.outputs.ref }}
         run: cosign attest --yes --predicate sbom.spdx.json --type spdxjson "$IMAGE_REF"
+
+      - name: Derive the lowercase provenance subject name
+        # `subject-name` is the image name alone, while resolve_ref_guard.sh
+        # emits name@digest. Registries reject uppercase in a repository name
+        # and `github.repository` carries the organisation's capitalisation,
+        # so the same fold applied there is applied here.
+        run: |
+          printf 'SUBJECT_NAME=ghcr.io/%s%s\n' \
+            "$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')" "$SUFFIX" >> "$GITHUB_ENV"
+
+      - name: Attest build provenance against the same digest
+        # SLSA provenance recorded in the GitHub attestation store (`gh
+        # attestation verify`) and pushed to the registry beside the image.
+        # The cosign signature says who signed the bytes; the provenance says
+        # which workflow, at which commit, produced them. It runs inside
+        # `sign` so that, like the signature, it exists before `promote`
+        # attaches the first reference a consumer can pull.
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        with:
+          subject-name: ${{ env.SUBJECT_NAME }}
+          subject-digest: ${{ env.DIGEST }}
+          push-to-registry: true
 
   promote:
     name: Attach release tags to digests that are already signed
@@ -480,9 +511,10 @@ jobs:
 
       - name: Run structure and English-only tests
         run: |
-          chmod +x tests/test-project-structure.sh tests/test-no-cyrillic.sh
+          chmod +x tests/test-project-structure.sh tests/test-no-cyrillic.sh tests/test-system-prompt-skills-contract.sh
           ./tests/test-project-structure.sh
           ./tests/test-no-cyrillic.sh
+          ./tests/test-system-prompt-skills-contract.sh
 
   pytest-orchestrator:
     name: Pytest — orchestrator

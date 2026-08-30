@@ -29,7 +29,6 @@ from pydantic import BaseModel, Field
 
 # Client HTTP timeouts (server controls actual command timeout)
 CLIENT_HTTP_TIMEOUT = 660       # 11 min > server's 600s COMMAND_TIMEOUT
-SUB_AGENT_CLIENT_TIMEOUT = 3660 # 61 min > server's 3600s SUB_AGENT_TIMEOUT
 
 
 # Every error string the wrapper produces starts with one of these prefixes.
@@ -54,9 +53,62 @@ def _looks_like_error(s: str) -> bool:
     return any(s.startswith(p) for p in _ERROR_PREFIXES)
 
 
+def _extract_resolve_scope(payload: dict):
+    """Pull effective_scope out of a resolve_scope CallToolResult.
+
+    The gateway answers the synthetic resolve_scope tool with a JSON-RPC result
+    whose `result.content` carries a single text block; that text is JSON
+    {"effective_scope": "<base>-<hex>"}. Returns the scope string (possibly the
+    empty string when derivation is off), or None when the shape is not a
+    resolvable CallToolResult (a real miss, distinct from an explicit-empty
+    scope). Never raises.
+    """
+    if not isinstance(payload, dict):
+        return None
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+    for item in result.get("content") or []:
+        if isinstance(item, dict) and item.get("type") == "text":
+            text = item.get("text")
+            if not isinstance(text, str):
+                continue
+            try:
+                inner = json.loads(text)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(inner, dict) and "effective_scope" in inner:
+                scope = inner.get("effective_scope")
+                if isinstance(scope, str):
+                    return scope
+    return None
+
+
 # ============================================================================
 # MCP Streamable HTTP Client
 # ============================================================================
+
+def _require_http_scheme(url: str) -> None:
+    """Refuse an orchestrator URL that urlopen would not fetch over the network.
+
+    urllib honours ``file://``, ``ftp://`` and ``data://``, so a misconfigured
+    Valve turns a health probe or a scope resolve into a local-file read whose
+    result is then reported as if it had come from the orchestrator. The
+    resolve path is the dangerous one: it catches every exception and degrades
+    to the base scope, so a bad scheme there fails silently rather than loudly.
+
+    Shared by every construction path — the MCP client and the direct
+    ``_resolve_scope`` request, which does not go through that client. The
+    sibling filter (``openwebui/functions/computer_link_filter.py``) enforces
+    the same rule at its own urlopen sites.
+    """
+    scheme = urllib.parse.urlparse(url).scheme
+    if scheme not in ("http", "https"):
+        raise ValueError(
+            f"orchestrator URL scheme {scheme!r} is not supported "
+            f"(expected http or https)"
+        )
+
 
 class _MCPClient:
     """MCP Streamable HTTP client for computer-use-orchestrator."""
@@ -67,8 +119,19 @@ class _MCPClient:
     _HEALTH_TTL_SECONDS = 30.0
     _HEALTH_TIMEOUT_SECONDS = 3.0
 
+    # The MCP protocol version the orchestrator/gateway pins. Streamable-HTTP
+    # servers negotiate the version through the MCP-Protocol-Version HTTP header
+    # (not the JSON-RPC body); a request that omits the header, or carries a
+    # version the server does not accept, is rejected with -32602 "unsupported
+    # or missing protocol version" (HTTP 400) BEFORE auth. The manual preflight
+    # below must send this exact version — both in the header and in the
+    # initialize body — or it 400s and reports the server as broken. The real
+    # tool call goes through the MCP SDK, which sets the header itself.
+    _MCP_PROTOCOL_VERSION = "2025-06-18"
+
     def __init__(self, orchestrator_url: str, mcp_api_key: str = ""):
         base = orchestrator_url.rstrip("/")
+        _require_http_scheme(base)
         self.base_url = base
         self.mcp_url = f"{base}/mcp"
         self.health_url = f"{base}/health"
@@ -132,15 +195,17 @@ class _MCPClient:
     def _http_probe_mcp_initialize(self) -> tuple[bool, str]:
         """POST /mcp with a minimal initialize. Verifies session_manager is live."""
         body = (
-            b'{"jsonrpc":"2.0","id":1,"method":"initialize",'
-            b'"params":{"protocolVersion":"2024-11-05","capabilities":{},'
-            b'"clientInfo":{"name":"preflight","version":"1.0"}}}'
-        )
+            '{"jsonrpc":"2.0","id":1,"method":"initialize",'
+            '"params":{"protocolVersion":"' + self._MCP_PROTOCOL_VERSION + '",'
+            '"capabilities":{},'
+            '"clientInfo":{"name":"preflight","version":"1.0"}}}'
+        ).encode("utf-8")
         req = urllib.request.Request(
             self.mcp_url, method="POST", data=body,
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream",
+                "MCP-Protocol-Version": self._MCP_PROTOCOL_VERSION,
                 "X-Chat-Id": "preflight",
             },
         )
@@ -298,6 +363,22 @@ class _MCPClient:
                     progress_callback=on_progress,
                     read_timeout_seconds=timedelta(seconds=timeout + 30),
                 )
+                # D4 image hop: a "view image" surfaces image_url content blocks.
+                # Push each rendered image into the chat via the event emitter (a
+                # markdown "message" event - the OpenWebUI way to append content
+                # to the assistant turn) and keep ONLY a short text marker in the
+                # returned string. The raw base64 data URL never enters the model
+                # context (it would blow the context window).
+                images = self._extract_images(result)
+                if images and event_emitter:
+                    for data_url in images:
+                        try:
+                            await event_emitter({
+                                "type": "message",
+                                "data": {"content": f"\n![image]({data_url})\n"},
+                            })
+                        except Exception:
+                            pass
                 return self._extract_text(result)
 
         try:
@@ -357,6 +438,12 @@ class _MCPClient:
         The phrasing of case 3 is deliberate: an AI reading "[No output]"
         often concludes the tool is broken. "[Command produced no output.
         Exit was successful — this is not an error.]" blocks that misread.
+
+        D4 image hop: image_url content blocks (a "view image") are surfaced to
+        the chat separately via the event emitter. This method NEVER returns the
+        raw base64 data URL - an image block collapses to a short text marker
+        ("[Image: <path> (displayed)]") so the model sees that an image was
+        shown without the payload consuming the context window.
         """
         if result is None:
             return (
@@ -382,9 +469,17 @@ class _MCPClient:
             )
 
         parts = []
+        image_count = 0
         for item in content:
             if hasattr(item, "text"):
                 parts.append(item.text)
+                continue
+            # An image_url block collapses to a text marker; the raw data URL is
+            # deliberately dropped here (it is surfaced via the event emitter).
+            marker = _MCPClient._image_marker(item)
+            if marker is not None:
+                image_count += 1
+                parts.append(marker)
 
         if not parts:
             return (
@@ -400,6 +495,77 @@ class _MCPClient:
             # exception.
             return f"[TOOL ERROR] {joined}"
         return joined
+
+    @staticmethod
+    def _block_image_data_url(item):
+        """Return the data URL of an image content block, else None.
+
+        Handles two shapes without importing either SDK's model:
+          - OpenAI-style: {"type": "image_url", "image_url": {"url": "data:..."}}
+          - MCP-native:   {"type": "image", "data": "<base64>", "mimeType": "..."}
+        Accepts both attribute-style (SDK-deserialised objects) and dict-style
+        blocks. Any block that is not an image returns None.
+        """
+        def _get(obj, key):
+            if isinstance(obj, dict):
+                return obj.get(key)
+            return getattr(obj, key, None)
+
+        block_type = _get(item, "type")
+
+        # OpenAI-style image_url block.
+        image_url = _get(item, "image_url")
+        if image_url is not None:
+            url = _get(image_url, "url")
+            if isinstance(url, str) and url:
+                return url
+
+        # MCP-native image block: reconstruct the data URL from data + mimeType.
+        if block_type == "image":
+            data = _get(item, "data")
+            if isinstance(data, str) and data:
+                mime = _get(item, "mimeType") or "image/png"
+                return f"data:{mime};base64,{data}"
+
+        return None
+
+    @staticmethod
+    def _image_marker(item):
+        """Return a short text marker for an image block, else None.
+
+        Never includes the base64 payload. If the block carries a filesystem
+        path hint (some tools attach one) it is shown, otherwise a generic
+        "(displayed)" marker is emitted.
+        """
+        if _MCPClient._block_image_data_url(item) is None:
+            return None
+        path = None
+        if isinstance(item, dict):
+            path = item.get("path") or item.get("filename")
+        else:
+            path = getattr(item, "path", None) or getattr(item, "filename", None)
+        if path:
+            return f"[Image: {path} (displayed)]"
+        return "[Image (displayed)]"
+
+    @staticmethod
+    def _extract_images(result) -> list:
+        """Return the data URLs of all image content blocks, in order.
+
+        Used by the emitter path in call_tool; the returned URLs are pushed to
+        the chat as markdown, never into the model-facing return string.
+        """
+        if result is None:
+            return []
+        content = getattr(result, "content", None)
+        if not content:
+            return []
+        urls = []
+        for item in content:
+            url = _MCPClient._block_image_data_url(item)
+            if url:
+                urls.append(url)
+        return urls
 
 
 def _get_user_mcp_server_names(request, user_id: str = "") -> list:
@@ -463,6 +629,18 @@ class Tools:
             default="",
             description="Bearer token for computer-use-orchestrator /mcp endpoint authentication"
         )
+        FILESTORE_URL: str = Field(
+            default="https://filestore:7080",
+            description="Internal URL of the object-store service's F9 north Files-API, reached over the ocu-north network. Chat attachments are created here (multipart POST /v1/files) so they appear in the guest's read-only /mnt/user-data/uploads view (engine key uploads/<name>). NOT the MCP gateway."
+        )
+        OCU_FILESYSTEM_ID: str = Field(
+            default="fs-fleet",
+            description="The BASE attested filesystem scope attachments are written under (X-OCU-Filesystem-Id), compose-seeded by init.sh. With control's -derive-chat-scope on (ADR-0030, D5), the tool resolves a per-chat scope '<base>-<hex>' from the caller-scoped status verb and writes attachments under that isolated scope; the tool never derives the handle locally. Degrades to this base (shared across chats) when derivation is off."
+        )
+        FILESTORE_CA_CERT: str = Field(
+            default="/etc/ocu/ca.pem",
+            description="Path to the fleet CA that signs the filestore TLS leaf. requests verifies https://filestore:7080 against it (never verify=False). Empty falls back to system trust."
+        )
         DEBUG_LOGGING: bool = Field(
             default=False,
             description="Enable verbose debug logging"
@@ -477,6 +655,10 @@ class Tools:
         # invalidate if either changes so edits to MCP_API_KEY in Valves take
         # effect without a process restart.
         self._mcp_client_config: tuple[str, str] | None = None
+        # D5 per-chat storage scope, resolved once per chat_id from control's
+        # caller-scoped status verb and memoised. The tool NEVER derives the
+        # scope handle locally; the attested owner form is control-only.
+        self._chat_scope_cache: dict[str, str] = {}
 
     @property
     def mcp_client(self) -> _MCPClient:
@@ -512,22 +694,172 @@ class Tools:
                 pass
         return headers
 
-    async def _sync_files_if_needed(self, chat_id: str, command_or_path: str, __files__: list = None):
+    def _resolve_chat_scope_sync(self, chat_id: str) -> str:
+        """Blocking MCP tools/call to the gateway's resolve_scope tool; returns
+        the per-chat effective_scope, degrading to the base OCU_FILESYSTEM_ID.
+
+        Wire: a JSON-RPC tools/call for the synthetic `resolve_scope` tool on the
+        SAME MCP endpoint the bash tool speaks to (POST ORCHESTRATOR_URL, bearer +
+        MCP-Protocol-Version + X-Chat-Id). The gateway maps X-Chat-Id ->
+        session_hint, ensures/creates the session, and returns a CallToolResult
+        whose single text content block is JSON {"effective_scope":"<base>-<hex>"}.
+        The tool reads that value; it NEVER derives the scope handle locally - the
+        attested owner form is control-only (ADR-0030, D5).
+
+        Degrade to the base OCU_FILESYSTEM_ID ONLY on an EXPLICIT empty scope
+        (control ran without -derive-chat-scope, so effective_scope is blank) or a
+        REAL transport error / JSON-RPC error / unparseable body. A 202-empty or an
+        otherwise-successful-but-unusable response is NOT treated as a resolved
+        scope - it degrades WITH a visible debug flag, never silently as if the
+        base were the attested answer (the review's fake-green). Never raises; the
+        upload path must not break on a resolve miss.
+        """
+        base = self.valves.OCU_FILESYSTEM_ID
+
+        def _degrade_early(reason: object) -> str:
+            if self.valves.DEBUG_LOGGING:
+                print(f"[SCOPE] resolve_scope miss for chat {chat_id}: {reason} -> base {base}")
+            return base
+
+        try:
+            _require_http_scheme(self.valves.ORCHESTRATOR_URL)
+        except ValueError as exc:
+            # This path never raises — the upload must survive a resolve miss —
+            # so a bad scheme degrades like any other miss, but visibly.
+            return _degrade_early(exc)
+        endpoint = self.valves.ORCHESTRATOR_URL.rstrip("/") + "/mcp"
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "resolve_scope", "arguments": {}},
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            endpoint,
+            method="POST",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+                "MCP-Protocol-Version": _MCPClient._MCP_PROTOCOL_VERSION,
+                "X-Chat-Id": chat_id,
+            },
+        )
+        api_key = self.valves.MCP_API_KEY
+        if api_key:
+            req.add_header("Authorization", f"Bearer {api_key}")
+
+        def _degrade(reason: str) -> str:
+            if self.valves.DEBUG_LOGGING:
+                print(f"[SCOPE] resolve_scope miss for chat {chat_id}: {reason} -> base {base}")
+            return base
+
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                status = resp.status
+                raw = resp.read().decode("utf-8")
+        except Exception as e:
+            return _degrade(f"transport error {e}")
+
+        # A body-less / empty success (e.g. a 202 from a wire that does not carry a
+        # CallToolResult) is a MISS, not a base scope. Flag it; never silent-green.
+        if not raw.strip():
+            return _degrade(f"empty body (HTTP {status})")
+        try:
+            payload = json.loads(raw)
+        except (ValueError, TypeError) as e:
+            return _degrade(f"unparseable body (HTTP {status}): {e}")
+        if not isinstance(payload, dict) or "error" in payload:
+            return _degrade(f"JSON-RPC error or non-object (HTTP {status})")
+
+        scope = _extract_resolve_scope(payload)
+        if scope is None:
+            return _degrade(f"no resolvable effective_scope in CallToolResult (HTTP {status})")
+        if scope == "":
+            # An EXPLICIT empty scope is the derivation-off degrade: real, expected.
+            return _degrade("effective_scope is explicitly empty (derive-chat-scope off)")
+        return scope
+
+    async def _resolve_chat_scope(self, chat_id: str) -> str:
+        """Resolve (and memoise) this chat's storage scope via the status verb.
+
+        Returns the control-derived effective_scope for the chat, or the base
+        OCU_FILESYSTEM_ID when derivation is off / the verb is unavailable. The
+        result is cached per chat_id so a busy chat pays the round-trip once.
+        """
+        chat_id = chat_id or "default"
+        cached = self._chat_scope_cache.get(chat_id)
+        if cached is not None:
+            return cached
+        scope = await asyncio.to_thread(self._resolve_chat_scope_sync, chat_id)
+        self._chat_scope_cache[chat_id] = scope
+        return scope
+
+    async def _sync_files_if_needed(
+        self, chat_id: str, command_or_path: str, __files__: list = None, emitter=None
+    ):
         """Sync uploaded files to computer-use-orchestrator if command/path references uploads."""
         uploads_path = "/mnt/user-data/uploads"
         needs_files = uploads_path in command_or_path or "uploads/" in command_or_path
         if not needs_files:
             return
         if __files__:
+            # D5: resolve THIS chat's isolated scope from control's status verb
+            # before writing the attachment. When -derive-chat-scope is on the
+            # scope is "<base>-<hex>" (distinct per chat); otherwise it degrades
+            # to the base OCU_FILESYSTEM_ID (today's shared single-tenant scope).
+            # The attachment lands under the resolved scope so the guest's minted
+            # Storage-JWT claim keys the same subtree.
+            scope = await self._resolve_chat_scope(chat_id)
             try:
                 sync_result = await asyncio.to_thread(
-                    _sync_uploaded_files, self.valves.ORCHESTRATOR_URL, chat_id, __files__,
-                    debug=self.valves.DEBUG_LOGGING
+                    _sync_uploaded_files,
+                    self.valves.FILESTORE_URL,
+                    scope,
+                    __files__,
+                    ca_cert_path=self.valves.FILESTORE_CA_CERT,
+                    debug=self.valves.DEBUG_LOGGING,
                 )
                 if sync_result.get("synced", 0) > 0:
                     print(f"Synced {sync_result['synced']} file(s)")
+                # A non-zero errors count means one or more attachments did NOT
+                # reach the store, so the guest may read STALE or absent bytes.
+                # This MUST be model-visible -- a silent errors count is the exact
+                # staleness class D6 exists to kill (a swallowed error re-opens it).
+                errors = sync_result.get("errors", 0)
+                if errors > 0:
+                    warning = (
+                        f"WARNING: {errors} chat attachment(s) failed to sync to "
+                        "the guest; it may read stale or missing bytes at "
+                        "/mnt/user-data/uploads."
+                    )
+                    print(f"[SYNC] {warning}")
+                    if emitter:
+                        try:
+                            await emitter({
+                                "type": "status",
+                                "data": {"description": warning, "done": True},
+                            })
+                        except Exception:
+                            pass
             except Exception as e:
                 print(f"[SYNC] Error: {e}")
+                if emitter:
+                    try:
+                        await emitter({
+                            "type": "status",
+                            "data": {
+                                "description": (
+                                    "WARNING: chat attachment sync failed; the guest "
+                                    "may not see the uploaded file(s)."
+                                ),
+                                "done": True,
+                            },
+                        })
+                    except Exception:
+                        pass
 
     async def _run_tool(
         self,
@@ -544,7 +876,7 @@ class Tools:
     ) -> str:
         """One transport-aware MCP call with consistent SSE status events.
 
-        Every per-tool wrapper (bash_tool/str_replace/create_file/view/sub_agent)
+        Every per-tool wrapper (bash_tool/str_replace/create_file/view)
         funnels through here. Without this helper each wrapper duplicated:
           - the in_progress emit before the call
           - the try/except + final emit
@@ -611,7 +943,7 @@ class Tools:
         :return: Command output (stdout/stderr)
         """
         chat_id = (__metadata__.get("chat_id") if __metadata__ else None) or "default"
-        await self._sync_files_if_needed(chat_id, command, __files__)
+        await self._sync_files_if_needed(chat_id, command, __files__, emitter=__event_emitter__)
         return await self._run_tool(
             "bash_tool", {"command": command, "description": description},
             chat_id, __event_emitter__, __request__, __user__,
@@ -697,7 +1029,7 @@ class Tools:
         :return: File contents, directory listing, or error message
         """
         chat_id = (__metadata__.get("chat_id") if __metadata__ else None) or "default"
-        await self._sync_files_if_needed(chat_id, path, __files__)
+        await self._sync_files_if_needed(chat_id, path, __files__, emitter=__event_emitter__)
         args = {"description": description, "path": path}
         if view_range:
             args["view_range"] = view_range
@@ -708,78 +1040,107 @@ class Tools:
             ok_desc="Read complete", err_desc="Read failed",
         )
 
-    async def sub_agent(
-        self,
-        task: str,
-        description: str,
-        model: str = "sonnet",
-        max_turns: int = 25,
-        mode: str = "act",
-        working_directory: str = "/home/assistant",
-        resume_session_id: str = "",
-        __event_emitter__: Callable[[dict], Awaitable[None]] = None,
-        __metadata__: dict = None,
-        __user__: dict = None,
-        __files__: Optional[List[dict]] = None,
-        __request__=None,
-    ) -> str:
-        """
-        Delegate complex, multi-step tasks to an autonomous sub-agent.
-
-        :param task: Structured task description
-        :param description: Why you are delegating this task
-        :param model: AI model - "sonnet" (fast, default) or "opus" (powerful)
-        :param max_turns: Max iterations, default 25 (raise to 50-80 for large multi-file refactors)
-        :param mode: "act" (execute) or "plan" (plan only)
-        :param working_directory: Work dir, default /home/assistant
-        :param resume_session_id: Session ID to resume (from previous result)
-        :return: Sub-agent's response with results, cost, turn count, session_id
-        """
-        chat_id = (__metadata__.get("chat_id") if __metadata__ else None) or "default"
-        if __files__:
-            await self._sync_files_if_needed(chat_id, "/mnt/user-data/uploads", __files__)
-        args = {
-            "task": task, "description": description, "model": model,
-            "max_turns": max_turns, "working_directory": working_directory,
-        }
-        if resume_session_id:
-            args["resume_session_id"] = resume_session_id
-        return await self._run_tool(
-            "sub_agent", args,
-            chat_id, __event_emitter__, __request__, __user__,
-            in_progress_desc=description or f"Starting sub-agent ({model})...",
-            ok_desc="Sub-agent completed", err_desc="Sub-agent failed",
-            timeout=SUB_AGENT_CLIENT_TIMEOUT,
-        )
-
 
 # ============================================================================
 # File sync helper (HTTP — no SSH needed)
 # ============================================================================
 
-def _sync_uploaded_files(orchestrator_url: str, chat_id: str, files: list, debug: bool = False) -> dict:
-    """Sync uploaded files from OpenWebUI to computer-use-orchestrator via HTTP."""
-    import requests
+# The F9 north Files-API wire is transport-pinned (ADR-0028 / ADR-0025). The
+# create route is multipart/form-data with TWO ordered parts read by the
+# object-store service's STAGE-0 gate: the "params" JSON FIELD FIRST, then the
+# "file" part (filename "upload") streaming the raw bytes. A body whose first
+# part is not "params" — or a JSON body — is refused. The scope rides
+# authoritatively in the X-OCU-Filesystem-Id header on EVERY request; the
+# filesystem_id inside "params" is design-level create-meta only. This mirrors
+# the pane BFF F9 client (web/src/lib/objectstore/f9.ts) byte-for-intent.
+_F9_FILES_ROUTE = "/v1/files"
+_F9_SCOPE_HEADER = "X-OCU-Filesystem-Id"
+_F9_MULTIPART_PARAMS_FIELD = "params"
+_F9_MULTIPART_FILE_FIELD = "file"
+_F9_MULTIPART_FILE_FILENAME = "upload"
+
+
+def _sync_uploaded_files(
+    filestore_url: str,
+    filesystem_id: str,
+    files: list,
+    ca_cert_path: str = "",
+    debug: bool = False,
+) -> dict:
+    """Sync OpenWebUI chat attachments into the guest via the F9 north Files-API.
+
+    Each attachment is created under the attested filesystem scope with a flat
+    uploads path ("/<filename>"), so it appears in the guest's flat
+    /mnt/user-data view (F9 north-create joins the uploads/ engine subtree). Idempotent
+    across turns: an F9 list is fetched once and each candidate is deduped against it.
+
+    Dedup precedence (D6): the F9 FileObject now carries an OPTIONAL "sha256"
+    hex field (the engine-computed content digest). When the stored object
+    exposes a sha256, an upload is skipped ONLY if the local content sha256
+    (streamed in 8192-byte chunks) matches it exactly - so a same-name,
+    same-size edit is re-uploaded rather than silently dropped. When the stored
+    object has NO sha256 (an older filestore, or a reconcile-minted handle that
+    never captured a create-time digest), the client falls back to the legacy
+    name + size skip. This is the compat window: correctness improves the moment
+    the server surfaces the field, with no client flag day.
+
+    NOTE (single-tenant demo): the whole stand shares one deploy-pinned scope
+    (fs-fleet), so uploads are visible across chats. That is a consequence of a
+    single filesystem_id, not a bug here; per-chat scope is a future
+    control-plane feature.
+    """
     import hashlib
+    import requests
 
     if not files:
         return {"synced": 0, "skipped": 0, "errors": 0}
 
+    base_url = filestore_url.rstrip("/")
+    # https://filestore:7080 is served with the fleet CA-signed leaf; verify
+    # against the mounted CA (never verify=False). Falls back to system trust
+    # only when no CA path is configured.
+    verify = ca_cert_path if ca_cert_path else True
+    scope_headers = {_F9_SCOPE_HEADER: filesystem_id}
+
+    # Fetch the current object list ONCE for dedup (F9 GET /v1/files). Each entry
+    # keeps both the size and the OPTIONAL sha256 so the loop below can prefer a
+    # content-digest match and fall back to name+size only when the digest is
+    # absent (older server / reconcile-minted handle).
+    remote_by_name: dict = {}
     try:
-        manifest_url = f"{orchestrator_url}/api/uploads/{chat_id}/manifest"
-        response = requests.get(manifest_url, timeout=5)
-        response.raise_for_status()
-        remote_manifest = response.json()
-    except Exception:
-        remote_manifest = {}
+        resp = requests.get(
+            f"{base_url}{_F9_FILES_ROUTE}",
+            headers=scope_headers,
+            timeout=5,
+            verify=verify,
+        )
+        resp.raise_for_status()
+        for obj in resp.json().get("data", []):
+            name = obj.get("filename")
+            if name:
+                remote_by_name[name] = {
+                    "size": obj.get("size_bytes"),
+                    # Absent on pre-D6 objects; normalise "" to None so the
+                    # skip decision below never matches an empty digest.
+                    "sha256": obj.get("sha256") or None,
+                }
+    except Exception as e:
+        if debug:
+            print(f"[SYNC] F9 list (dedup) unavailable, will upload all: {e}")
 
     synced, skipped, errors = 0, 0, 0
 
     for file_info in files:
         temp_file_path = None
         try:
-            source_path = file_info.get("file", {}).get("path") if isinstance(file_info.get("file"), dict) else file_info.get("path")
-            filename = file_info.get("name") or (os.path.basename(source_path) if source_path else "unknown")
+            source_path = (
+                file_info.get("file", {}).get("path")
+                if isinstance(file_info.get("file"), dict)
+                else file_info.get("path")
+            )
+            filename = file_info.get("name") or (
+                os.path.basename(source_path) if source_path else "unknown"
+            )
             filename = os.path.basename(filename)
 
             if not source_path:
@@ -800,23 +1161,83 @@ def _sync_uploaded_files(orchestrator_url: str, chat_id: str, files: list, debug
                 errors += 1
                 continue
 
-            md5_hash = hashlib.md5()
-            with open(source_path, "rb") as f:
-                for chunk in iter(lambda: f.read(8192), b""):
-                    md5_hash.update(chunk)
-            local_md5 = md5_hash.hexdigest()
+            size_bytes = os.path.getsize(source_path)
 
-            if remote_manifest.get(filename) == local_md5:
-                skipped += 1
-                continue
+            # Dedup decision (D6). Prefer the content sha256 the server now
+            # surfaces; fall back to name+size only when it is absent.
+            remote = remote_by_name.get(filename)
+            if remote is not None:
+                remote_sha256 = remote.get("sha256")
+                if remote_sha256:
+                    # Server exposes a digest: skip ONLY on an exact content
+                    # match. A same-name, same-size EDIT differs here and is
+                    # re-uploaded (the defect the old name+size dedup hid).
+                    sha256_hash = hashlib.sha256()
+                    with open(source_path, "rb") as f:
+                        for chunk in iter(lambda: f.read(8192), b""):
+                            sha256_hash.update(chunk)
+                    local_sha256 = sha256_hash.hexdigest()
+                    if remote_sha256 == local_sha256:
+                        skipped += 1
+                        continue
+                elif remote.get("size") == size_bytes:
+                    # Compat window: no server digest, so the best signal is the
+                    # legacy name+size match.
+                    skipped += 1
+                    continue
 
-            upload_url = f"{orchestrator_url}/api/uploads/{chat_id}/{filename}"
+            mime_type = (
+                file_info.get("file", {}).get("meta", {}).get("content_type")
+                if isinstance(file_info.get("file"), dict)
+                else None
+            ) or "application/octet-stream"
+
+            # Part 1: the "params" JSON FIELD (must be the FIRST multipart part).
+            # filesystem_id here is design-level create-meta; the authoritative
+            # scope is the X-OCU-Filesystem-Id header. media_type (not mime_type)
+            # is the request MIME field name (ADR-0028, strict-decoded).
+            params = {
+                "filesystem_id": filesystem_id,
+                "path": f"/{filename}",
+                "declared_size_bytes": size_bytes,
+                "authorization_metadata": {"intent": "write", "downloadable": True},
+                "filename": filename,
+                "media_type": mime_type,
+                # A re-attach with changed content (the D6 sha256 arm fired above)
+                # must REPLACE the existing object, not 409. F9 create defaults
+                # overwrite_existing=false (refuse), so an omitted flag makes the
+                # re-upload fail and the guest keeps reading stale bytes -- the exact
+                # staleness D6 exists to kill. The sha256 dedup short-circuits before
+                # this POST on identical content, so overwrite only ever fires on a
+                # genuine change; the client holds the write lease (intent:write) and
+                # per ADR-0030 the scope is this chat's sole writer.
+                "overwrite_existing": True,
+            }
+
             with open(source_path, "rb") as f:
-                files_data = {"file": (filename, f, "application/octet-stream")}
-                resp = requests.post(upload_url, files=files_data, timeout=30)
+                # requests preserves insertion order, so the "params" field is
+                # emitted before the "file" part — the STAGE-0 ordering the
+                # service requires. No content-type is hand-set: requests
+                # generates the multipart boundary itself.
+                multipart = [
+                    (_F9_MULTIPART_PARAMS_FIELD, (None, json.dumps(params), "application/json")),
+                    (
+                        _F9_MULTIPART_FILE_FIELD,
+                        (_F9_MULTIPART_FILE_FILENAME, f, "application/octet-stream"),
+                    ),
+                ]
+                resp = requests.post(
+                    f"{base_url}{_F9_FILES_ROUTE}",
+                    headers=scope_headers,
+                    files=multipart,
+                    timeout=30,
+                    verify=verify,
+                )
                 resp.raise_for_status()
             synced += 1
-        except Exception:
+        except Exception as e:
+            if debug:
+                print(f"[SYNC] F9 create failed for one file: {e}")
             errors += 1
         finally:
             if temp_file_path and os.path.exists(temp_file_path):

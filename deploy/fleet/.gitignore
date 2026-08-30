@@ -1,0 +1,6 @@
+# Local-only fleet secrets and rendered state — never committed.
+# The gateway mTLS PKI is generated per-checkout by gen-gateway-pki.sh; the
+# private keys must never be tracked.
+gateway-pki/
+secrets/
+.env

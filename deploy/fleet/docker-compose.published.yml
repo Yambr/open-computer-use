@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+# Copyright (c) 2025 Open Computer Use Contributors
+#
+# Published-artifact override: boots the services that have a SIGNED,
+# digest-pinned image on GHCR from that image instead of the local sibling
+# build context. The single-file invocation stays the dev path (sibling build
+# contexts); this file changes nothing unless explicitly stacked:
+#
+#   scripts/verify-published-images.sh                  # cosign, fail-closed
+#   docker compose -f docker-compose.fleet.yml \
+#                  -f docker-compose.published.yml up
+#
+# Digest pinning: a tag is mutable, a digest is not. Every service here MUST
+# reference @sha256:... so the running container is byte-identical to the
+# artifact cosign verified. scripts/verify-published-images.sh reads the
+# digest references OUT OF THIS FILE (one source of truth - a digest bumped
+# here is verified here; there is no second list to drift).
+#
+# `build: !reset null` drops the dev build context so `up` can never fall
+# back to a local build on this path (needs compose >= 2.24 for !reset).
+#
+# Coverage today: filestore ONLY - the one fleet component whose release
+# pipeline publishes a cosign-signed GHCR image (keyless, by digest, from
+# release.yml at a v* tag). The pinned filestore is v0.1.0-rc.7 (2026-06-13),
+# which predates the credential-claim subtree join, the sha256 dedup surface
+# and the Storage-JWT verifier: the stack boots from it, but the journey
+# suite is NOT expected green on this path until a fresh filestore tag is
+# published. Control, gateway, webui, admin and the rclone edge publish no
+# image at all yet - each service joins this file when its publish pipeline
+# lands. Until every component boots from a verified published digest, the
+# assembled application has no cold-start story that a clean environment can
+# reproduce - that gap is the point of this file, not a footnote to it.
+
+services:
+  filestore:
+    build: !reset null
+    image: ghcr.io/wide-moat/ocu-filestore@sha256:2b09f4c2d8c0b3a4d9d1d06c3f1c922e9fe44bcf51b4b69cb74f77680b87715a

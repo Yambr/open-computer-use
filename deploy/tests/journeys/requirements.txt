@@ -1,0 +1,6 @@
+# Test dependencies for the fleet journey suite (deploy/tests/journeys).
+# Everything else the suite uses is Python stdlib. Install into a venv:
+#   python3 -m venv .venv && .venv/bin/pip install -r deploy/tests/journeys/requirements.txt
+#   .venv/bin/pytest deploy/tests/journeys
+pytest>=7
+pyyaml>=6
