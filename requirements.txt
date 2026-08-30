@@ -47,7 +47,7 @@ openai>=2.20.0
 
 # Markdown and documentation
 markdown-it-py==4.0.0
-markdownify==1.2.0
+markdownify==1.2.3
 markitdown==0.1.7
 marko==2.2.3
 mistune==3.1.4
