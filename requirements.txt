@@ -50,7 +50,7 @@ markdown-it-py==4.0.0
 markdownify==1.2.0
 markitdown==0.1.7
 marko==2.2.3
-mistune==3.1.4
+mistune==3.3.4
 grip==4.6.2
 
 # Data processing
