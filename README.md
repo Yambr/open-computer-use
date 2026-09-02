@@ -235,7 +235,7 @@ The Computer Use Server speaks standard **MCP over Streamable HTTP** — any MCP
 
 **Compatibility:** This build is strictly built and verified against Open WebUI 0.11.0. The first 3 segments of our build version (`v0.11.0.X`) always match the Open WebUI base version it targets. If you run a different Open WebUI version, pick the Open Computer Use build whose first 3 version segments match yours — e.g., for Open WebUI 0.8.12 use a `v0.8.12.Y` build.
 
-**Why not a fork?** We intentionally did not fork Open WebUI. Instead, everything is bolted on via the official plugin API (tools + functions) and build-time patches for missing features. This means you can use stock [Open WebUI](https://github.com/open-webui/open-webui) 0.11.0 with this build (the version that the first 3 segments of our build version `v0.11.0.X` match) — just install the tool and filter. Patches are applied at Docker build time; strongly recommended — 4 of them affect user-visible UX (artifacts panel, preview iframe, error banners, large tool-result handling). Pulling `ghcr.io/open-webui/open-webui` directly skips all of them — see [Required setup when embedding Open WebUI](#required-setup-when-embedding-open-webui-into-your-own-stack) for the full checklist.
+**Why not a fork?** Computer Use itself is not a fork: it bolts on through the official plugin API — tools and functions — so stock [Open WebUI](https://github.com/open-webui/open-webui) works with just the tool and filter installed. (A separate fork does exist for changes that cannot be expressed as plugins, but nothing in this repository depends on it.)
 
 Running Claude Code through a corporate gateway (LiteLLM, Azure, Bedrock)? See [docs/claude-code-gateway.md](docs/claude-code-gateway.md) for the three-path operator recipe.
 
@@ -245,7 +245,7 @@ The `openwebui/` directory contains:
 - **functions/** — System prompt injector + file link rewriter + archive button. **Required** — without it the model doesn't know about skills and file URLs.
 - **patches/** — Build-time fixes for artifacts, error handling, file preview. **Optional** but recommended — improves UX significantly.
 - **init.sh** — Auto-installs tool + filter on first startup. **Optional** — you can install manually via Workspace UI instead.
-- **Dockerfile** — Builds a patched Open WebUI image with auto-init. **Optional** — use stock Open WebUI + manual setup if you prefer.
+- **init.sh** — Installs the tool and filter on first start and sets their valves.
 
 ### How auto-init works
 
@@ -281,56 +281,19 @@ The docker-compose stack handles all of this automatically.
 
 If you run Open WebUI outside the stock `docker-compose.webui.yml` — your own compose, Kubernetes, Portainer, or a downstream repo — there are **four traps** that will silently break Computer Use. All four hit us in production. Check in this order.
 
-#### Step 1 — Build the image from `openwebui/Dockerfile`, don't pull upstream
+#### Step 1 — A stock upstream image is all this repo needs
 
-Pulling `ghcr.io/open-webui/open-webui:vX.Y.Z` gives you a stock image **without** any of this repo's patches. Four of them are critical for UX:
+Install the tool and the filter and Computer Use works against
+`ghcr.io/open-webui/open-webui` as published. Nothing here has to be rebuilt.
 
-| Patch | Without it |
-|-------|------------|
-| `fix_artifacts_auto_show` | HTML/iframe renders as raw text in chat body instead of the artifacts panel |
-| `fix_preview_url_detection` | Preview iframe is never auto-inserted after file links |
-| `fix_tool_loop_errors` | Raw exceptions instead of banners; `MCP call failed: Session terminated` appears unwrapped |
-| `fix_large_tool_results` | `TOOL_RESULT_MAX_CHARS` stops truncating and the large-result upload path (via `ORCHESTRATOR_URL`) becomes a no-op; large outputs wreck the model context |
+This used to be the opposite: the repository carried eight patch scripts and a
+Dockerfile that applied them to an already-built image, and pulling upstream silently
+skipped all of them. Those patches are gone. Three of the problems they addressed have
+since been fixed upstream; the rest live as source commits in a fork, which is a
+separate concern from running this integration.
 
-Only `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS` keeps working on an upstream image (it's a stock Open WebUI env) — which creates a false "everything is configured" feeling.
-
-Use `build:` in your downstream compose, mirroring `docker-compose.webui.yml:11-15`:
-
-```yaml
-services:
-  open-webui:
-    build:
-      context: ./openwebui   # path into this repo
-      dockerfile: Dockerfile
-      args:
-        OPENWEBUI_VERSION: "0.11.0"
-    image: open-webui-with-cu-patches:latest   # local tag, do not pull
-```
-
-Verify the patches are baked into the running container:
-
-```bash
-docker exec open-webui bash -c \
-  'grep -rl "FIX_ARTIFACTS_AUTO_SHOW" /app/build/_app/immutable/chunks/ >/dev/null \
-   && echo "patches applied" || echo "MISSING — you are on upstream image"'
-```
-
-The `FIX_ARTIFACTS_AUTO_SHOW` JS comment marker is injected by `fix_artifacts_auto_show.py` at build time as a version-stable identifier — it does not depend on minified Svelte variable names, which change with every Open WebUI release.
-
-#### Step 2 — No build-arg required for preview URL detection (host-agnostic since v0.9.2.0)
-
-`fix_preview_url_detection` is now fully host-agnostic. The injected JS reads the origin directly from the matched URL at runtime (`_pm[1]` captures the full `https://host:port` prefix), so the patch requires no build-time host configuration. The `COMPUTER_USE_SERVER_URL` build-arg has been removed from `openwebui/Dockerfile`.
-
-**No action needed** — the patch works automatically regardless of whether you use `localhost:8081`, a public domain, or Docker internal DNS. The preview iframe src is always reconstructed from the URL the model wrote into the message, which in turn comes from the server's `PUBLIC_BASE_URL` env var.
-
-Verify the patch is applied:
-
-```bash
-docker exec open-webui bash -c \
-  'grep -rl "FIX_PREVIEW_URL_DETECTION" /app/build/_app/immutable/chunks/ >/dev/null \
-   && echo "patches applied" || echo "MISSING — fix_preview_url_detection not baked in"'
-# → should print "patches applied"
-```
+Preview URL detection needs no build-time host configuration either — the iframe origin
+is read from the URL the model wrote, which comes from the server's `PUBLIC_BASE_URL`.
 
 #### Step 3 — Two URL settings, two roles (public vs internal)
 
@@ -400,18 +363,7 @@ For SQLite-backed Open WebUI deployments, swap `psql` for `sqlite3 /app/backend/
 #### Step 6 — Verify everything at once
 
 ```bash
-# 1. Image has patches (marker-based — version-stable across Open WebUI releases):
-docker exec open-webui bash -c \
-  'grep -rl "FIX_ARTIFACTS_AUTO_SHOW" /app/build/_app/immutable/chunks/ >/dev/null \
-   && echo OK || echo MISSING'
-
-# 2. Preview URL detection is host-agnostic (no build-arg needed since v0.9.2.0):
-docker exec open-webui bash -c \
-  'grep -rl "FIX_PREVIEW_URL_DETECTION" /app/build/_app/immutable/chunks/ >/dev/null \
-   && echo "patches applied" || echo "MISSING — fix_preview_url_detection not baked in"'
-# → should print "patches applied"
-
-# 3. Env vars reached the container:
+# 1. Env vars reached the container:
 docker exec open-webui env | grep -E 'CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS|TOOL_RESULT_|ORCHESTRATOR_URL'
 
 # 4. Tool+Filter Valve (Session-terminated trap) — Admin UI is simplest:
