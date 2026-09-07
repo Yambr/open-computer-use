@@ -10,28 +10,32 @@ Everything needed to connect [Open WebUI](https://github.com/open-webui/open-web
 |---|-----------|------|----------|-------------|
 | 1 | [**tools/computer_use_tools.py**](tools/) | Tool | Yes | MCP client proxy — forwards `bash`, `create_file`, `str_replace`, `view`, `sub_agent` calls to the Computer Use Server |
 | 2 | [**functions/computer_link_filter.py**](functions/) | Filter | Yes | Fetches the server-generated system prompt (skills list + file base URL embedded server-side) and the `X-Public-Base-URL` response header; decorates responses with preview/archive links |
-| 3 | [**patches/**](patches/) | Build-time | Recommended | Quality-of-life fixes: auto-open file preview, truncate large tool results, skip unnecessary RAG processing |
 
-**Tool + Filter = minimum working setup.** Patches improve UX but everything works without them.
+**Tool + Filter is the whole integration.** Both work against a stock upstream Open WebUI.
 
 ## Quick Start
 
-**Automatic** (recommended): `docker-compose.webui.yml` builds a patched Open WebUI image and runs `init.sh` on first startup to install the tool + filter, configure valves, mark the **tool public-read** (`group:*` + `user:*` grants) and the **filter both active AND global** (two separate Open WebUI toggles), plus set `DEFAULT_MODEL_PARAMS = {function_calling: "native", stream_response: true}`.
+**Automatic** (recommended): `docker-compose.webui.yml` runs upstream Open WebUI and `init.sh` on first startup to install the tool + filter, configure valves, mark the **tool public-read** (`group:*` + `user:*` grants) and the **filter both active AND global** (two separate Open WebUI toggles), plus set `DEFAULT_MODEL_PARAMS = {function_calling: "native", stream_response: true}`.
 
 **Manual**: Install tool and filter through Workspace UI, set Tool ID to `ai_computer_use`, toggle **Active** and **Global** on the filter (both switches), set tool access to **Public** (Share → Public). See [setup guide](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack) for the full checklist and common silent-fail traps.
 
-## Patches
+## There are no patches here any more
 
-Applied at Docker build time. All are idempotent and non-breaking. The 4 patches marked **Active** below are critical for user-visible UX — embedding Open WebUI with an upstream `ghcr.io/open-webui/open-webui` image (no build from this Dockerfile) silently disables them. See [../README.md#required-setup-when-embedding-open-webui-into-your-own-stack](../README.md#required-setup-when-embedding-open-webui-into-your-own-stack) for the full embedding checklist.
+This directory used to carry eight Python scripts that rewrote files **inside an
+already-built Open WebUI image** by string substitution, applied by a Dockerfile that
+is also gone. Two of them edited minified JavaScript, matching anchors like
+`S.length===0?(S1.set(!1),S2.set(!1),h(f,0))` — names a minifier chooses fresh on every
+release.
 
-| Patch | Default | What it does | Without it |
-|-------|---------|--------------|------------|
-| `fix_artifacts_auto_show` | Active | Auto-opens preview panel for generated files | HTML/iframe renders as raw text in the chat body instead of the artifacts panel |
-| `fix_preview_url_detection` | Active | Detects file URLs in messages and opens iframe preview | Preview iframe is never auto-inserted after file links |
-| `fix_tool_loop_errors` | Active | Better error messages for tool call budget/transport errors | Raw exceptions instead of banners; `MCP call failed: Session terminated` appears unwrapped |
-| `fix_large_tool_results` | Active | Truncates large MCP tool results (>50K chars) and optionally uploads them to the Computer Use server via `ORCHESTRATOR_URL` | `TOOL_RESULT_MAX_CHARS` stops truncating and the large-result upload path is a no-op (large outputs wreck the model context). `ORCHESTRATOR_URL` itself is unaffected — the tool and filter keep using it for MCP/system-prompt traffic. |
-| `fix_attached_files_position` | Optional | Moves file context to end of message (better prompt caching) | Attaching a file invalidates the cached prefix of the message |
-| `fix_skip_embedding_chat_files` | Optional | Skips embedding for large uploads (>1MB) | Large uploads block the chat for minutes on extraction/embedding |
-| `fix_skip_rag_files_native_fc` | Optional | Skips RAG when `ai_computer_use` handles files directly | Extra RAG pipeline runs on every message even when unnecessary |
+That form cannot survive an upgrade, and had not: measured against Open WebUI 0.11.3,
+**none of the seven anchors** in the two largest scripts matched anything. They
+described the shape of v0.9.2. A patch that no longer matches is not a patch that does
+nothing loudly — several were documented as exiting 0 on failure.
 
-Built strictly for Open WebUI 0.11.0 (this image's first 3 version segments match its target Open WebUI base).
+The changes are source commits in a fork now, each with tests, and three of the eight
+were dropped entirely because upstream had since fixed the same problems. What replaced
+what is written down there rather than repeated here.
+
+`tests/test-project-structure.sh` asserts this directory and that Dockerfile stay
+absent, so reintroducing either fails the build.
+

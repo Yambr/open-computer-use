@@ -11,11 +11,15 @@
 
 services:
   open-webui:
-    build:
-      context: ./openwebui
-      dockerfile: Dockerfile
-      args:
-        OPENWEBUI_VERSION: ${OPENWEBUI_VERSION:-0.11.0}
+    # Upstream Open WebUI. This file is an example of running one against Computer
+    # Use, and the tool, filter and init script below are all the integration needs.
+    #
+    # It used to build a patched image from ./openwebui/Dockerfile. Those patches
+    # rewrote files inside an already-built image by string substitution, two of them
+    # against minified JavaScript, and they had stopped matching: measured against
+    # 0.11.3, none of the seven anchors in the two largest ones were found. They now
+    # live as source commits in a fork, which is a separate concern from this example.
+    image: ghcr.io/open-webui/open-webui:${OPENWEBUI_VERSION:-0.11.3}
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
     depends_on:

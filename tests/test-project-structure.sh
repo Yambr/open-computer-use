@@ -73,31 +73,30 @@ else
     fail "openwebui/functions/computer_link_filter.py missing"
 fi
 
-# 6. openwebui/patches/
+# 6. openwebui/patches/ must NOT come back
+#
+# These were Python scripts that rewrote files inside an already-built Open WebUI
+# image by string substitution, two of them against minified JavaScript. That form
+# fails silently when upstream moves the text it matches, and it had: measured
+# against 0.11.3, none of the seven anchors in the two largest ones were found.
+#
+# The changes live as source commits in a fork now. This assertion is inverted on
+# purpose — anything reintroducing the directory here should fail the build.
 echo ""
-echo "[6/12] openwebui/patches/"
+echo "[6/12] openwebui/patches/ stays gone"
 if [ -d "$ROOT/openwebui/patches" ]; then
-    PATCH_COUNT=$(ls "$ROOT/openwebui/patches"/fix_*.py 2>/dev/null | wc -l)
-    if [ "$PATCH_COUNT" -ge 1 ]; then
-        pass "openwebui/patches/ has $PATCH_COUNT patches"
-    else
-        fail "openwebui/patches/ has no patches"
-    fi
+    fail "openwebui/patches/ is back — patched images belong in the fork, not here"
 else
-    fail "openwebui/patches/ directory missing"
+    pass "openwebui/patches/ absent"
 fi
 
-# 7. openwebui/Dockerfile (for patching base Open WebUI)
+# 7. openwebui/Dockerfile must NOT come back — same reason.
 echo ""
-echo "[7/12] openwebui/Dockerfile"
+echo "[7/12] openwebui/Dockerfile stays gone"
 if [ -f "$ROOT/openwebui/Dockerfile" ]; then
-    if grep -q "open-webui" "$ROOT/openwebui/Dockerfile"; then
-        pass "openwebui/Dockerfile references open-webui base image"
-    else
-        fail "openwebui/Dockerfile doesn't reference open-webui base image"
-    fi
+    fail "openwebui/Dockerfile is back — Open WebUI is built in the fork"
 else
-    fail "openwebui/Dockerfile missing"
+    pass "openwebui/Dockerfile absent"
 fi
 
 # 8. Old directories should NOT exist
